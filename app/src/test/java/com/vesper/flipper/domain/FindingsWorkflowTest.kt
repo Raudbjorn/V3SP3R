@@ -10,19 +10,19 @@ import org.mockito.kotlin.*
 class FindingsWorkflowTest {
     @Test fun submissionRequiresEvidenceAndBoundedComplexity() = runBlocking {
         val dao=mock<VulnDao>(); val service=VulnTriageService(dao)
-        try { service.submit(VulnTriageService.SubmitRequest("device","info_disclosure","Observed banner","",VulnTriageService.Severity.LOW,1)); fail("must reject") } catch(_:IllegalArgumentException) { }
+        try { service.submit(VulnTriageService.SubmitRequest("device","info_disclosure","Observed banner","",VulnTriageService.Severity.LOW,1), "session-a"); fail("must reject") } catch(_:IllegalArgumentException) { }
         verifyNoInteractions(dao)
     }
     @Test fun classificationDoesNotTreatFragmentsAsEvidence() = runBlocking {
         val service=VulnTriageService(mock())
-        assertEquals(VulnTriageService.Severity.MEDIUM,service.classify("r",null).severity)
-        assertEquals(VulnTriageService.Severity.CRITICAL,service.classify("rce",null).severity)
+        assertEquals(VulnTriageService.Severity.MEDIUM,service.classify("r",null,"session-a").severity)
+        assertEquals(VulnTriageService.Severity.CRITICAL,service.classify("rce",null,"session-a").severity)
     }
     @Test fun failedReproductionIsInconclusiveNotDisproof() = runBlocking {
         val dao=mock<VulnDao>();val service=VulnTriageService(dao)
         val entity=VulnFindingEntity("full-id",1,"owned-device","info_disclosure","Observed","banner","low",1,"confirmed")
-        whenever(dao.getById("full-id")).thenReturn(entity)
-        val updated=service.validate(VulnTriageService.ValidateRequest("full-id",false,"Could not reproduce"))!!
+        whenever(dao.getById("full-id", "session-a")).thenReturn(entity)
+        val updated=service.validate(VulnTriageService.ValidateRequest("full-id",false,"Could not reproduce"), "session-a")!!
         assertEquals("inconclusive",updated.status);assertEquals(1,updated.reproductionAttempts)
         assertTrue(updated.validationNotesJson.contains("Could not reproduce"))
     }

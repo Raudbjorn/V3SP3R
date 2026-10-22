@@ -44,11 +44,15 @@ class RiskAssessor @Inject constructor(
         return when (command.action) {
 CommandAction.GPIO_READ,CommandAction.GPIO_SET,CommandAction.GPIO_MODE,CommandAction.APPS_LIST,CommandAction.GET_SYSTEM_INFO,CommandAction.NFC_DETECT,CommandAction.RFID_READ,CommandAction.RFID_WRITE,CommandAction.IR_RECEIVE -> RiskAssessment(level = RiskLevel.HIGH, reason = "Typed hardware operation", affectedPaths = paths, requiresDiff = false, requiresConfirmation = true)
 
+            CommandAction.VULN_SUBMIT, CommandAction.VULN_VALIDATE -> RiskAssessment(
+                level = RiskLevel.MEDIUM, reason = "Persist finding evidence or validation history",
+                affectedPaths = paths, requiresDiff = false, requiresConfirmation = true)
+            CommandAction.VULN_CLASSIFY -> RiskAssessment(
+                level = if (command.args.vulnId == null) RiskLevel.LOW else RiskLevel.MEDIUM,
+                reason = if (command.args.vulnId == null) "Read-only classification" else "Update finding severity",
+                affectedPaths = paths, requiresDiff = false, requiresConfirmation = command.args.vulnId != null)
             // LOW risk: read-only operations
-            CommandAction.VULN_SUBMIT,
-            CommandAction.VULN_VALIDATE,
             CommandAction.VULN_LIST,
-            CommandAction.VULN_CLASSIFY,
             CommandAction.AUDIT_QUERY,
             CommandAction.BADUSB_VALIDATE,
             CommandAction.BADUSB_DIFF,

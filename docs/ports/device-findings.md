@@ -2,7 +2,7 @@
 
 Selective AGPL-3.0 port from charlesreid1/M0MA-V3SP3R at 62c189ca54a291ab3b35670b2fa79f236d2331f1. Typed GPIO, NFC/RFID reads, RFID write, IR receive, app listing and system information use constrained templates in the explicit USB CLI connection mode. Hardware/firmware validation remains pending; normal USB RPC sessions reject these typed wrappers. Findings submission, validation history, exact-rule classification and bounded filtered audit queries are available through execute_command; authoring helpers validate a conservative DuckyScript subset and produce diffs without execution.
 
-Findings use a separate Room database `vesper_findings`, with an explicit additive v1→v2 migration preserving rows and adding validation notes. Existing chat/audit schema version remains unchanged. No destructive fallback is added. Full UUIDs avoid truncated-ID collisions; evidence and history are bounded. Classification is a heuristic and does not establish reproducibility.
+Findings use a separate Room database `vesper_findings`, with explicit additive v1→v2→v3 migrations preserving rows and adding validation notes and session ownership. Existing chat/audit schema version remains unchanged. No destructive fallback is added. Full UUIDs avoid truncated-ID collisions; evidence and history are bounded. Classification is a heuristic and does not establish reproducibility.
 
 Typed writes use a dedicated USB-only sink, including during transport switches, and send exactly once without recovery/newline retries. The broader legacy execute_cli transport is addressed separately by T2. Apply the security encryption branch's EncryptedDatabaseFactory to the feature-owned DB before production release. Hardware USB command support and upgraded database behavior require device testing; this PR remains draft.
 
@@ -37,3 +37,17 @@ atomic `connectionEpoch`; preserve the stale queued-payload rejection instead of
 maintaining independent counters. Fresh USB mode selection always resets protocol
 readiness. Connection ownership tokens also reject stale handshake publication,
 reader data, and reader failures after disconnect or a competing connection.
+
+Findings and model-accessible audit queries are scoped to the calling chat
+session. Finding IDs do not grant access across sessions; validation and
+classification reject another session's records. Additive v2→v3 migration
+preserves existing rows with an empty legacy scope; those rows are not exposed
+to model sessions or reassigned automatically. Export/administrative recovery
+of legacy rows requires an explicit owner workflow. The store refuses new
+submissions at 500 retained records and caps each validation-history JSON at
+64 KiB; it never deletes old evidence to make room. Target filtering uses
+Kotlin Unicode case-insensitive matching over this bounded store.
+
+Submission, validation and persisted classification request explicit approval,
+even with medium auto-approval enabled. Classification without a finding ID is
+read-only. An ID-targeted classification must match that finding's stored type.

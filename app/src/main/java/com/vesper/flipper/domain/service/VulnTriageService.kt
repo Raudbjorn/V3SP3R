@@ -16,8 +16,7 @@ import javax.inject.Singleton
  * replaced with Room ([VulnDao] / [VulnFindingEntity]).
  *
  * All ops are pure data — this service does not touch the Flipper. Actions using it therefore
- * inherit LOW/MEDIUM risk based on FlipperAgent's TOOL_RISK_MAP (submit/list/classify LOW,
- * validate MEDIUM).
+ * use read-only LOW risk for queries and explicit MEDIUM approval for persistence mutations.
  */
 @Singleton
 class VulnTriageService @Inject constructor(
@@ -79,14 +78,17 @@ class VulnTriageService @Inject constructor(
 
     // ─── Public API ───────────────────────────────────────────────────────────
 
-    suspend fun submit(req: SubmitRequest): VulnFindingEntity {
+    suspend fun submit(req: SubmitRequest, sessionId: String): VulnFindingEntity = mutationMutex.withLock {
+        require(sessionId.isNotBlank()) { "Session required" }
         require(req.target.length <= 512 && req.vulnType.length <= 128 && req.description.length <= 8192 && req.evidence.length <= 65536) { "Finding exceeds field size limits" }
         require(req.complexity in 1..10) { "complexity must be between 1 and 10" }
         require(req.target.isNotBlank()) { "target required" }
         require(req.vulnType.isNotBlank()) { "vuln_type required" }
         require(req.description.isNotBlank()) { "description required" }
         require(req.evidence.isNotBlank()) { "evidence required" }
+        require(vulnDao.countAll() < 500) { "Finding storage is full (500 records); export and clear records before adding more" }
         val entity = VulnFindingEntity(
+            sessionId = sessionId,
             id = UUID.randomUUID().toString(),
             submittedAt = System.currentTimeMillis(),
             target = req.target.trim(),
@@ -98,7 +100,7 @@ class VulnTriageService @Inject constructor(
             status = Status.SUBMITTED.wire,
         )
         vulnDao.upsert(entity)
-        return entity
+        entity
     }
 
     /**
@@ -106,9 +108,10 @@ class VulnTriageService @Inject constructor(
      *   reproduced=true  → confirmed
      *   reproduced=false → inconclusive (prior evidence remains in history)
      */
-    suspend fun validate(req: ValidateRequest): VulnFindingEntity? = mutationMutex.withLock {
+    suspend fun validate(req: ValidateRequest, sessionId: String): VulnFindingEntity? = mutationMutex.withLock {
         require((req.notes?.length ?: 0) <= 8192) { "Validation notes too long" }
-        val existing = vulnDao.getById(req.vulnId) ?: return@withLock null
+        val existing = vulnDao.getById(req.vulnId, sessionId) ?: return@withLock null
+        require(sessionId.isNotBlank()) { "Session required" }
         val now = System.currentTimeMillis()
         val newStatus = when {
             req.reproduced -> Status.CONFIRMED.wire
@@ -131,6 +134,7 @@ class VulnTriageService @Inject constructor(
                 next,
             )
         }
+        require(notesJson.toByteArray(Charsets.UTF_8).size <= 65536) { "Validation history exceeds total size limit" }
         val updated = existing.copy(
             status = newStatus,
             reproductionAttempts = existing.reproductionAttempts + 1,
@@ -141,8 +145,9 @@ class VulnTriageService @Inject constructor(
         updated
     }
 
-    suspend fun list(filters: ListFilters): List<VulnFindingEntity> {
-        val all = vulnDao.queryFiltered(filters.target, filters.severity?.wire, filters.status?.wire)
+    suspend fun list(filters: ListFilters, sessionId: String): List<VulnFindingEntity> {
+        require(sessionId.isNotBlank()) { "Session required" }
+        val all = vulnDao.queryFiltered(sessionId, filters.severity?.wire, filters.status?.wire)
         val filtered = all.filter { v ->
             val targetOk = filters.target?.let { needle ->
                 v.target.contains(needle, ignoreCase = true)
@@ -166,15 +171,16 @@ class VulnTriageService @Inject constructor(
     )
 
     /**
-     * Look up [vulnType] in the ARTEMIS rules: exact match first, then substring in either
-     * direction. Falls through to MEDIUM. Optionally rewrites an existing finding's severity.
+     * Look up [vulnType] by exact normalized rule key only. Unknown keys fall through to MEDIUM. Optionally rewrites an existing finding's severity.
      */
-    suspend fun classify(vulnType: String, vulnId: String?): Classification = mutationMutex.withLock {
+    suspend fun classify(vulnType: String, vulnId: String?, sessionId: String): Classification = mutationMutex.withLock {
         require(vulnType.isNotBlank() && vulnType.length <= 128) { "Invalid vulnerability type" }
+        require(sessionId.isNotBlank()) { "Session required" }
         val needle = vulnType.trim().lowercase()
         val (severity, matchedKey) = severityFor(needle)
         val updated = vulnId?.let {
-            val existing = vulnDao.getById(it) ?: throw IllegalArgumentException("Unknown finding ID")
+            val existing = vulnDao.getById(it, sessionId) ?: throw IllegalArgumentException("Unknown finding ID")
+            require(existing.vulnType.trim().lowercase() == needle) { "Classification type does not match the stored finding" }
             existing.let { existing ->
                 val next = existing.copy(severity = severity.wire)
                 vulnDao.upsert(next)

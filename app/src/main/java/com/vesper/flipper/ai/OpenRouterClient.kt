@@ -737,7 +737,11 @@ class OpenRouterClient @Inject constructor(
 
         // Fast-path: strict decoding when the model follows schema perfectly.
         runCatching {
-            return ParsedCommand(command = json.decodeFromString<ExecuteCommand>(trimmedArguments))
+            val command = json.decodeFromString<ExecuteCommand>(trimmedArguments)
+            val missing = missingRequiredArgs(command.action, command.args)
+            return if (missing.isEmpty()) ParsedCommand(command = command) else ParsedCommand(
+                error = "Missing required argument(s): ${missing.joinToString()}. Example: ${requiredArgsExample(command.action)}"
+            )
         }
 
         // Attempt to repair common JSON malformations from LLMs before fallback parsing.
@@ -1112,7 +1116,7 @@ class OpenRouterClient @Inject constructor(
             ?: "invalid format"
     }
 
-    private fun missingRequiredArgs(action: CommandAction, args: CommandArgs): List<String> {
+    internal fun missingRequiredArgs(action: CommandAction, args: CommandArgs): List<String> {
         return when (action) {
             CommandAction.LIST_DIRECTORY -> emptyList()
             CommandAction.READ_FILE -> listOfNotNull(if (args.path.isNullOrBlank()) "path" else null)
@@ -1199,22 +1203,22 @@ class OpenRouterClient @Inject constructor(
             CommandAction.BLE_SPAM -> emptyList()  // no required args
             CommandAction.LED_CONTROL -> emptyList()  // defaults to 0,0,0
             CommandAction.VIBRO_CONTROL -> emptyList()  // defaults to on
-            CommandAction.VULN_SUBMIT -> emptyList()
-            CommandAction.VULN_VALIDATE -> emptyList()
+            CommandAction.VULN_SUBMIT -> listOfNotNull(if (args.target.isNullOrBlank()) "target" else null, if (args.vulnType.isNullOrBlank()) "vuln_type" else null, if (args.description.isNullOrBlank()) "description" else null, if (args.evidence.isNullOrBlank()) "evidence" else null, if (args.severity.isNullOrBlank()) "severity" else null, if (args.complexity == null) "complexity" else null)
+            CommandAction.VULN_VALIDATE -> listOfNotNull(if (args.vulnId.isNullOrBlank()) "vuln_id" else null, if (args.reproduced == null) "reproduced" else null)
             CommandAction.VULN_LIST -> emptyList()
-            CommandAction.VULN_CLASSIFY -> emptyList()
+            CommandAction.VULN_CLASSIFY -> listOfNotNull(if (args.vulnType.isNullOrBlank()) "vuln_type" else null)
             CommandAction.AUDIT_QUERY -> emptyList()
-            CommandAction.GPIO_READ -> emptyList()
-            CommandAction.GPIO_SET -> emptyList()
-            CommandAction.GPIO_MODE -> emptyList()
+            CommandAction.GPIO_READ -> listOfNotNull(if (args.pin.isNullOrBlank()) "pin" else null)
+            CommandAction.GPIO_SET -> listOfNotNull(if (args.pin.isNullOrBlank()) "pin" else null, if (args.value == null) "value" else null)
+            CommandAction.GPIO_MODE -> listOfNotNull(if (args.pin.isNullOrBlank()) "pin" else null, if (args.mode == null) "mode" else null)
             CommandAction.APPS_LIST -> emptyList()
             CommandAction.GET_SYSTEM_INFO -> emptyList()
             CommandAction.NFC_DETECT -> emptyList()
             CommandAction.RFID_READ -> emptyList()
-            CommandAction.RFID_WRITE -> emptyList()
+            CommandAction.RFID_WRITE -> listOfNotNull(if (args.keyType.isNullOrBlank()) "key_type" else null, if (args.keyData.isNullOrBlank()) "key_data" else null)
             CommandAction.IR_RECEIVE -> emptyList()
-            CommandAction.BADUSB_VALIDATE -> emptyList()
-            CommandAction.BADUSB_DIFF -> emptyList()
+            CommandAction.BADUSB_VALIDATE -> listOfNotNull(if (args.content.isNullOrBlank()) "content" else null)
+            CommandAction.BADUSB_DIFF -> listOfNotNull(if (args.path.isNullOrBlank()) "path" else null, if (args.content.isNullOrBlank()) "content" else null)
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1279,22 +1283,22 @@ class OpenRouterClient @Inject constructor(
                 """{"action":"download_resource","args":{"download_url":"https://raw.githubusercontent.com/...","path":"/ext/infrared/remote.ir"}}"""
             CommandAction.GITHUB_SEARCH ->
                 """{"action":"github_search","args":{"command":"Samsung TV remote extension:ir","search_scope":"code"}}"""
-            CommandAction.VULN_SUBMIT -> """{"action":"vuln_submit","args":{}}"""
-            CommandAction.VULN_VALIDATE -> """{"action":"vuln_validate","args":{}}"""
+            CommandAction.VULN_SUBMIT -> """{"action":"vuln_submit","args":{"target":"owned-device","vuln_type":"info_disclosure","description":"Observed banner","evidence":"Version shown in authorized test","severity":"low","complexity":1}}"""
+            CommandAction.VULN_VALIDATE -> """{"action":"vuln_validate","args":{"vuln_id":"existing-session-finding-id","reproduced":false}}"""
             CommandAction.VULN_LIST -> """{"action":"vuln_list","args":{}}"""
-            CommandAction.VULN_CLASSIFY -> """{"action":"vuln_classify","args":{}}"""
+            CommandAction.VULN_CLASSIFY -> """{"action":"vuln_classify","args":{"vuln_type":"info_disclosure"}}"""
             CommandAction.AUDIT_QUERY -> """{"action":"audit_query","args":{}}"""
-            CommandAction.GPIO_READ -> """{"action":"gpio_read","args":{}}"""
-            CommandAction.GPIO_SET -> """{"action":"gpio_set","args":{}}"""
-            CommandAction.GPIO_MODE -> """{"action":"gpio_mode","args":{}}"""
+            CommandAction.GPIO_READ -> """{"action":"gpio_read","args":{"pin":"PA7"}}"""
+            CommandAction.GPIO_SET -> """{"action":"gpio_set","args":{"pin":"PA7","value":0}}"""
+            CommandAction.GPIO_MODE -> """{"action":"gpio_mode","args":{"pin":"PA7","mode":0}}"""
             CommandAction.APPS_LIST -> """{"action":"apps_list","args":{}}"""
             CommandAction.GET_SYSTEM_INFO -> """{"action":"get_system_info","args":{}}"""
             CommandAction.NFC_DETECT -> """{"action":"nfc_detect","args":{}}"""
             CommandAction.RFID_READ -> """{"action":"rfid_read","args":{}}"""
-            CommandAction.RFID_WRITE -> """{"action":"rfid_write","args":{}}"""
+            CommandAction.RFID_WRITE -> """{"action":"rfid_write","args":{"key_type":"EM4100","key_data":"0102030405"}}"""
             CommandAction.IR_RECEIVE -> """{"action":"ir_receive","args":{}}"""
-            CommandAction.BADUSB_VALIDATE -> """{"action":"badusb_validate","args":{}}"""
-            CommandAction.BADUSB_DIFF -> """{"action":"badusb_diff","args":{}}"""
+            CommandAction.BADUSB_VALIDATE -> """{"action":"badusb_validate","args":{"content":"REM reviewed script"}}"""
+            CommandAction.BADUSB_DIFF -> """{"action":"badusb_diff","args":{"path":"/ext/badusb/demo.txt","content":"REM replacement"}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }

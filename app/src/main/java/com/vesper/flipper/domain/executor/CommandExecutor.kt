@@ -37,10 +37,10 @@ class CommandExecutor @Inject constructor(
     private val auditService: AuditService,
     private val diffService: DiffService,
     private val forgeEngine: ForgeEngine,
-    private val settingsStore: SettingsStore
+    private val settingsStore: SettingsStore,
+    private val vulnTriage: VulnTriageService
 ) {
 
-    @Inject lateinit var vulnTriage: com.vesper.flipper.domain.service.VulnTriageService
 
     private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
 
@@ -79,7 +79,9 @@ class CommandExecutor @Inject constructor(
             )
 
             RiskLevel.MEDIUM -> {
-                val autoApprove = settingsStore.autoApproveMedium.first()
+                val findingMutation = command.action in setOf(CommandAction.VULN_SUBMIT, CommandAction.VULN_VALIDATE) ||
+                    (command.action == CommandAction.VULN_CLASSIFY && command.args.vulnId != null)
+                val autoApprove = !findingMutation && settingsStore.autoApproveMedium.first()
                 if (!autoApprove && (riskAssessment.requiresDiff || riskAssessment.requiresConfirmation)) {
                     requestApproval(
                         command = command,
@@ -153,7 +155,7 @@ class CommandExecutor @Inject constructor(
         val result = try {
             val data: CommandResultData?
             executionTime = measureTimeMillis {
-                data = executeAction(command)
+                data = executeAction(command, sessionId)
             }
             CommandResult(
                 success = true,
@@ -204,7 +206,8 @@ class CommandExecutor @Inject constructor(
             command = command,
             riskAssessment = riskAssessment,
             diff = diff,
-            traceId = traceId
+            traceId = traceId,
+            originSessionId = sessionId
         )
 
         pendingApprovals[approval.id] = approval
@@ -242,6 +245,10 @@ class CommandExecutor @Inject constructor(
      */
     suspend fun approve(approvalId: String, sessionId: String): CommandResult {
         clearExpiredApprovals()
+        val candidate = pendingApprovals[approvalId]
+        if (candidate != null && candidate.originSessionId != sessionId) {
+            return CommandResult(false, candidate.command.action, error = "Approval belongs to another session")
+        }
         val approval = pendingApprovals.remove(approvalId)
             ?: return CommandResult(
                 success = false,
@@ -285,7 +292,7 @@ class CommandExecutor @Inject constructor(
 
         // Execute the command
         return try {
-            val data = executeAction(approval.command)
+            val data = executeAction(approval.command, sessionId)
             val result = CommandResult(
                 success = true,
                 action = approval.command.action,
@@ -334,6 +341,10 @@ class CommandExecutor @Inject constructor(
      */
     suspend fun reject(approvalId: String, sessionId: String): CommandResult {
         clearExpiredApprovals()
+        val candidate = pendingApprovals[approvalId]
+        if (candidate != null && candidate.originSessionId != sessionId) {
+            return CommandResult(false, candidate.command.action, error = "Approval belongs to another session")
+        }
         val approval = pendingApprovals.remove(approvalId)
 
         if (_currentApproval.value?.id == approvalId) {
@@ -379,7 +390,7 @@ class CommandExecutor @Inject constructor(
 
     private fun requireNonBlank(value: String?, name: String): String = value?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("$name required")
 
-    private suspend fun executeAction(command: ExecuteCommand): CommandResultData? {
+    private suspend fun executeAction(command: ExecuteCommand, sessionId: String): CommandResultData? {
         return when (command.action) {
             CommandAction.VULN_SUBMIT -> {
                 val severity = VulnTriageService.Severity.from(command.args.severity)
@@ -394,7 +405,7 @@ class CommandExecutor @Inject constructor(
                         evidence = requireNonBlank(command.args.evidence, "evidence"),
                         severity = severity,
                         complexity = complexity,
-                    )
+                    ), sessionId
                 )
                 CommandResultData(
                     content = vulnTriage.renderFinding(finding, prefix = "Submitted"),
@@ -411,7 +422,7 @@ class CommandExecutor @Inject constructor(
                         vulnId = vulnId,
                         reproduced = reproduced,
                         notes = command.args.notes,
-                    )
+                    ), sessionId
                 ) ?: throw IllegalArgumentException("Vulnerability $vulnId not found")
                 CommandResultData(
                     content = vulnTriage.renderFinding(updated, prefix = "Validated"),
@@ -425,7 +436,7 @@ class CommandExecutor @Inject constructor(
                     severity = command.args.severity?.let { VulnTriageService.Severity.from(it) ?: throw IllegalArgumentException("Invalid severity filter") },
                     status = command.args.status?.let { VulnTriageService.Status.from(it) ?: throw IllegalArgumentException("Invalid status filter") },
                 )
-                val findings = vulnTriage.list(filters)
+                val findings = vulnTriage.list(filters, sessionId)
                 CommandResultData(
                     content = vulnTriage.renderList(findings),
                     message = "Listed ${findings.size} vulnerability finding(s)"
@@ -434,7 +445,7 @@ class CommandExecutor @Inject constructor(
 
             CommandAction.VULN_CLASSIFY -> {
                 val vulnType = requireNonBlank(command.args.vulnType, "vuln_type")
-                val result = vulnTriage.classify(vulnType, command.args.vulnId)
+                val result = vulnTriage.classify(vulnType, command.args.vulnId, sessionId)
                 CommandResultData(
                     content = vulnTriage.renderClassification(result),
                     message = "Classified $vulnType → ${result.severity.wire.uppercase()}"
@@ -455,7 +466,7 @@ class CommandExecutor @Inject constructor(
                             )
                         }
                     }
-                val entries = auditService.queryRecent(limit, actionFilter, riskFilter)
+                val entries = auditService.queryRecent(sessionId, limit, actionFilter, riskFilter)
                 CommandResultData(
                     content = entries.joinToString("\n") { "${it.timestamp} ${it.actionType} ${it.riskLevel} ${it.sessionId}" },
                     message = "Audit query: ${entries.size} entr(y|ies)"

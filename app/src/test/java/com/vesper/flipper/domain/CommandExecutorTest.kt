@@ -52,6 +52,7 @@ class CommandExecutorTest {
             auditService = auditService,
             diffService = diffService,
             forgeEngine = mock(),
+            vulnTriage = mock(),
             settingsStore = mock {
                 on { autoApproveMedium } doReturn kotlinx.coroutines.flow.flowOf(false)
                 on { autoApproveHigh } doReturn kotlinx.coroutines.flow.flowOf(false)
