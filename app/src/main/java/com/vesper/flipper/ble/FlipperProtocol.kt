@@ -58,6 +58,8 @@ class FlipperProtocol @Inject constructor() {
     private val remoteHealthRefreshInFlight = AtomicBoolean(false)
     @Volatile
     private var lastRpcActivityAtMs: Long = 0L
+    @Volatile
+    private var lastVerifiedRpcActivityAtMs: Long = 0L
 
     private var currentRequestId: UInt = 0u
     private val immediateRpcCommandId = AtomicInteger(10_000)
@@ -89,6 +91,8 @@ class FlipperProtocol @Inject constructor() {
         rpcStartCandidateCache.clear()
         rpcButtonArgCache.clear()
         lastRpcExecutionSnapshot = null
+        lastRpcActivityAtMs = 0L
+        lastVerifiedRpcActivityAtMs = 0L
         _cliStatus.value = CliCapabilityStatus(
             level = CliCapabilityLevel.UNKNOWN,
             checkedAtMs = System.currentTimeMillis(),
@@ -1330,7 +1334,7 @@ class FlipperProtocol @Inject constructor() {
         private const val RPC_REMOTE_IMMEDIATE_WRITE_ATTEMPTS = 2
         private const val RPC_REMOTE_IMMEDIATE_RETRY_DELAY_MS = 12L
         private const val RPC_REMOTE_BOOTSTRAP_DELAY_MS = 90L
-        private const val RPC_REMOTE_BOOTSTRAP_LOCK_TIMEOUT_MS = 450L
+        private const val RPC_REMOTE_BOOTSTRAP_LOCK_TIMEOUT_MS = 2_500L
         /** Hard cap on the total time a single CLI/RPC probe sequence can run. */
         private const val CLI_PROBE_TOTAL_CAP_MS = 15_000L
         private const val DESKTOP_LOCK_PROBE_RETRY_MS = 30_000L
@@ -2367,12 +2371,15 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private fun isRemoteFastPathReady(nowMs: Long): Boolean {
+        // Successful writes only show Android accepted bytes. Readiness requires
+        // a correlated RPC response or a recent successful capability probe.
+        val responseAge = nowMs - lastVerifiedRpcActivityAtMs
+        if (lastVerifiedRpcActivityAtMs > 0L &&
+            responseAge in 0..RPC_REMOTE_FAST_RPC_STATUS_MAX_AGE_MS
+        ) return true
         val status = _cliStatus.value
-        if (status.level != CliCapabilityLevel.READY || !status.supportsRpc) {
-            return false
-        }
-        val ageMs = nowMs - status.checkedAtMs
-        return ageMs <= RPC_REMOTE_FAST_RPC_STATUS_MAX_AGE_MS
+        return status.supportsRpc &&
+                (nowMs - status.checkedAtMs) in 0..RPC_REMOTE_FAST_RPC_STATUS_MAX_AGE_MS
     }
 
     private fun shouldProbeDesktopLockForRemoteInput(nowMs: Long): Boolean {
@@ -3336,6 +3343,7 @@ class FlipperProtocol @Inject constructor() {
         }
         if (collected.isNotEmpty()) {
             lastRpcActivityAtMs = System.currentTimeMillis()
+            lastVerifiedRpcActivityAtMs = lastRpcActivityAtMs
         }
         return collected
     }
