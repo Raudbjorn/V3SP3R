@@ -72,6 +72,7 @@ object ExecuteCommandSchemaGenerator {
         val description: String,
         val enum: List<String>? = null,
         val default: JsonPrimitive? = null,
+        val nullable: Boolean = true,
     )
 
     private val ARGS: List<ArgSpec> = listOf(
@@ -84,7 +85,7 @@ object ExecuteCommandSchemaGenerator {
             "Content to write to file (for write_file action). Also used as a fallback for execute_cli commands and install_faphub_app direct download URL."),
         ArgSpec("new_name", "string", "New name for rename operation"),
         ArgSpec("recursive", "boolean", "Whether to delete recursively (for delete action)",
-            default = JsonPrimitive(false)),
+            default = JsonPrimitive(false), nullable = false),
         ArgSpec("artifact_type", "string", "Type of artifact being pushed (for push_artifact action)"),
         ArgSpec("artifact_data", "string", "Base64-encoded artifact data (for push_artifact action)"),
         ArgSpec("prompt", "string", "Natural-language specification for forge_payload"),
@@ -95,9 +96,9 @@ object ExecuteCommandSchemaGenerator {
         ArgSpec("filter", "string", "Filter string for list_vault"),
         ArgSpec("app_name", "string", "Application name (for launch_app action)"),
         ArgSpec("app_args", "string", "Arguments passed to the launched app; also used as the ble_spam mode string"),
-        ArgSpec("frequency", "integer", "Frequency in Hz for SubGHz operations"),
-        ArgSpec("protocol", "string", "Protocol name for SubGHz/IR/NFC operations"),
-        ArgSpec("address", "string", "Address/identifier for SubGHz transmit"),
+        ArgSpec("frequency", "integer", "Reserved metadata; file-based SubGHz transmission uses the frequency stored in the file, not this field"),
+        ArgSpec("protocol", "string", "Reserved metadata; file-based transmit/emulation uses the protocol stored in the file, not this field"),
+        ArgSpec("address", "string", "Reserved metadata; file-based SubGHz transmission uses the address stored in the file, not this field"),
         ArgSpec("signal_name", "string", "Named signal for IR transmit operations"),
         ArgSpec("enabled", "boolean", "On/off state (for vibro_control action; defaults to true)"),
         ArgSpec("red", "integer", "Red LED intensity 0-255 (for led_control action)"),
@@ -238,6 +239,27 @@ object ExecuteCommandSchemaGenerator {
                     "\nUpdate ACTIONS + ARGS + EXAMPLES in ExecuteCommandSchemaGenerator to match Command.kt."
             )
         }
+        enforceArgumentCoverage(commandKt)
+    }
+
+    private data class RuntimeArg(val name: String, val type: String, val nullable: Boolean, val default: String)
+
+    /** Fail closed on unsupported syntax as well as serialized name/type/nullability/default drift. */
+    internal fun enforceArgumentCoverage(commandKt: File) {
+        val text = commandKt.readText().replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+            .lineSequence().map { it.substringBefore("//") }.joinToString("\n")
+        val body = Regex("""data\s+class\s+CommandArgs\s*\((.*?)\n\)""", RegexOption.DOT_MATCHES_ALL)
+            .find(text)?.groupValues?.get(1) ?: error("CommandArgs declaration not found")
+        val field = Regex("""(?:@SerialName\("([^"]+)"\)\s*)?val\s+(\w+)\s*:\s*(String|Boolean|Int|Long|Double|Float)(\?)?\s*=\s*(null|true|false|-?\d+(?:\.\d+)?|"[^"]*")""")
+        val actual = body.split(',').filter { it.isNotBlank() }.map { declaration ->
+            val match = field.matchEntire(declaration.trim()) ?: error("Unsupported CommandArgs syntax: $declaration")
+            val (serialized, name, type, nullable, default) = match.destructured
+            RuntimeArg(serialized.ifEmpty { name }, when(type) {
+                "String" -> "string"; "Boolean" -> "boolean"; "Int", "Long" -> "integer"; else -> "number"
+            }, nullable.isNotEmpty(), default)
+        }
+        val expected = ARGS.map { RuntimeArg(it.name, it.type, it.nullable, it.default?.toString() ?: "null") }
+        check(actual == expected) { "CommandArgs / schema generator drift: actual=$actual; documented=$expected. Update ARGS and regenerate." }
     }
 
     /** Emits the JSON schema pretty-printed with a trailing newline. */

@@ -115,15 +115,15 @@
         },
         "frequency": {
           "type": "integer",
-          "description": "Frequency in Hz for SubGHz operations"
+          "description": "Reserved metadata; file-based SubGHz transmission uses the frequency stored in the file, not this field"
         },
         "protocol": {
           "type": "string",
-          "description": "Protocol name for SubGHz/IR/NFC operations"
+          "description": "Reserved metadata; file-based transmit/emulation uses the protocol stored in the file, not this field"
         },
         "address": {
           "type": "string",
-          "description": "Address/identifier for SubGHz transmit"
+          "description": "Reserved metadata; file-based SubGHz transmission uses the address stored in the file, not this field"
         },
         "signal_name": {
           "type": "string",

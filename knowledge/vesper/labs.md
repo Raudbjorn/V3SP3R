@@ -41,7 +41,7 @@ Two settings under **Settings** can loosen the interactive flow if you trust the
 
 **Approval boundary:** the AI can author a HIGH-risk payload in the labs. This reference does not guarantee a prompt or human release for every Labs action. `autoApproveHigh` governs actions handled by `CommandExecutor`; direct Labs dispatch is outside that guarantee.
 
-Every action, every approval decision, every result is written to the audit log (**Chat → Audit log**) and is filterable by risk level.
+Actions handled by `CommandExecutor`, their approval decisions, and their results are written to the audit log (**Chat → Audit log**) and is filterable by risk level.
 
 ---
 
