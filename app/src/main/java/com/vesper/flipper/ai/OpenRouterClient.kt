@@ -87,7 +87,6 @@ class OpenRouterClient @Inject constructor(
 
         val selection = settingsStore.readLlmSelection()
         val provider = selection.provider
-        if (provider == LlmProvider.ANTHROPIC) return@withContext ChatCompletionResult.Error("Native Anthropic support requires the Anthropic provider feature.")
         val apiKey = selection.apiKey
             ?: return@withContext ChatCompletionResult.Error("${provider.displayName} API key not configured")
 
@@ -450,7 +449,8 @@ class OpenRouterClient @Inject constructor(
         apiKey: String,
         request: OpenRouterRequest
     ): Request {
-        return OpenAiChatProtocol.buildRequest(provider, apiKey, request)
+        return (if (provider == LlmProvider.ANTHROPIC) AnthropicChatProtocol else OpenAiChatProtocol)
+            .buildRequest(provider, apiKey, request)
     }
 
     /**
@@ -500,7 +500,7 @@ class OpenRouterClient @Inject constructor(
                         return ChatCompletionResult.Error("Empty response from API")
                     }
 
-                    return parseResponse(responseBody)
+                    return parseResponse(request.tag(ChatProtocol::class.java)?.normalizeResponse(responseBody) ?: responseBody)
                 }
 
             } catch (e: CancellationException) {

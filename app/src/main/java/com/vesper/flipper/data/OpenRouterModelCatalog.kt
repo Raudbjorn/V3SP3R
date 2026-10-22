@@ -33,7 +33,6 @@ class OpenRouterModelCatalog @Inject constructor() {
         .build()
 
     suspend fun fetchModels(provider: LlmProvider, apiKey: String?): Result<List<ModelInfo>> {
-        if (provider == LlmProvider.ANTHROPIC) return Result.success(provider.models)
         if (provider == LlmProvider.OPENROUTER) {
             return fetchLatestByManufacturer()
         }
@@ -48,11 +47,11 @@ class OpenRouterModelCatalog @Inject constructor() {
         apiKey: String
     ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(provider.modelsUrl)
-                .addHeader("Authorization", "Bearer $apiKey")
-                .addHeader("Accept", "application/json")
-                .build()
+            val builder = Request.Builder().url(provider.modelsUrl).header("Accept", "application/json")
+            if (provider == LlmProvider.ANTHROPIC) {
+                builder.header("x-api-key", apiKey).header("anthropic-version", "2023-06-01")
+            } else builder.header("Authorization", "Bearer $apiKey")
+            val request = builder.build()
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
