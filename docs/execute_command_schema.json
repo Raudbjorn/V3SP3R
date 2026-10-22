@@ -43,7 +43,12 @@
         "loader_list",
         "loader_close",
         "loader_signal",
-        "load_skill"
+        "load_skill",
+        "ble_scan_targets",
+        "ble_enumerate",
+        "ble_read_char",
+        "ble_write_char",
+        "ble_subscribe"
       ],
       "description": "The action to perform on the Flipper Zero"
     },
@@ -92,7 +97,7 @@
         },
         "content": {
           "type": "string",
-          "description": "Content to write to file (write_file). Optional loader_signal argument, rejecting newline, carriage return, NUL, semicolon, pipe and ampersand. Also used as fallback for execute_cli. Catalog installation does not accept a direct URL override."
+          "description": "Content to write to file (write_file), or BLE characteristic bytes/text (ble_write_char; encoding controlled by hex). Optional loader_signal argument, rejecting newline, carriage return, NUL, semicolon, pipe and ampersand. Also used as fallback for execute_cli. Catalog installation does not accept a direct URL override."
         },
         "new_name": {
           "type": "string",
@@ -155,7 +160,7 @@
         },
         "address": {
           "type": "string",
-          "description": "Reserved metadata; file-based SubGHz transmission uses the address stored in the file, not this field"
+          "description": "Phone BLE target MAC address, required for enumerate/read/write/subscribe. File-based radio transmit/emulation uses the address stored in the file, not this field"
         },
         "signal_name": {
           "type": "string",
@@ -196,6 +201,22 @@
         "photo_prompt": {
           "type": "string",
           "description": "Prompt describing what to capture (for request_photo action)"
+        },
+        "duration": {
+          "type": "number",
+          "description": "Phone BLE actions: seconds, default 5, range 0.5..60. Scan/listen duration for scan/subscribe; connection and operation timeout for enumerate/read/write. Subscription connection timeout is 10 seconds; restoration adds at most 3 seconds."
+        },
+        "uuid": {
+          "type": "string",
+          "description": "Full characteristic UUID required for BLE read/write/subscribe; must identify exactly one characteristic instance."
+        },
+        "hex": {
+          "type": "boolean",
+          "description": "ble_write_char encoding: true (default) means hexadecimal byte pairs; false means UTF-8 text. Maximum 512 bytes."
+        },
+        "with_response": {
+          "type": "boolean",
+          "description": "ble_write_char only: true (default) waits for a GATT response. False sends without a peripheral response and rejects data exceeding negotiated MTU minus 3; no fragmentation."
         }
       }
     },
@@ -215,6 +236,50 @@
     "expected_effect"
   ],
   "examples": [
+    {
+      "action": "ble_scan_targets",
+      "args": {
+        "duration": 5.0
+      },
+      "justification": "User requested a nearby BLE scan",
+      "expected_effect": "Return advertising device metadata using the phone radio"
+    },
+    {
+      "action": "ble_enumerate",
+      "args": {
+        "address": "AA:BB:CC:DD:EE:FF"
+      },
+      "justification": "User requested the selected peripheral services",
+      "expected_effect": "Connect to the selected phone BLE peripheral and list its GATT services"
+    },
+    {
+      "action": "ble_read_char",
+      "args": {
+        "address": "AA:BB:CC:DD:EE:FF",
+        "uuid": "00002a19-0000-1000-8000-00805f9b34fb"
+      },
+      "justification": "User requested a characteristic read",
+      "expected_effect": "Read the uniquely identified characteristic"
+    },
+    {
+      "action": "ble_write_char",
+      "args": {
+        "address": "AA:BB:CC:DD:EE:FF",
+        "uuid": "00002a19-0000-1000-8000-00805f9b34fb",
+        "content": "01"
+      },
+      "justification": "User requested this exact byte write",
+      "expected_effect": "Request approval showing the peripheral, characteristic and bytes before writing"
+    },
+    {
+      "action": "ble_subscribe",
+      "args": {
+        "address": "AA:BB:CC:DD:EE:FF",
+        "uuid": "00002a19-0000-1000-8000-00805f9b34fb"
+      },
+      "justification": "User requested a bounded characteristic subscription",
+      "expected_effect": "Request explicit approval, listen for the chosen duration and restore the original remote subscription descriptor"
+    },
     {
       "action": "input_send",
       "args": {

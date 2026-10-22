@@ -69,6 +69,11 @@ object ExecuteCommandSchemaGenerator {
         "loader_close",
         "loader_signal",
         "load_skill",
+        "ble_scan_targets",
+        "ble_enumerate",
+        "ble_read_char",
+        "ble_write_char",
+        "ble_subscribe",
     )
 
     private data class ArgSpec(
@@ -92,7 +97,7 @@ object ExecuteCommandSchemaGenerator {
             "File or directory path on Flipper (e.g., /ext/subghz/garage.sub). Also the source path for move/copy/rename, target path for push_artifact/download_resource, and signal file for subghz_transmit/ir_transmit/nfc_emulate/rfid_emulate/ibutton_emulate/badusb_execute."),
         ArgSpec("destination_path", "string", "Destination path for move/copy operations"),
         ArgSpec("content", "string",
-            "Content to write to file (write_file). Optional loader_signal argument, rejecting newline, carriage return, NUL, semicolon, pipe and ampersand. Also used as fallback for execute_cli. Catalog installation does not accept a direct URL override."),
+            "Content to write to file (write_file), or BLE characteristic bytes/text (ble_write_char; encoding controlled by hex). Optional loader_signal argument, rejecting newline, carriage return, NUL, semicolon, pipe and ampersand. Also used as fallback for execute_cli. Catalog installation does not accept a direct URL override."),
         ArgSpec("new_name", "string", "New name for rename operation"),
         ArgSpec("recursive", "boolean", "Whether to delete recursively (for delete action)",
             default = JsonPrimitive(false), nullable = false),
@@ -108,7 +113,7 @@ object ExecuteCommandSchemaGenerator {
         ArgSpec("app_args", "string", "Arguments passed to the launched app; also used as the ble_spam mode string"),
         ArgSpec("frequency", "integer", "Reserved metadata; file-based SubGHz transmission uses the frequency stored in the file, not this field"),
         ArgSpec("protocol", "string", "Reserved metadata; file-based transmit/emulation uses the protocol stored in the file, not this field"),
-        ArgSpec("address", "string", "Reserved metadata; file-based SubGHz transmission uses the address stored in the file, not this field"),
+        ArgSpec("address", "string", "Phone BLE target MAC address, required for enumerate/read/write/subscribe. File-based radio transmit/emulation uses the address stored in the file, not this field"),
         ArgSpec("signal_name", "string", "Named signal for IR transmit operations"),
         ArgSpec("enabled", "boolean", "On/off state (for vibro_control action; defaults to true)"),
         ArgSpec("red", "integer", "Red LED intensity 0-255 (for led_control action)"),
@@ -121,6 +126,10 @@ object ExecuteCommandSchemaGenerator {
         ArgSpec("search_scope", "string",
             "GitHub search scope, e.g. \"code\" or \"repositories\" (for github_search action; defaults to \"code\")"),
         ArgSpec("photo_prompt", "string", "Prompt describing what to capture (for request_photo action)"),
+        ArgSpec("duration", "number", "Phone BLE actions: seconds, default 5, range 0.5..60. Scan/listen duration for scan/subscribe; connection and operation timeout for enumerate/read/write. Subscription connection timeout is 10 seconds; restoration adds at most 3 seconds."),
+        ArgSpec("uuid", "string", "Full characteristic UUID required for BLE read/write/subscribe; must identify exactly one characteristic instance."),
+        ArgSpec("hex", "boolean", "ble_write_char encoding: true (default) means hexadecimal byte pairs; false means UTF-8 text. Maximum 512 bytes."),
+        ArgSpec("with_response", "boolean", "ble_write_char only: true (default) waits for a GATT response. False sends without a peripheral response and rejects data exceeding negotiated MTU minus 3; no fragmentation."),
 
     )
 
@@ -136,6 +145,16 @@ object ExecuteCommandSchemaGenerator {
     private fun b(v: Boolean) = JsonPrimitive(v)
 
     private val EXAMPLES: List<Example> = listOf(
+        Example("ble_scan_targets", mapOf("duration" to JsonPrimitive(5.0)),
+            "User requested a nearby BLE scan", "Return advertising device metadata using the phone radio"),
+        Example("ble_enumerate", mapOf("address" to s("AA:BB:CC:DD:EE:FF")),
+            "User requested the selected peripheral services", "Connect to the selected phone BLE peripheral and list its GATT services"),
+        Example("ble_read_char", mapOf("address" to s("AA:BB:CC:DD:EE:FF"), "uuid" to s("00002a19-0000-1000-8000-00805f9b34fb")),
+            "User requested a characteristic read", "Read the uniquely identified characteristic"),
+        Example("ble_write_char", mapOf("address" to s("AA:BB:CC:DD:EE:FF"), "uuid" to s("00002a19-0000-1000-8000-00805f9b34fb"), "content" to s("01")),
+            "User requested this exact byte write", "Request approval showing the peripheral, characteristic and bytes before writing"),
+        Example("ble_subscribe", mapOf("address" to s("AA:BB:CC:DD:EE:FF"), "uuid" to s("00002a19-0000-1000-8000-00805f9b34fb")),
+            "User requested a bounded characteristic subscription", "Request explicit approval, listen for the chosen duration and restore the original remote subscription descriptor"),
         Example("input_send", mapOf("key" to s("back"), "press_type" to s("short")),
             "User requested one Back button action", "Send one RPC GUI input event after required approval"),
         Example("loader_list", emptyMap(),
