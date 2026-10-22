@@ -398,7 +398,8 @@ class CommandExecutor @Inject constructor(
                     raw.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                 } else raw.toByteArray(Charsets.UTF_8)
                 bleRecon.writeCharacteristic(address, uuid, bytes, args.withResponse != false, timeout).getOrThrow()
-                "Wrote ${bytes.size} bytes"
+                if (args.withResponse == false) "Submitted ${bytes.size} bytes without peripheral acknowledgement"
+                else "Wrote ${bytes.size} bytes"
             }
             CommandAction.BLE_SUBSCRIBE -> bleRecon.subscribe(address, uuid, timeout, 10000L).getOrThrow().joinToString("\n") { value -> value.joinToString("") { "%02x".format(it) } }
             else -> error("Unsupported BLE action")

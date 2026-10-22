@@ -25,7 +25,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.util.UUID
@@ -60,6 +59,7 @@ class BleReconService @Inject constructor(
      */
     private val gattMutex = Mutex()
     @Volatile private var activeOperation: UUID? = null
+    @Volatile private var negotiatedMtu = 23
 
     data class ScannedDevice(
         val address: String,
@@ -243,7 +243,7 @@ class BleReconService @Inject constructor(
     ): Result<Unit> = withGatt(address, timeoutMs) { gatt ->
         val (_, ch) = findCharacteristic(gatt, uuid)
             ?: throw IllegalStateException("Characteristic $uuid not found on $address")
-        require(bytes.size in 1..512) { "BLE payload must be 1..512 bytes" }
+        requireBleWriteFits(bytes.size, withResponse, negotiatedMtu)
         val requiredProperty = if (withResponse) BluetoothGattCharacteristic.PROPERTY_WRITE else BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
         require(ch.properties and requiredProperty != 0) { "Characteristic does not support requested write mode" }
         val deferred = CompletableDeferred<Boolean>()
@@ -285,42 +285,70 @@ class BleReconService @Inject constructor(
             ?: throw IllegalStateException("Characteristic $uuid not found on $address")
         val collected = java.util.Collections.synchronizedList(mutableListOf<ByteArray>())
         require(ch.properties and (BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) { "Characteristic cannot notify or indicate" }
-        notificationSinks[address to ch.uuid] = { synchronized(collected) { if (collected.size < 256) collected += it.copyOf() } }
-        @SuppressLint("MissingPermission")
-        val enabled = gatt.setCharacteristicNotification(ch, true)
-        if (!enabled) {
-            notificationSinks.remove(address to ch.uuid)
-            throw IllegalStateException("setCharacteristicNotification($uuid) refused")
-        }
         val cccd = ch.getDescriptor(CCCD_UUID)
             ?: throw IllegalStateException("Characteristic lacks notification descriptor")
+        // Read the actual peripheral state, not Android's potentially stale descriptor cache.
+        val previous = CompletableDeferred<ByteArray>()
+        pendingDescriptorReads[address] = previous
+        @SuppressLint("MissingPermission")
+        check(gatt.readDescriptor(cccd)) { "Cannot read original notification configuration" }
+        val original = withTimeout(connectTimeoutMs.coerceIn(500L, 60_000L)) { previous.await() }.copyOf()
+        require(original.size == 2) { "Invalid original notification configuration" }
         val cccdValue = if (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
             BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-        val configured = CompletableDeferred<Boolean>()
-        pendingDescriptors[address] = configured
-        @SuppressLint("MissingPermission")
-        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeDescriptor(cccd, cccdValue) == BluetoothGatt.GATT_SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            cccd.value = cccdValue
-            @Suppress("DEPRECATION")
-            gatt.writeDescriptor(cccd)
-        }
-        check(started && withTimeout(connectTimeoutMs.coerceIn(500L, 60_000L)) { configured.await() }) { "Notification descriptor write failed" }
+        var enableAcknowledged = false
+        withRestoredBleSubscription(
+            enable = {
+                notificationSinks[address to ch.uuid] = { synchronized(collected) { if (collected.size < 256) collected += it.copyOf() } }
+                @SuppressLint("MissingPermission")
+                check(gatt.setCharacteristicNotification(ch, true)) { "Local notification routing refused" }
+                writeDescriptorAndAwait(gatt, address, cccd, cccdValue, connectTimeoutMs)
+                enableAcknowledged = true
+            },
+            restore = {
+                notificationSinks.remove(address to ch.uuid)
+                try {
+                    writeDescriptorAndAwait(gatt, address, cccd, original, 2_500L)
+                    // After an unacknowledged enable, a late callback cannot prove restore success.
+                    check(enableAcknowledged) { "Descriptor enable was unacknowledged; remote restoration cannot be confirmed" }
+                } finally {
+                    @SuppressLint("MissingPermission")
+                    check(gatt.setCharacteristicNotification(ch, false)) { "Local notification cleanup refused" }
+                }
+            },
+            collect = {
+                delay(listenMs.coerceIn(500L, 120_000L))
+                synchronized(collected) { collected.toList() }
+            }
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun writeDescriptorAndAwait(
+        gatt: BluetoothGatt, address: String, descriptor: BluetoothGattDescriptor,
+        value: ByteArray, timeoutMs: Long,
+    ) {
+        val result = CompletableDeferred<Boolean>()
+        pendingDescriptors[address] = result
         try {
-            delay(listenMs.coerceIn(500L, 120_000L))
-        } finally {
-            notificationSinks.remove(address to ch.uuid)
-            @SuppressLint("MissingPermission")
-            try { gatt.setCharacteristicNotification(ch, false) } catch (_: SecurityException) { }
-        }
-        synchronized(collected) { collected.toList() }
+            val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(descriptor, value) == BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                descriptor.value = value
+                @Suppress("DEPRECATION")
+                gatt.writeDescriptor(descriptor)
+            }
+            check(started && withTimeout(timeoutMs.coerceIn(500L, 60_000L)) { result.await() }) {
+                "Notification descriptor write failed"
+            }
+        } finally { pendingDescriptors.remove(address, result) }
     }
 
     // ─── GATT plumbing ────────────────────────────────────────────────────────
 
     private val pendingDescriptors = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
+    private val pendingDescriptorReads = ConcurrentHashMap<String, CompletableDeferred<ByteArray>>()
 
     private val pendingReads =
         ConcurrentHashMap<Pair<String, UUID>, CompletableDeferred<ByteArray>>()
@@ -340,9 +368,11 @@ class BleReconService @Inject constructor(
         } catch (e: IllegalArgumentException) {
             return@guarded Result.failure(IllegalArgumentException("Invalid BLE address '$address'"))
         }
-        gattMutex.withLock {
+        gattMutex.withBoundedGattQueue(timeoutMs.coerceIn(500L, 60_000L)) {
             val operationId = UUID.randomUUID()
             activeOperation = operationId
+            negotiatedMtu = 23
+            val mtuReady = CompletableDeferred<Unit>()
             val connected = CompletableDeferred<BluetoothGatt>()
             val servicesReady = CompletableDeferred<BluetoothGatt>()
             val disconnected = CompletableDeferred<Unit>()
@@ -357,6 +387,8 @@ class BleReconService @Inject constructor(
                         pendingReads.values.forEach { it.completeExceptionally(error) }
                         pendingWrites.values.forEach { it.completeExceptionally(error) }
                         pendingDescriptors.values.forEach { it.completeExceptionally(error) }
+                        pendingDescriptorReads.values.forEach { it.completeExceptionally(error) }
+                        mtuReady.completeExceptionally(error)
                         return
                     }
                     when (newState) {
@@ -405,8 +437,27 @@ class BleReconService @Inject constructor(
                     onCharacteristicRead(gatt, characteristic, characteristic.value ?: ByteArray(0), status)
                 }
 
-                override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
                     if (activeOperation != operationId) return
+                    if (status == BluetoothGatt.GATT_SUCCESS) negotiatedMtu = mtu.coerceIn(23, 517)
+                    mtuReady.complete(Unit)
+                }
+
+                override fun onDescriptorRead(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int, value: ByteArray) {
+                    if (activeOperation != operationId || descriptor.uuid != CCCD_UUID) return
+                    val pending = pendingDescriptorReads.remove(gatt.device.address) ?: return
+                    if (status == BluetoothGatt.GATT_SUCCESS) pending.complete(value.copyOf())
+                    else pending.completeExceptionally(IllegalStateException("Descriptor read failed: $status"))
+                }
+
+                @Suppress("DEPRECATION")
+                override fun onDescriptorRead(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
+                    onDescriptorRead(gatt, descriptor, status, descriptor.value ?: byteArrayOf())
+                }
+
+                override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                    if (activeOperation != operationId || descriptor.uuid != CCCD_UUID) return
                     pendingDescriptors.remove(gatt.device.address)?.complete(status == BluetoothGatt.GATT_SUCCESS)
                 }
 
@@ -443,11 +494,15 @@ class BleReconService @Inject constructor(
 
             @SuppressLint("MissingPermission")
             val gatt = device.connectGatt(context, false, callback)
-                ?: return@withLock Result.failure(IllegalStateException("connectGatt returned null"))
+                ?: return@withBoundedGattQueue Result.failure(IllegalStateException("connectGatt returned null"))
             try {
                 withTimeout(timeoutMs.coerceIn(500L, 60_000L)) {
                     connected.await()
                     servicesReady.await()
+                    @SuppressLint("MissingPermission")
+                    if (gatt.requestMtu(517)) {
+                        kotlinx.coroutines.withTimeoutOrNull(2_000L) { mtuReady.await() }
+                    }
                 }
                 val out = kotlinx.coroutines.coroutineScope {
                     val task = async { block(gatt) }
@@ -466,6 +521,7 @@ class BleReconService @Inject constructor(
                 pendingReads.clear()
                 pendingWrites.clear()
                 pendingDescriptors.clear()
+                pendingDescriptorReads.clear()
                 notificationSinks.clear()
                 @SuppressLint("MissingPermission")
                 try { gatt.disconnect() } catch (_: SecurityException) { }
@@ -480,8 +536,8 @@ class BleReconService @Inject constructor(
         gatt: BluetoothGatt,
         uuid: UUID,
     ): Pair<UUID, BluetoothGattCharacteristic>? {
-        val matches = gatt.services.mapNotNull { svc -> svc.getCharacteristic(uuid)?.let { svc.uuid to it } }
-        require(matches.size <= 1) { "Ambiguous characteristic UUID across services" }
+        val matches = gatt.services.flatMap { svc -> svc.characteristics.filter { it.uuid == uuid }.map { svc.uuid to it } }
+        require(matches.size <= 1) { "Ambiguous characteristic UUID; multiple instances exist" }
         return matches.singleOrNull()
     }
 

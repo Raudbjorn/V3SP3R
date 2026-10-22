@@ -737,7 +737,14 @@ class OpenRouterClient @Inject constructor(
 
         // Fast-path: strict decoding when the model follows schema perfectly.
         runCatching {
-            return ParsedCommand(command = json.decodeFromString<ExecuteCommand>(trimmedArguments))
+            val decoded = json.decodeFromString<ExecuteCommand>(trimmedArguments)
+            if (decoded.action in setOf(CommandAction.BLE_ENUMERATE, CommandAction.BLE_READ_CHAR,
+                    CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE)) {
+                val missing = missingRequiredArgs(decoded.action, decoded.args)
+                if (missing.isNotEmpty()) return ParsedCommand(error =
+                    "Missing required BLE argument(s): ${missing.joinToString()}. Example: ${requiredArgsExample(decoded.action)}")
+            }
+            return ParsedCommand(command = decoded)
         }
 
         // Attempt to repair common JSON malformations from LLMs before fallback parsing.
@@ -1177,10 +1184,10 @@ class OpenRouterClient @Inject constructor(
             CommandAction.LED_CONTROL -> emptyList()  // defaults to 0,0,0
             CommandAction.VIBRO_CONTROL -> emptyList()  // defaults to on
             CommandAction.BLE_SCAN_TARGETS -> emptyList()
-            CommandAction.BLE_ENUMERATE -> emptyList()
-            CommandAction.BLE_READ_CHAR -> emptyList()
-            CommandAction.BLE_WRITE_CHAR -> emptyList()
-            CommandAction.BLE_SUBSCRIBE -> emptyList()
+            CommandAction.BLE_ENUMERATE -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null)
+            CommandAction.BLE_READ_CHAR -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null)
+            CommandAction.BLE_WRITE_CHAR -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null, if (args.content.isNullOrBlank()) "content" else null)
+            CommandAction.BLE_SUBSCRIBE -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null)
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1246,10 +1253,10 @@ class OpenRouterClient @Inject constructor(
             CommandAction.GITHUB_SEARCH ->
                 """{"action":"github_search","args":{"command":"Samsung TV remote extension:ir","search_scope":"code"}}"""
             CommandAction.BLE_SCAN_TARGETS -> """{"action":"ble_scan_targets","args":{}}"""
-            CommandAction.BLE_ENUMERATE -> """{"action":"ble_enumerate","args":{}}"""
-            CommandAction.BLE_READ_CHAR -> """{"action":"ble_read_char","args":{}}"""
-            CommandAction.BLE_WRITE_CHAR -> """{"action":"ble_write_char","args":{}}"""
-            CommandAction.BLE_SUBSCRIBE -> """{"action":"ble_subscribe","args":{}}"""
+            CommandAction.BLE_ENUMERATE -> """{"action":"ble_enumerate","args":{"address":"AA:BB:CC:DD:EE:FF"}}"""
+            CommandAction.BLE_READ_CHAR -> """{"action":"ble_read_char","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb"}}"""
+            CommandAction.BLE_WRITE_CHAR -> """{"action":"ble_write_char","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb","content":"01"}}"""
+            CommandAction.BLE_SUBSCRIBE -> """{"action":"ble_subscribe","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb"}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }
@@ -1658,10 +1665,10 @@ class OpenRouterClient @Inject constructor(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Scope for github_search: 'repositories' (find repos) or 'code' (find files). Default: 'code'. Use 'code' with file extensions like 'extension:ir' or 'extension:sub'.")
                                 )),
-                                "duration" to JsonObject(mapOf("type" to JsonPrimitive("number"), "description" to JsonPrimitive("duration for feature-specific actions"))),
-                                "uuid" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("uuid for feature-specific actions"))),
-                                "hex" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("hex for feature-specific actions"))),
-                                "with_response" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("with_response for feature-specific actions"))),
+                                "duration" to JsonObject(mapOf("type" to JsonPrimitive("number"), "description" to JsonPrimitive("Phone BLE actions: seconds, default 5, range 0.5..60. Scan/listen duration for ble_scan_targets/ble_subscribe; connection and operation timeout for enumerate/read/write. Subscription connection timeout is 10 seconds; restoration adds at most 3 seconds."))),
+                                "uuid" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Full characteristic UUID required for ble_read_char, ble_write_char and ble_subscribe; must identify exactly one characteristic instance."))),
+                                "hex" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("ble_write_char content encoding: true (default) means hexadecimal byte pairs; false means UTF-8 text. Maximum 512 bytes."))),
+                                "with_response" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("ble_write_char only: true (default) waits for a GATT write response. False sends without a peripheral response and rejects data exceeding negotiated MTU minus 3; no fragmentation."))),
                                 "photo_prompt" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Vision analysis prompt for request_photo. Describe what you want to identify (e.g. 'Identify the TV brand and model', 'What device is this?'). Falls back to 'prompt' if not set.")
