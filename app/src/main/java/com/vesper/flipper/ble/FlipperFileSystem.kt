@@ -72,12 +72,18 @@ class FlipperFileSystem @Inject constructor(
         }
     }
 
-    suspend fun readFileBytes(path: String): Result<ByteArray> {
+    suspend fun readFileBytes(path: String): Result<ByteArray> = readFileBytes(path, null)
+
+    suspend fun readFileBytes(path: String, expectedSizeBytes: Long?): Result<ByteArray> {
         return try {
             val validPath = securityUtils.validatePath(path)
-            when (val response = protocol.readFileBinary(validPath).withCliFallback {
+            val binaryResponse = if (expectedSizeBytes == null) protocol.readFileBinary(validPath)
+                else protocol.readFileBinary(validPath, expectedSizeBytes)
+            // Verified binary reads must preserve their deadline and exact-byte contract.
+            val response = if (expectedSizeBytes == null) binaryResponse.withCliFallback {
                 protocol.sendCliCommand("storage read $validPath")
-            }) {
+            } else binaryResponse
+            when (response) {
                 is ProtocolResponse.BinaryContent -> Result.success(response.data)
                 is ProtocolResponse.FileContent -> Result.success(response.content.toByteArray(Charsets.UTF_8))
                 is ProtocolResponse.Error -> Result.failure(FlipperException(response.message, response.code))

@@ -437,11 +437,18 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
-    suspend fun readFileBinary(path: String): ProtocolResponse = withProtocolCommandLock(
+    suspend fun readFileBinary(path: String): ProtocolResponse = readFileBinary(path, null)
+
+    suspend fun readFileBinary(path: String, expectedSizeBytes: Long?): ProtocolResponse = withProtocolCommandLock(
         operation = "read file binary",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while reading binary file: $path") }
     ) {
-        sendRpcReadFileLocked(path) ?: sendLegacyReadFileLocked(path)
+        if (!RpcReadBudget.accepts(expectedSizeBytes)) {
+            return@withProtocolCommandLock ProtocolResponse.Error("Expected read size must be between 0 and 10 MiB")
+        }
+        val response = sendRpcReadFileLocked(path, expectedSizeBytes)
+        response ?: if (expectedSizeBytes == null) sendLegacyReadFileLocked(path)
+            else ProtocolResponse.Error("Size-verified binary reads require RPC storage support")
     }
 
     suspend fun writeFile(path: String, content: ByteArray): ProtocolResponse = withProtocolCommandLock(
@@ -663,17 +670,16 @@ class FlipperProtocol @Inject constructor() {
         return ProtocolResponse.DirectoryList(entries)
     }
 
-    private suspend fun sendRpcReadFileLocked(path: String): ProtocolResponse? {
+    private suspend fun sendRpcReadFileLocked(path: String, expectedSizeBytes: Long? = null): ProtocolResponse? {
         if (!ensureRpcAvailableLocked("RPC ping responded for storage read request")) {
             return null
         }
-        val responses = sendRpcMainAndCollectResponses(timeoutMs = RPC_STORAGE_COMMAND_TIMEOUT_MS) {
-            setStorageReadRequest(
-                PBStorage.ReadRequest.newBuilder()
-                    .setPath(path)
-                    .build()
-            )
-        }
+        val timeoutMs = RpcReadBudget.timeoutMs(expectedSizeBytes)
+        val responses = withTimeoutOrNull(timeoutMs) {
+            sendRpcMainAndCollectResponses(timeoutMs = timeoutMs) {
+                setStorageReadRequest(PBStorage.ReadRequest.newBuilder().setPath(path).build())
+            }
+        } ?: return ProtocolResponse.Error("RPC storage read timed out before completion: $path")
         if (responses.isEmpty()) {
             return ProtocolResponse.Error("No RPC response for storage read request: $path")
         }
@@ -700,6 +706,9 @@ class FlipperProtocol @Inject constructor() {
             if (chunk.isNotEmpty()) {
                 combined.write(chunk)
             }
+        }
+        if (expectedSizeBytes != null && combined.size().toLong() != expectedSizeBytes) {
+            return ProtocolResponse.Error("RPC storage read size mismatch: expected $expectedSizeBytes, received ${combined.size()}")
         }
         return ProtocolResponse.BinaryContent(combined.toByteArray())
     }
@@ -1306,20 +1315,12 @@ class FlipperProtocol @Inject constructor() {
         onCollectionFailure: (String) -> T = { onTimeout() },
         block: suspend () -> T
     ): T {
-        val result = withTimeoutOrNull(timeoutMs) {
-            commandMutex.withLock {
-                try { block() } catch (e: ResponseCollectionException) {
-                    onCollectionFailure(e.message ?: "Response collection failed")
-                }
+        // Only queue acquisition is bounded here; reads/writes own transfer deadlines.
+        return commandMutex.withAcquisitionTimeout(timeoutMs, onTimeout) {
+            try { block() } catch (e: ResponseCollectionException) {
+                onCollectionFailure(e.message ?: "Response collection failed")
             }
         }
-        if (result != null) {
-            return result
-        }
-        if (operation.isNotBlank()) {
-            // Keep operation name in scope for easier timeout diagnostics.
-        }
-        return onTimeout()
     }
 
     private fun isRawCollectorActive(): Boolean {
@@ -1409,7 +1410,6 @@ class FlipperProtocol @Inject constructor() {
         private const val RPC_STORAGE_WRITE_RETRY_DELAY_MS = 300L
         private const val WRITE_CHUNK_SIZE = 512
         private const val WRITE_CHUNK_DELAY_MS = 16L
-        private const val RPC_CONTINUATION_COLLECT_WINDOW_MS = 900L
         private const val RPC_REMOTE_INPUT_ACK_TIMEOUT_MS = 900L
         private const val RPC_REMOTE_RELEASE_TIMEOUT_MS = 1_100L
         private const val RPC_REMOTE_LOCK_TIMEOUT_MS = 450L
@@ -3418,31 +3418,54 @@ class FlipperProtocol @Inject constructor() {
         commandId: Int,
         timeoutMs: Long
     ): List<Flipper.Main> {
-        val responseBytes = collectRawBinaryResponseAttempt(request, timeoutMs)
-        if (responseBytes.isEmpty()) return emptyList()
-        val collected = findRpcMainMessages(responseBytes, commandId).toMutableList()
-        if (collected.isEmpty()) {
-            return emptyList()
+        val collector = RawBinaryCollector()
+        val epoch = synchronized(ingressStateLock) {
+            ingressFailure?.let { throw ResponseCollectionException(it) }
+            rawBinaryCollector = collector
+            connectionEpoch.get()
         }
-
-        val deadlineMs = System.currentTimeMillis() + timeoutMs
-        while (collected.lastOrNull()?.hasNext == true) {
-            val remainingMs = deadlineMs - System.currentTimeMillis()
-            if (remainingMs <= 0L) break
-
-            val tailBytes = collectRawBinaryTailResponse(
-                timeoutMs = remainingMs.coerceAtMost(RPC_CONTINUATION_COLLECT_WINDOW_MS)
-            )
-            if (tailBytes.isEmpty()) break
-
-            val tailResponses = findRpcMainMessages(tailBytes, commandId)
-            if (tailResponses.isEmpty()) break
-            collected += tailResponses
+        fun ensureGeneration() {
+            if (connectionEpoch.get() != epoch) throw ResponseCollectionException("Connection reset during RPC response")
         }
-        if (collected.isNotEmpty()) {
-            lastRpcActivityAtMs = System.currentTimeMillis()
+        fun responses(): List<Flipper.Main> {
+            ensureGeneration()
+            val frames = try {
+                RpcFrameRouter.peel(collector.snapshot()).commandFrames
+            } catch (e: IllegalArgumentException) {
+                throw ResponseCollectionException("Malformed RPC response: ${e.message}")
+            }
+            return findRpcMainMessages(frames, commandId)
         }
-        return collected
+        return try {
+            val service = bleService ?: return emptyList()
+            // One collector spans write, quiet gaps, and all continuations. Never lose
+            // a fragmented envelope or incoming bytes while swapping tail collectors.
+            val collected = withTimeoutOrNull<List<Flipper.Main>>(timeoutMs) {
+                ensureGeneration()
+                if (!service.sendData(request)) return@withTimeoutOrNull emptyList()
+                var lastParsedSize = -1
+                while (true) {
+                    delay(RAW_BINARY_QUIET_PERIOD_MS)
+                    ensureGeneration()
+                    val availableBytes = collector.size()
+                    if (availableBytes > 0 && availableBytes != lastParsedSize &&
+                        System.currentTimeMillis() - collector.lastUpdateMs >= RAW_BINARY_QUIET_PERIOD_MS) {
+                        lastParsedSize = availableBytes
+                        val current = responses()
+                        if (current.lastOrNull()?.hasNext == false) return@withTimeoutOrNull current
+                    }
+                }
+                @Suppress("UNREACHABLE_CODE") emptyList()
+            } ?: responses()
+            ensureGeneration()
+            if (collected.lastOrNull()?.hasNext == true) {
+                throw ResponseCollectionException("RPC response incomplete before deadline")
+            }
+            if (collected.isNotEmpty()) lastRpcActivityAtMs = System.currentTimeMillis()
+            collected
+        } finally {
+            synchronized(ingressStateLock) { if (rawBinaryCollector === collector) rawBinaryCollector = null }
+        }
     }
 
     private suspend fun tryStartRpcSession(): Boolean {
@@ -3852,6 +3875,11 @@ class FlipperProtocol @Inject constructor() {
         }
 
         fun fail(message: String) { failure = message }
+
+        fun size(): Int = synchronized(buffer) {
+            failure?.let { throw ResponseCollectionException(it) }
+            buffer.size()
+        }
 
         fun hasData(): Boolean = synchronized(buffer) {
             buffer.size() > 0
