@@ -74,6 +74,21 @@ class SignalAlchemistTest {
         RAW_Data: $data
     """.trimIndent()
 
+    @Test
+    fun `every modulation type is importable from firmware sub file format`() {
+        for (m in ModulationType.entries.filter { it != ModulationType.CUSTOM }) {
+            val content = """
+                Filetype: Flipper SubGhz RAW File
+                Version: 1
+                Frequency: 433920000
+                Preset: ${m.flipperPreset}
+                Protocol: RAW
+                RAW_Data: 500 -500 1000 -1000
+            """.trimIndent()
+            assertNotNull("preset ${m.flipperPreset} not importable", SignalAlchemist.importSubGhzRaw(content))
+        }
+    }
+
     private fun sampleProject() = AlchemyProject(
         name = "Test Signal",
         frequency = 433_920_000,

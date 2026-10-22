@@ -75,4 +75,23 @@ class SubGhzRawImportTest {
         assertEquals(listOf(100, 200, -300, -400, 500), SignalAlchemist.synthesize(reopened))
     }
 
+    @Test fun commaSeparatedTimingsImport() {
+        val cases = mapOf(
+            "500,-500,1000,-1000" to listOf(500, -500, 1000, -1000),
+            "500, -500, 1000, -1000" to listOf(500, -500, 1000, -1000),
+            "500,\t-500, 1000,\t-1000" to listOf(500, -500, 1000, -1000),
+            "500,-500," to listOf(500, -500),
+        )
+        for ((pulses, expected) in cases) {
+            val imported = SignalAlchemist.importSubGhzRaw(raw(pulses))
+            assertNotNull(pulses, imported)
+            assertEquals(pulses, expected, imported!!.layers.first().rawTimings)
+        }
+    }
+
+    @Test fun commaSeparationDoesNotWeakenStrictImport() {
+        assertNull(SignalAlchemist.importSubGhzRaw(raw("500,abc")))
+        assertNull(SignalAlchemist.importSubGhzRaw(raw("500,0,-500")))
+    }
+
 }
