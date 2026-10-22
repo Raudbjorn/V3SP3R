@@ -2,6 +2,7 @@ package com.vesper.flipper.ai
 
 import android.util.Log
 import com.vesper.flipper.data.SettingsStore
+import com.vesper.flipper.data.readBoundedBytes
 import com.vesper.flipper.domain.model.*
 import com.vesper.flipper.security.InputValidator
 import com.vesper.flipper.security.RateLimiter
@@ -10,7 +11,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -22,7 +22,6 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
-import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -36,9 +35,21 @@ import javax.inject.Singleton
  * The class name is kept so existing call sites stay stable.
  */
 @Singleton
-class OpenRouterClient @Inject constructor(
+class OpenRouterClient {
     private val settingsStore: SettingsStore
-) {
+    private val client: OkHttpClient
+
+    @Inject constructor(settingsStore: SettingsStore) : this(settingsStore, OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(75, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build())
+
+    internal constructor(settingsStore: SettingsStore, client: OkHttpClient) {
+        this.settingsStore = settingsStore
+        this.client = client
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -46,13 +57,6 @@ class OpenRouterClient @Inject constructor(
         explicitNulls = false
         coerceInputValues = true
     }
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(75, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
 
     // Rate limiter: 30 requests per minute
     private val rateLimiter = RateLimiter(maxRequests = 30, windowMs = 60_000)
@@ -62,9 +66,6 @@ class OpenRouterClient @Inject constructor(
     private object RetryConfig {
         const val MAX_RETRIES = 2
         const val INITIAL_DELAY_MS = 700L
-        const val MAX_DELAY_MS = 10000L
-        const val MAX_RATE_LIMIT_DELAY_MS = 30000L
-        const val BACKOFF_MULTIPLIER = 2.0
     }
 
     // Use centralized prompt system for consistency and maintainability
@@ -122,7 +123,7 @@ class OpenRouterClient @Inject constructor(
 
         val requestMessages = buildList {
             add(OpenRouterMessage.text(role = "system", content = systemPrompt))
-            addAll(sanitizeAndBuildRequestMessages(processedMessages))
+            addAll(sanitizeAndBuildRequestMessages(processedMessages, provider == LlmProvider.ANTHROPIC))
         }
 
         val candidateModels = provider.toolCandidates(model)
@@ -316,6 +317,7 @@ class OpenRouterClient @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.w(TAG, "describeImageForAgent: exception with $model: ${e.message}")
             }
         }
@@ -379,6 +381,7 @@ class OpenRouterClient @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.w(TAG, "describeImage: exception with $model: ${e.message}, trying next model")
             }
         }
@@ -476,7 +479,7 @@ class OpenRouterClient @Inject constructor(
     private suspend fun executeStream(request: Request, onEvent: suspend (ChatStreamEvent) -> Unit): ChatCompletionResult {
         return try {
             client.newCall(request).withCancellation { response ->
-                if (!response.isSuccessful) streamHttpError(response.code, response.body?.string().orEmpty()).copy(
+                if (!response.isSuccessful) streamHttpError(response.code, response.body?.readBoundedBytes(256 * 1024)?.decodeToString().orEmpty()).copy(
                     retryAfterMillis = response.header("Retry-After")?.toLongOrNull()?.coerceIn(0, 30)?.times(1000)
                 )
                 else {
@@ -497,82 +500,31 @@ class OpenRouterClient @Inject constructor(
 
     private suspend fun executeWithRetry(request: Request, onEvent: (suspend (ChatStreamEvent) -> Unit)? = null): ChatCompletionResult {
         if (onEvent != null) return retryStreamBeforeOutput(onEvent) { emit -> executeStream(request, emit) }
-        var lastException: Exception? = null
-        var delayMs = RetryConfig.INITIAL_DELAY_MS
-
-        repeat(RetryConfig.MAX_RETRIES) { attempt ->
-            val isLastAttempt = attempt == RetryConfig.MAX_RETRIES - 1
+        return retryStreamBeforeOutput({}, RetryConfig.MAX_RETRIES, RetryConfig.INITIAL_DELAY_MS) {
             try {
-                client.newCall(request).execute().use { response ->
-                    val responseBody = response.body?.string()
-
-                    // Check for rate limit from server
-                    if (response.code == 429) {
-                        if (isLastAttempt) {
-                            return ChatCompletionResult.Error(
-                                "Rate limited by the API (HTTP 429). Please retry shortly."
-                            )
-                        }
-                        // Honor Retry-After but never sleep unbounded on a hostile/large value.
-                        val retryAfterMs = (response.header("Retry-After")?.toLongOrNull() ?: 60) * 1000
-                        delay(retryAfterMs.coerceAtMost(RetryConfig.MAX_RATE_LIMIT_DELAY_MS))
-                        return@repeat // Retry
+                client.newCall(request).withCancellation { response ->
+                    val responseBody = if (response.isSuccessful) response.body?.string()
+                        else response.body?.readBoundedBytes(256 * 1024)?.decodeToString()
+                    when {
+                        response.code == 429 -> ChatCompletionResult.Error(
+                            "Rate limited by the API (HTTP 429). Please retry shortly.", retryable = true,
+                            retryAfterMillis = (response.header("Retry-After")?.toLongOrNull() ?: 30).coerceIn(0,30) * 1000)
+                        !response.isSuccessful -> ChatCompletionResult.Error(
+                            "API error: ${response.code} - ${responseBody ?: "Unknown error"}",
+                            retryable = response.code in 500..599)
+                        responseBody == null -> ChatCompletionResult.Error("Empty response from API")
+                        else -> parseResponse(request.tag(ChatProtocol::class.java)?.normalizeResponse(responseBody) ?: responseBody)
                     }
-
-                    // Check for server errors (5xx) - these are retryable
-                    if (response.code in 500..599) {
-                        lastException = IOException("Server error: ${response.code}")
-                        if (isLastAttempt) return@repeat
-                        delay(delayMs)
-                        delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
-                            .coerceAtMost(RetryConfig.MAX_DELAY_MS)
-                        return@repeat // Retry
-                    }
-
-                    // Client errors (4xx except 429) are not retryable
-                    if (!response.isSuccessful) {
-                        return ChatCompletionResult.Error(
-                            "API error: ${response.code} - ${responseBody ?: "Unknown error"}"
-                        )
-                    }
-
-                    if (responseBody == null) {
-                        return ChatCompletionResult.Error("Empty response from API")
-                    }
-
-                    return parseResponse(request.tag(ChatProtocol::class.java)?.normalizeResponse(responseBody) ?: responseBody)
                 }
-
             } catch (e: CancellationException) {
-                // Never report a cancelled request as a normal API failure.
                 throw e
-            } catch (e: SocketTimeoutException) {
-                lastException = e
-                if (!isLastAttempt) {
-                    delay(delayMs)
-                    delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
-                        .coerceAtMost(RetryConfig.MAX_DELAY_MS)
-                }
             } catch (e: IOException) {
-                if (isDnsResolutionFailure(e)) {
-                    return ChatCompletionResult.Error(LlmProvider.dnsFailureMessage(request.url.host))
-                }
-                lastException = e
-                if (!isLastAttempt) {
-                    delay(delayMs)
-                    delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
-                        .coerceAtMost(RetryConfig.MAX_DELAY_MS)
-                }
+                if (isDnsResolutionFailure(e)) ChatCompletionResult.Error(LlmProvider.dnsFailureMessage(request.url.host))
+                else ChatCompletionResult.Error("Request failed: ${e.message}", retryable = true)
             } catch (e: Exception) {
-                // Non-retryable exception
-                return ChatCompletionResult.Error("Request failed: ${e.message}")
+                ChatCompletionResult.Error("Request failed: ${e.message}")
             }
         }
-
-        return ChatCompletionResult.Error(
-            "Request failed after ${RetryConfig.MAX_RETRIES} attempts: " +
-                (lastException?.message ?: "no response from API")
-        )
     }
 
     /**
@@ -654,7 +606,10 @@ class OpenRouterClient @Inject constructor(
         }
     }
 
-    private fun sanitizeAndBuildRequestMessages(messages: List<ChatMessage>): List<OpenRouterMessage> {
+    internal fun sanitizeAndBuildRequestMessages(
+        messages: List<ChatMessage>,
+        preserveNativeContent: Boolean = false
+    ): List<OpenRouterMessage> {
         val requestMessages = mutableListOf<OpenRouterMessage>()
         val openToolCallIds = linkedSetOf<String>()
         val unresolvedAssistantToolCallIndexes = mutableListOf<Int>()
@@ -711,7 +666,7 @@ class OpenRouterClient @Inject constructor(
                         requestMessages.add(
                             OpenRouterMessage(
                                 role = "assistant",
-                                providerContentJson = msg.metadata?.providerContentJson,
+                                providerContentJson = if (preserveNativeContent) msg.metadata?.providerContentJson else null,
                                 content = if (msg.content.isEmpty()) null else JsonPrimitive(msg.content),
                                 toolCalls = sanitizedToolCalls.map { tc ->
                                     OpenRouterToolCall(
@@ -728,11 +683,12 @@ class OpenRouterClient @Inject constructor(
                         unresolvedAssistantToolCallIndexes.add(requestMessages.lastIndex)
                         openToolCallIds.clear()
                         openToolCallIds.addAll(sanitizedToolCalls.map { it.id })
-                    } else if (msg.content.isNotEmpty()) {
+                    } else if (msg.content.isNotEmpty() ||
+                        (preserveNativeContent && !msg.metadata?.providerContentJson.isNullOrBlank())) {
                         if (openToolCallIds.isNotEmpty()) {
                             dropUnresolvedToolCalls()
                         }
-                        requestMessages.add(OpenRouterMessage.text(role = "assistant", content = msg.content).copy(providerContentJson = msg.metadata?.providerContentJson))
+                        requestMessages.add(OpenRouterMessage.text(role = "assistant", content = msg.content).copy(providerContentJson = if (preserveNativeContent) msg.metadata?.providerContentJson else null))
                     }
                 }
 
@@ -1344,7 +1300,7 @@ class OpenRouterClient @Inject constructor(
                 role = "system",
                 content = customSystemPrompt ?: baseSystemPrompt
             ))
-            addAll(sanitizeAndBuildRequestMessages(compactMessages))
+            addAll(sanitizeAndBuildRequestMessages(compactMessages, selection.provider == LlmProvider.ANTHROPIC))
         }
 
         val request = limitedRequest(

@@ -382,6 +382,14 @@ class VesperAgent @Inject constructor(
                 }
 
                 is ChatCompletionResult.Success -> {
+                    // Keep the single-command contract even if a future client bypasses wire validation.
+                    if (result.toolCalls.orEmpty().size > 1) {
+                        _conversationState.value = _conversationState.value.copy(
+                            messages = currentMessages, isLoading = false, pendingApproval = null,
+                            progress = null, error = "Model returned multiple tool calls; one command per turn is required."
+                        )
+                        return _conversationState.value
+                    }
                     // Log AI response
                     auditService.log(
                         AuditEntry(
