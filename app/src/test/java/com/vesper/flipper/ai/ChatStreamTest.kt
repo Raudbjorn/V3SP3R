@@ -51,6 +51,11 @@ class ChatStreamTest {
         assertEquals("Hello", message["content"]!!.jsonPrimitive.content)
         assertEquals("assistant", Json.decodeFromString<OpenRouterResponse>(raw).choices.first().message.role)
     }
+    @Test fun `HTTP errors retain model fallback classification without echoing arbitrary bodies`() {
+        val error = streamHttpError(404, """{"error":{"message":"No endpoints found that support tool use"}}""")
+        assertTrue(error.message.contains("No endpoints found that support tool use"))
+        assertEquals("Streaming API error 502", streamHttpError(502, "<html>unexpected</html>").message)
+    }
     @Test fun `compatible tool fragments must form complete JSON before completion`() = runBlocking {
         val first = """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t","function":{"name":"execute_command","arguments":"{\"action\":"}}]}}]}"""
         val last = """{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"list_directory\"}"}}]}}]}"""

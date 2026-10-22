@@ -473,7 +473,7 @@ class OpenRouterClient @Inject constructor(
     private suspend fun executeStream(request: Request, onEvent: suspend (ChatStreamEvent) -> Unit): ChatCompletionResult {
         return try {
             client.newCall(request).withCancellation { response ->
-                if (!response.isSuccessful) ChatCompletionResult.Error("Streaming API error: ${response.code}")
+                if (!response.isSuccessful) streamHttpError(response.code, response.body?.string().orEmpty())
                 else {
                     val body = response.body ?: throw IOException("Empty stream")
                     val native = request.tag(ChatProtocol::class.java) == AnthropicChatProtocol

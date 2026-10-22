@@ -14,6 +14,16 @@ sealed interface ChatStreamEvent {
     data class Complete(val result: ChatCompletionResult) : ChatStreamEvent
 }
 
+/** Retain structured provider failures so the existing model fallback policy can classify them. */
+internal fun streamHttpError(status: Int, body: String): ChatCompletionResult.Error {
+    val detail = runCatching {
+        val root = Json.parseToJsonElement(body).jsonObject
+        (root["error"] as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull
+            ?: root["message"]?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.take(1000).orEmpty()
+    return ChatCompletionResult.Error("Streaming API error $status" + if (detail.isBlank()) "" else ": $detail")
+}
+
 /** Cancels the underlying socket even while a blocking body read is in progress. */
 internal suspend fun <T> Call.withCancellation(block: suspend (Response) -> T): T = coroutineScope {
     val call = this@withCancellation
