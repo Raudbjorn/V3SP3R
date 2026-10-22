@@ -256,7 +256,7 @@ class FlipperProtocol @Inject constructor() {
                 continue
             }
             onRpcDispatch()
-            val sent = service.sendData(data)
+            val sent = service.sendLegacyData(data)
             if (!sent) {
                 val reason = service.consumeLastWriteFailureReason()
                 val detail = if (reason.isNullOrBlank()) "" else ": $reason"
@@ -607,7 +607,7 @@ class FlipperProtocol @Inject constructor() {
 
     private suspend fun legacyTransportFallback(block: suspend () -> ProtocolResponse): ProtocolResponse {
         if (bleService?.isUsbCliSessionSelected() == true) return ProtocolResponse.Error("Reconnect in USB RPC mode for info/file operations")
-        if (bleService?.usesRpcOnlyCommandTransport() == true) {
+        if (bleService?.isRawCliTransportConnected() != true || bleService?.usesRpcOnlyCommandTransport() == true) {
             return ProtocolResponse.Error("RPC transport did not respond. Unlock the Flipper and reconnect; no text CLI commands were sent.")
         }
         return block()
@@ -1658,9 +1658,10 @@ class FlipperProtocol @Inject constructor() {
     }
 
     /**
-     * Send a CLI command to the Flipper.
-     * This sends commands in a format the Flipper CLI understands.
-     * Note: Requires Flipper firmware that supports CLI on the active transport.
+     * Routes mapped commands through RPC on BLE, Desktop Bridge and USB RPC.
+     * Unmapped commands fail on those routes. Explicit USB CLI sessions accept only
+     * supported typed actions through sendTypedUsbCommand/sendLoaderCommandOnce;
+     * this generic API never sends arbitrary text to a selected CLI session.
      */
     suspend fun sendCliCommand(command: String): ProtocolResponse {
         if (bleService?.isUsbCliSessionSelected() == true) return ProtocolResponse.Error("Use a supported typed USB action in CLI mode; reconnect in RPC mode for other tools")
@@ -1910,33 +1911,11 @@ class FlipperProtocol @Inject constructor() {
     }
 
     /**
-     * Send raw CLI text directly (for simple CLI interaction)
-     * This bypasses the protocol framing for direct serial passthrough
+     * Legacy raw-text entry point. RPC routes reject it, and selected USB CLI
+     * permits only typed actions through the dedicated confirmed-session sender.
      */
-    suspend fun sendRawCli(text: String): Boolean {
-        if (bleService?.isUsbCliSessionSelected() == true) return false
-        return withCommandLock(
-            operation = "raw CLI text send",
-            onTimeout = { false }
-        ) {
-            val service = bleService ?: run {
-                markCliUnavailable("Device service unavailable")
-                return@withCommandLock false
-            }
-            if (!ensureTransportConnected(service)) {
-                markCliUnavailable("Flipper command transport is not connected")
-                return@withCommandLock false
-            }
-            if (service.usesRpcOnlyCommandTransport()) return@withCommandLock false
-            val data = "$text\r\n".toByteArray(Charsets.UTF_8)
-            if (isRpcSessionControl(text)) onRpcDispatch()
-            val sent = service.sendData(data)
-            if (!sent) {
-                markCliUnavailable("Failed to send CLI data over active transport")
-            }
-            sent
-        }
-    }
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun sendRawCli(text: String): Boolean = false
 
     suspend fun probeCliAvailability(force: Boolean = false): CliCapabilityStatus {
         if (bleService?.isUsbCliSessionSelected() == true) return _cliStatus.value
@@ -3182,6 +3161,8 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long, usbOnly: Boolean = false): String {
+        // Only the typed USB entry points authorize text on an explicitly confirmed session.
+        if (!usbOnly || !isConfirmedUsbCliSession()) return ""
         ingressFailure?.let { throw ResponseCollectionException(it) }
         // Firmware probes must also avoid mixing textual CLI and active RPC streaming.
         if (screenFrameRouting) return ""
@@ -3197,7 +3178,7 @@ class FlipperProtocol @Inject constructor() {
             if (service == null) {
                 return ""
             }
-            val sent = if (usbOnly) service.sendUsbDataOnly(payload) else service.sendData(payload)
+            val sent = service.sendUsbDataOnly(payload)
             if (!sent) {
                 return ""
             }
@@ -3419,25 +3400,9 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
-    private suspend fun tryStartRpcSession(): Boolean {
-        if (bleService?.isUsbCliSessionSelected() == true) return false
-        onRpcDispatch()
-        val service = bleService ?: return false
-        if (service.usesRpcOnlyCommandTransport()) return false
-        val sessionCommands = listOf(
-            "start_rpc_session\r",
-            "start_rpc_session\r\n",
-            "start_rpc_session\n"
-        )
-        sessionCommands.forEach { command ->
-            val sent = service.sendData(command.toByteArray(Charsets.UTF_8))
-            if (sent) {
-                lastRpcActivityAtMs = System.currentTimeMillis()
-                return true
-            }
-        }
-        return false
-    }
+    // Session startup belongs to the captured-port USB bootstrap. Recovery must
+    // never send text that could transition a newly selected CLI connection.
+    private suspend fun tryStartRpcSession(): Boolean = false
 
     private suspend fun tryStopRpcSession(): Boolean {
         if (bleService?.usesRpcOnlyCommandTransport() == true) return false
@@ -3450,19 +3415,6 @@ class FlipperProtocol @Inject constructor() {
             return true
         }
 
-        val service = bleService ?: return false
-        val stopCommands = listOf(
-            "stop_rpc_session\r",
-            "stop_rpc_session\r\n",
-            "stop_rpc_session\n"
-        )
-        stopCommands.forEach { command ->
-            val sent = service.sendData(command.toByteArray(Charsets.UTF_8))
-            if (sent) {
-                lastRpcActivityAtMs = System.currentTimeMillis()
-                return true
-            }
-        }
         return false
     }
 

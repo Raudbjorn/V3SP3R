@@ -38,18 +38,13 @@ class DesktopBridgeRpcPolicyTest {
         Unit
     }
 
-    @Test fun `USB retains raw CLI support`() = runBlocking {
+    @Test fun `USB RPC rejects generic raw CLI`() = runBlocking<Unit> {
         val service = mock<FlipperBleService>()
-        whenever(service.usesRpcOnlyCommandTransport()).thenReturn(false)
-        whenever(service.isCommandTransportConnected()).thenReturn(true)
-        whenever(service.awaitCommandTransportReady(any())).thenReturn(true)
-        whenever(service.sendData(any(), any(), any(), any())).thenReturn(true)
+        whenever(service.usesRpcOnlyCommandTransport()).thenReturn(true)
         val protocol = FlipperProtocol().apply { setBleService(service) }
-        assertTrue(protocol.sendRawCli("version"))
-        val bytes = argumentCaptor<ByteArray>()
-        verify(service).sendData(bytes.capture(), any(), any(), any())
-        assertArrayEquals("version\r\n".toByteArray(), bytes.firstValue)
-        Unit
+        assertFalse(protocol.sendRawCli("version"))
+        verify(service, never()).sendData(any(), any(), any(), any())
+        verify(service, never()).sendUsbDataOnly(any())
     }
     @Test fun `failed desktop bridge storage query never falls back to legacy framing`() = runBlocking {
         val service = mock<FlipperBleService>()

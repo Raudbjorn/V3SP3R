@@ -1600,6 +1600,12 @@ class FlipperBleService : Service() {
         return sendDataOverUsb(data, preferNoResponse = false, typedCli = true)
     }
 
+    /** Compatibility binary frames are bound to the current USB RPC port, never text/CLI. */
+    suspend fun sendLegacyData(data: ByteArray): Boolean {
+        if (!isUsbCommandTransportConnected() || usbSessionMode != UsbSessionMode.RPC) return false
+        return sendDataOverUsb(data, preferNoResponse = false)
+    }
+
     private suspend fun sendDataOverUsb(
         data: ByteArray,
         preferNoResponse: Boolean,
@@ -1827,20 +1833,11 @@ class FlipperBleService : Service() {
         telemetrySession: Long,
         block: suspend () -> T
     ): T? {
-        val lockAcquired = withTimeoutOrNull(lockTimeoutMs) {
-            writeMutex.lock()
-            true
-        } ?: false
-        if (!lockAcquired) {
-            writeFailures.record(timeoutReason, telemetrySession)
-            return null
-        }
-
-        return try {
-            block()
-        } finally {
-            writeMutex.unlock()
-        }
+        return writeMutex.withAcquisitionTimeout(
+            timeoutMs = lockTimeoutMs,
+            onTimeout = { writeFailures.record(timeoutReason, telemetrySession); null },
+            block = block
+        )
     }
 
     private fun failPendingWriteAck() {
@@ -2194,11 +2191,12 @@ class FlipperBleService : Service() {
         return flipperProtocol.probeCliAvailability(force)
     }
 
-    // Physical BLE and the primed desktop host both consume RPC, not text CLI.
+    // Physical BLE, the desktop host and explicitly selected USB RPC consume protobuf.
     fun usesBleCommandTransport(): Boolean = activeTransport == CommandTransport.BLE
 
     fun usesRpcOnlyCommandTransport(): Boolean =
-        usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE
+        usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE ||
+            (activeTransport == CommandTransport.USB && usbSessionMode == UsbSessionMode.RPC)
     /** Raw shell commands are available only on an established USB serial connection. */
     fun isRawCliTransportConnected(): Boolean = isUsbCommandTransportConnected()
     /** Called only after the protocol matches an incoming response to its request. */
