@@ -13,10 +13,12 @@ Tests cover risk policy, invalid input, uncertain input without duplicate CLI fa
 Loader operations use exactly one CRLF-terminated command through a USB-only sink.
 Echo-only or missing output is reported as an unconfirmed outcome, with no newline,
 variant, session-recovery, or BLE fallback retry. Dispatch requires confirmed
-CLI-only capability; USB port identity is checked before each write chunk. The
+current CLI session; USB port identity is checked before each write chunk. The
 checked-in execute-command JSON schema includes all four actions and arguments.
 
 Merge #20 first: its acknowledged GUI sequence and bounded release cleanup cover
 the shared input implementation used by this feature. When merging typed USB
 operations, keep their explicit CLI session-mode check in `sendUsbDataOnly` and the
 screen router's lower collector guard before both USB and generic write sinks.
+
+USB loader eligibility follows the currently observed session, separately from remembered firmware capabilities. A confirmed CLI response permits loader controls even if RPC worked earlier; reset, RPC dispatch, and RPC session controls revoke CLI confirmation. Local error messages and RPC results do not establish CLI readiness. When combining with explicit USB mode selection, require both the selected CLI mode and this current-session confirmation; preserve the USB-only writer's connection checks.
