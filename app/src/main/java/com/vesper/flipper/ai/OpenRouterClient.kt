@@ -844,6 +844,7 @@ class OpenRouterClient @Inject constructor(
                 }
             }
 
+            fun doubleArg(name: String): Double? = (argsObject[name]?.jsonPrimitive ?: root[name]?.jsonPrimitive)?.contentOrNull?.toDoubleOrNull()
             val args = CommandArgs(
                 command = stringArg("command", "cmd", "query", "app_id", "appId", "app", "package", "name"),
                 path = stringArg("path", "file_path", "filepath"),
@@ -875,7 +876,11 @@ class OpenRouterClient @Inject constructor(
                 downloadUrl = stringArg("download_url", "downloadUrl", "url"),
                 searchScope = stringArg("search_scope", "searchScope", "scope"),
                 // Smartglasses camera
-                photoPrompt = stringArg("photo_prompt", "photoPrompt")
+                photoPrompt = stringArg("photo_prompt", "photoPrompt"),
+                duration = doubleArg("duration"),
+                uuid = stringArg("uuid"),
+                hex = booleanArg("hex"),
+                withResponse = booleanArg("with_response")
             )
 
             val missingArgs = missingRequiredArgs(action, args)
@@ -947,6 +952,11 @@ class OpenRouterClient @Inject constructor(
             "ble_spam", "blespam", "ble_advertisement_spam" -> CommandAction.BLE_SPAM
             "led_control", "set_led", "led" -> CommandAction.LED_CONTROL
             "vibro_control", "vibro", "vibration" -> CommandAction.VIBRO_CONTROL
+            "ble_scan_targets" -> CommandAction.BLE_SCAN_TARGETS
+            "ble_enumerate" -> CommandAction.BLE_ENUMERATE
+            "ble_read_char" -> CommandAction.BLE_READ_CHAR
+            "ble_write_char" -> CommandAction.BLE_WRITE_CHAR
+            "ble_subscribe" -> CommandAction.BLE_SUBSCRIBE
             "request_photo", "take_photo", "capture_photo", "photo", "snap_photo" -> CommandAction.REQUEST_PHOTO
             else -> null
         }
@@ -1166,6 +1176,11 @@ class OpenRouterClient @Inject constructor(
             CommandAction.BLE_SPAM -> emptyList()  // no required args
             CommandAction.LED_CONTROL -> emptyList()  // defaults to 0,0,0
             CommandAction.VIBRO_CONTROL -> emptyList()  // defaults to on
+            CommandAction.BLE_SCAN_TARGETS -> emptyList()
+            CommandAction.BLE_ENUMERATE -> emptyList()
+            CommandAction.BLE_READ_CHAR -> emptyList()
+            CommandAction.BLE_WRITE_CHAR -> emptyList()
+            CommandAction.BLE_SUBSCRIBE -> emptyList()
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1230,6 +1245,11 @@ class OpenRouterClient @Inject constructor(
                 """{"action":"download_resource","args":{"download_url":"https://raw.githubusercontent.com/...","path":"/ext/infrared/remote.ir"}}"""
             CommandAction.GITHUB_SEARCH ->
                 """{"action":"github_search","args":{"command":"Samsung TV remote extension:ir","search_scope":"code"}}"""
+            CommandAction.BLE_SCAN_TARGETS -> """{"action":"ble_scan_targets","args":{}}"""
+            CommandAction.BLE_ENUMERATE -> """{"action":"ble_enumerate","args":{}}"""
+            CommandAction.BLE_READ_CHAR -> """{"action":"ble_read_char","args":{}}"""
+            CommandAction.BLE_WRITE_CHAR -> """{"action":"ble_write_char","args":{}}"""
+            CommandAction.BLE_SUBSCRIBE -> """{"action":"ble_subscribe","args":{}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }
@@ -1512,6 +1532,7 @@ class OpenRouterClient @Inject constructor(
                                 JsonPrimitive("browse_repo"),
                                 JsonPrimitive("download_resource"),
                                 JsonPrimitive("github_search"),
+                                JsonPrimitive("ble_scan_targets"),JsonPrimitive("ble_enumerate"),JsonPrimitive("ble_read_char"),JsonPrimitive("ble_write_char"),JsonPrimitive("ble_subscribe"),
                                 JsonPrimitive("request_photo")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero (request_photo requires smart glasses)")
@@ -1637,6 +1658,10 @@ class OpenRouterClient @Inject constructor(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Scope for github_search: 'repositories' (find repos) or 'code' (find files). Default: 'code'. Use 'code' with file extensions like 'extension:ir' or 'extension:sub'.")
                                 )),
+                                "duration" to JsonObject(mapOf("type" to JsonPrimitive("number"), "description" to JsonPrimitive("duration for feature-specific actions"))),
+                                "uuid" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("uuid for feature-specific actions"))),
+                                "hex" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("hex for feature-specific actions"))),
+                                "with_response" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("with_response for feature-specific actions"))),
                                 "photo_prompt" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Vision analysis prompt for request_photo. Describe what you want to identify (e.g. 'Identify the TV brand and model', 'What device is this?'). Falls back to 'prompt' if not set.")

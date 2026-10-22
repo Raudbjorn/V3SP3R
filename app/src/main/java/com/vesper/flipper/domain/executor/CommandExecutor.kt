@@ -39,6 +39,8 @@ class CommandExecutor @Inject constructor(
     private val settingsStore: SettingsStore
 ) {
 
+    @Inject lateinit var bleRecon: com.vesper.flipper.ble.BleReconService
+
     private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
 
     private val _currentApproval = MutableStateFlow<PendingApproval?>(null)
@@ -97,7 +99,7 @@ class CommandExecutor @Inject constructor(
             }
 
             RiskLevel.HIGH -> {
-                val autoApprove = settingsStore.autoApproveHigh.first()
+                val autoApprove = command.action !in setOf(CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE) && settingsStore.autoApproveHigh.first()
                 if (autoApprove) {
                     executeDirectly(
                         command = command,
@@ -374,8 +376,41 @@ class CommandExecutor @Inject constructor(
         )
     }
 
+    private suspend fun executePhoneBle(command: ExecuteCommand): CommandResultData {
+        val args = command.args
+        val duration = args.duration ?: 5.0
+        require(duration.isFinite() && duration in 0.5..60.0) { "duration must be 0.5..60 seconds" }
+        val timeout = (duration * 1000).toLong()
+        if (command.action == CommandAction.BLE_SCAN_TARGETS) {
+            val devices = bleRecon.scan(timeout, args.command, -100).getOrThrow()
+            return CommandResultData(content = devices.joinToString("\n") { "${it.address} ${it.name} RSSI=${it.rssi} ${it.serviceUuids}" })
+        }
+        val address = args.address?.uppercase() ?: error("BLE address required")
+        require(address.matches(Regex("(?:[0-9A-F]{2}:){5}[0-9A-F]{2}"))) { "Invalid BLE address" }
+        if (command.action == CommandAction.BLE_ENUMERATE) return CommandResultData(content = bleRecon.enumerate(address, timeout).getOrThrow().toString())
+        val uuid = java.util.UUID.fromString(args.uuid ?: error("Characteristic UUID required"))
+        val content = when (command.action) {
+            CommandAction.BLE_READ_CHAR -> bleRecon.readCharacteristic(address, uuid, timeout).getOrThrow().joinToString("") { "%02x".format(it) }
+            CommandAction.BLE_WRITE_CHAR -> {
+                val raw = args.content ?: error("Write payload required")
+                val bytes = if (args.hex != false) {
+                    require(raw.matches(Regex("(?:[0-9a-fA-F]{2}){1,512}"))) { "Expected 1..512 hexadecimal bytes" }
+                    raw.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                } else raw.toByteArray(Charsets.UTF_8)
+                bleRecon.writeCharacteristic(address, uuid, bytes, args.withResponse != false, timeout).getOrThrow()
+                "Wrote ${bytes.size} bytes"
+            }
+            CommandAction.BLE_SUBSCRIBE -> bleRecon.subscribe(address, uuid, timeout, 10000L).getOrThrow().joinToString("\n") { value -> value.joinToString("") { "%02x".format(it) } }
+            else -> error("Unsupported BLE action")
+        }
+        return CommandResultData(content = content)
+    }
+
     private suspend fun executeAction(command: ExecuteCommand): CommandResultData? {
         return when (command.action) {
+            CommandAction.BLE_SCAN_TARGETS, CommandAction.BLE_ENUMERATE, CommandAction.BLE_READ_CHAR,
+            CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE -> executePhoneBle(command)
+
             CommandAction.LIST_DIRECTORY -> {
                 val path = command.args.path ?: "/ext"
                 val entries = fileSystem.listDirectory(path).getOrThrow()

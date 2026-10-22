@@ -42,7 +42,14 @@ class RiskAssessor @Inject constructor(
 
         // Assess based on action type
         return when (command.action) {
+            CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE -> RiskAssessment(
+                level = RiskLevel.HIGH, reason = "Phone-side BLE state change requires explicit approval", affectedPaths = paths,
+                requiresDiff = false, requiresConfirmation = true)
+
             // LOW risk: read-only operations
+            CommandAction.BLE_SCAN_TARGETS,
+            CommandAction.BLE_ENUMERATE,
+            CommandAction.BLE_READ_CHAR,
             CommandAction.LIST_DIRECTORY,
             CommandAction.READ_FILE,
             CommandAction.GET_DEVICE_INFO,

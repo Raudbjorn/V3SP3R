@@ -116,7 +116,17 @@ enum class CommandAction {
     // ── Smartglasses camera ───────────────────────────────────
 
     @SerialName("request_photo")
-    REQUEST_PHOTO
+    REQUEST_PHOTO,
+    @SerialName("ble_scan_targets")
+    BLE_SCAN_TARGETS,
+    @SerialName("ble_enumerate")
+    BLE_ENUMERATE,
+    @SerialName("ble_read_char")
+    BLE_READ_CHAR,
+    @SerialName("ble_write_char")
+    BLE_WRITE_CHAR,
+    @SerialName("ble_subscribe")
+    BLE_SUBSCRIBE,
 }
 
 @Serializable
@@ -165,7 +175,11 @@ data class CommandArgs(
     @SerialName("search_scope")
     val searchScope: String? = null,
     @SerialName("photo_prompt")
-    val photoPrompt: String? = null
+    val photoPrompt: String? = null,
+    val duration: Double? = null,
+    val uuid: String? = null,
+    val hex: Boolean? = null,
+    @SerialName("with_response") val withResponse: Boolean? = null
 )
 
 /**
