@@ -697,13 +697,10 @@ class CommandExecutor @Inject constructor(
         appIdOrName: String,
         directDownloadUrl: String?
     ): CommandResultData {
-        require(directDownloadUrl.isNullOrBlank() || directDownloadUrl.startsWith("https://lab.flipper.net/apps/")) {
-            "Catalog installations require a verified catalog build. Use download_resource for other files."
+        require(directDownloadUrl.isNullOrBlank()) {
+            "Catalog installation accepts only an exact app ID; download_url is unsupported."
         }
-        val catalog = appCatalog
-        val app = catalog.apps().firstOrNull { it.id == appIdOrName }
-            ?: throw IllegalArgumentException("Use an exact app ID returned by search_faphub")
-        return CommandResultData(message = installCatalogApp(fileSystem, catalog, app.id))
+        return CommandResultData(message = installCatalogApp(fileSystem, appCatalog, appIdOrName))
     }
 
     private fun resolveCatalogFapApp(appIdOrName: String): FapApp? {

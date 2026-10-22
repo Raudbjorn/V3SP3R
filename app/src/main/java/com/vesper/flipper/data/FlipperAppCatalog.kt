@@ -3,6 +3,12 @@ package com.vesper.flipper.data
 import com.vesper.flipper.domain.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
 import kotlinx.serialization.json.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -24,11 +30,12 @@ class FlipperAppCatalog(
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun apps(): List<FapApp> = withContext(Dispatchers.IO) {
-        val categories = json.parseToJsonElement(fetch("$baseUrl/category").decodeToString())
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+        val categories = json.parseToJsonElement(fetch("$baseUrl/category", deadline).decodeToString())
             .jsonArray.associate { it.jsonObject.text("_id") to it.jsonObject.text("name") }
         val result = mutableListOf<FapApp>()
         for (page in 0 until 20) {
-            val rows = json.parseToJsonElement(fetch("$baseUrl/application?limit=100&offset=${page * 100}").decodeToString()).jsonArray
+            val rows = json.parseToJsonElement(fetch("$baseUrl/application?limit=100&offset=${page * 100}", deadline).decodeToString()).jsonArray
             rows.forEach { row ->
                 val obj = row.jsonObject
                 val version = obj["current_version"] as? JsonObject ?: return@forEach
@@ -63,7 +70,7 @@ class FlipperAppCatalog(
         val build = version["current_build"] as? JsonObject
             ?: throw IOException("No compatible build of $alias for $target / API $api")
         val sdk = build["sdk"] as? JsonObject ?: throw IOException("Catalog build has no compatibility metadata")
-        if (sdk.text("target") != target || sdk.text("api").substringBefore('.') != api.substringBefore('.')) {
+        if (sdk.text("target") != target || !compatibleApi(sdk.text("api"), api)) {
             throw IOException("Catalog returned an incompatible build; nothing was installed")
         }
         val versionId = version.text("_id")
@@ -75,28 +82,54 @@ class FlipperAppCatalog(
         val category = categories.firstOrNull { it.jsonObject.text("_id") == detail.text("category_id") }
             ?.jsonObject?.text("name") ?: "Tools"
         require(category.matches(Regex("[A-Za-z0-9 -]+"))) { "Invalid catalog category" }
-        CatalogBinary(alias, version.text("name"), version.text("version"), bytes, url, category)
+        CatalogBinary(alias, version.text("name"), version.text("version"), bytes, url, categoryDirectory(category))
     }
 
-    private fun fetch(url: String): ByteArray = client.newCall(Request.Builder().url(url)
-        .header("User-Agent", "Vesper-local-repair/1").build()).execute().use { response ->
-        if (!response.isSuccessful) throw IOException("Catalog HTTP ${response.code}: no file installed")
-        val body = response.body ?: throw IOException("Empty catalog response")
-        if (body.contentLength() > MAX_BYTES) throw IOException("Catalog response is too large")
-        body.byteStream().use { stream ->
-            val out = java.io.ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-            while (true) {
-                val count = stream.read(buffer)
-                if (count < 0) break
-                if (out.size() + count > MAX_BYTES) throw IOException("Catalog response is too large")
-                out.write(buffer, 0, count)
-            }
-            out.toByteArray()
+    private suspend fun fetch(url: String, deadline: Long = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)): ByteArray {
+        if (System.nanoTime() >= deadline) throw IOException("Catalog operation timed out")
+        val call = client.newCall(Request.Builder().url(url).header("User-Agent", "Vesper/1").build())
+        call.timeout().deadlineNanoTime(deadline)
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) { if (continuation.isActive) continuation.resumeWithException(e) }
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val bytes = response.use {
+                            if (!response.isSuccessful) throw IOException("Catalog HTTP ${response.code}: no file installed")
+                            val body = response.body ?: throw IOException("Empty catalog response")
+                            if (body.contentLength() > MAX_BYTES) throw IOException("Catalog response is too large")
+                            body.byteStream().use { stream ->
+                                val out = java.io.ByteArrayOutputStream()
+                                val buffer = ByteArray(8192)
+                                while (true) {
+                                    val count = stream.read(buffer)
+                                    if (count < 0) break
+                                    if (out.size() + count > MAX_BYTES) throw IOException("Catalog response is too large")
+                                    out.write(buffer, 0, count)
+                                }
+                                out.toByteArray()
+                            }
+                        }
+                        if (continuation.isActive) continuation.resume(bytes)
+                    } catch (e: IOException) {
+                        if (continuation.isActive) continuation.resumeWithException(e)
+                    }
+                }
+            })
         }
     }
 
     companion object {
+        internal fun categoryDirectory(label: String): String =
+            (FapCategory.entries.firstOrNull { it.displayName.equals(label, true) } ?: FapCategory.MISC).name.lowercase()
+        private fun compatibleApi(required: String, device: String): Boolean {
+            fun parse(value: String): List<Int>? = value.split('.').takeIf { it.size == 2 }
+                ?.map { it.toIntOrNull() ?: return null }?.takeIf { it.all { n -> n >= 0 } }
+            val need = parse(required) ?: return false
+            val have = parse(device) ?: return false
+            return need[0] == have[0] && need[1] <= have[1]
+        }
         private val SAFE_ID = Regex("[A-Za-z0-9_-]+")
         private const val MAX_BYTES = 10 * 1024 * 1024
         internal fun validateBinary(bytes: ByteArray, expectedSha256: String) {
