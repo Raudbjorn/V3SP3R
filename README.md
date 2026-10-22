@@ -13,7 +13,7 @@
 
 No menus. No manuals. Just natural language prompting.
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-green.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2-purple.svg)](https://kotlinlang.org)
 
@@ -267,7 +267,7 @@ Install via USB debugging or transfer the APK to your phone.
 </details>
 
 ### 4. First Launch
-1. **Grant permissions** — Allow Bluetooth/Nearby devices. Android 11 and earlier also require Location for BLE scanning; Notifications are optional.
+1. **Grant permissions** — On Android 12+, allow Nearby devices. On Android 11 and earlier, allow Location for BLE scanning. Notifications are optional.
 2. **Add your API key** — Settings > select your provider and enter that provider’s API key (OpenRouter is the default)
 3. **Connect** — Device tab > Scan > tap your Flipper
 4. **Go** — Chat tab > start talking to your Flipper
@@ -479,7 +479,7 @@ Found a vulnerability? Please report it responsibly. See [SECURITY.md](SECURITY.
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE) for the full text.
+AGPL-3.0 — see [LICENSE](LICENSE) for the full text.
 
 ---
 
