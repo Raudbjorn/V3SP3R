@@ -1547,7 +1547,7 @@ class OpenRouterClient @Inject constructor(
                                 )),
                                 "download_url" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Direct download URL. For install_faphub_app: optional .fap URL override. For download_resource: required source URL (from browse_repo results).")
+                                    "description" to JsonPrimitive("Direct source URL for download_resource (from browse_repo results). Catalog installs use an exact app_id and verified firmware-compatible builds, not URL overrides.")
                                 )),
                                 "new_name" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),

@@ -939,7 +939,9 @@ class FlipperProtocol @Inject constructor() {
                 firmwareVersion = firmwareVersion,
                 hardwareVersion = hardwareVersion,
                 batteryLevel = batteryLevel.coerceIn(0, 100),
-                isCharging = isCharging
+                isCharging = isCharging,
+                firmwareTarget = com.vesper.flipper.data.FirmwareCatalogMetadata.target(deviceInfoPairs["firmware_target"]),
+                firmwareApi = com.vesper.flipper.data.FirmwareCatalogMetadata.api(deviceInfoPairs)
             ),
             storageInfo = storageInfo
         )

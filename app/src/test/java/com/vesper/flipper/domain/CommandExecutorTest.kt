@@ -14,6 +14,10 @@ import com.vesper.flipper.domain.service.AuditService
 import com.vesper.flipper.domain.service.DiffService
 import com.vesper.flipper.domain.service.PermissionService
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.flowOf
+import com.vesper.flipper.data.SettingsStore
+import com.vesper.flipper.data.FlipperAppCatalog
+import com.vesper.flipper.domain.model.FapHubCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -44,12 +48,20 @@ class CommandExecutorTest {
         permissionService = mock()
         auditService = mock()
         diffService = mock()
+        val settingsStore: SettingsStore = mock()
+        whenever(settingsStore.autoApproveMedium).thenReturn(flowOf(false))
+        whenever(settingsStore.autoApproveHigh).thenReturn(flowOf(false))
+        val appCatalog: FlipperAppCatalog = mock()
+        runBlocking { whenever(appCatalog.apps()).thenReturn(FapHubCatalog.allApps) }
         commandExecutor = CommandExecutor(
             fileSystem = fileSystem,
             riskAssessor = riskAssessor,
             permissionService = permissionService,
             auditService = auditService,
-            diffService = diffService
+            diffService = diffService,
+            forgeEngine = mock(),
+            settingsStore = settingsStore,
+            appCatalog = appCatalog
         )
     }
 
