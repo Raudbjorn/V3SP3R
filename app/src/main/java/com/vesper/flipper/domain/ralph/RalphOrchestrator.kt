@@ -54,10 +54,10 @@ class RalphOrchestrator(private val context: Context) {
     }
     suspend fun kill() {
         CampaignStore(context).use { store ->
-            val pending = store.rows().filter { it.state == "approval" }
+            val pending = store.pendingApprovals()
             store.killAll()
             work.cancelAllWorkByTag(TAG)
-            pending.forEach { row -> row.approval?.let { executor(context).reject(it,"campaign-${row.id}") } }
+            pending.forEach { (id, approval) -> executor(context).reject(approval,"campaign-$id") }
         }
     }
     companion object { const val TAG = "ralph-experimental" }
@@ -88,7 +88,10 @@ class PhaseWorker(context: Context, params: WorkerParameters): CoroutineWorker(c
                         check(store.enabled && !isStopped && store.get(id)?.state == "executing") { "Campaign stopped before execution" }
                         val result = executor(applicationContext).execute(phase.commands[row.step],"campaign-$id")
                         val claimed = store.get(id) ?: error("Campaign disappeared")
-                        if (claimed.state == "cancelled") return@withTimeout
+                        if (claimed.state == "cancelled" || !store.enabled) {
+                            result.pendingApprovalId?.let { executor(applicationContext).reject(it,"campaign-$id") }
+                            return@withTimeout
+                        }
                         if (result.requiresConfirmation) {
                             val expires = minOf(System.currentTimeMillis()+5*60*1000,row.plan.expiresAt,row.phaseStarted+phase.timeoutMs)
                             store.transition(claimed,"approval","Review ${phase.name} step ${row.step+1}",approval=result.pendingApprovalId,approvalExpires=expires)
