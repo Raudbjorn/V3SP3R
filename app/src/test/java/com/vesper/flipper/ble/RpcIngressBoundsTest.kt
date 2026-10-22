@@ -42,7 +42,7 @@ class RpcIngressBoundsTest {
     @Test fun `single oversized notification fails closed without retaining it`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         protocol.processIncomingData(ByteArray(64 * 1024 + 1))
-        val result = protocol.sendRawCliCommand("version")
+        val result = protocol.readFileBinary("/ext/test.bin")
         assertTrue(result is ProtocolResponse.Error)
         assertTrue((result as ProtocolResponse.Error).message.contains("capacity"))
         protocol.onConnectionReset()
