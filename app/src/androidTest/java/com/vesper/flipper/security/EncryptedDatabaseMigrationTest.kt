@@ -22,7 +22,7 @@ import java.util.UUID
 class EncryptedDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
-    @Test fun freshDatabaseIsEncryptedAndWrongStoredKeyPreservesItsBytes() = runBlocking {
+    @Test fun freshDatabaseIsEncryptedAndWrongStoredKeyPreservesItsBytes(): Unit = runBlocking {
         val name = "fresh-" + UUID.randomUUID()
         val encrypted = Room.databaseBuilder(context, VesperDatabase::class.java, name)
             .openHelperFactory(EncryptedDatabaseFactory.create(context, name)).build()
@@ -51,7 +51,7 @@ class EncryptedDatabaseMigrationTest {
         context.deleteDatabase(name)
     }
 
-    @Test fun preservesRealRoomChatAndAuditRowsAcrossPlaintextUpgrade() = runBlocking {
+    @Test fun preservesRealRoomChatAndAuditRowsAcrossPlaintextUpgrade(): Unit = runBlocking {
         val name = "migration-" + UUID.randomUUID()
         val plaintext = Room.databaseBuilder(context, VesperDatabase::class.java, name).build()
         val message = ChatMessageEntity("msg", "user", "private conversation 🔒", 42,
@@ -75,7 +75,7 @@ class EncryptedDatabaseMigrationTest {
         context.deleteDatabase(name)
     }
 
-    @Test fun upgradesVersionOneWithoutDiscardingMessages() = runBlocking {
+    @Test fun upgradesVersionOneWithoutDiscardingMessages(): Unit = runBlocking {
         val name = "v1-" + UUID.randomUUID()
         val file = context.getDatabasePath(name)
         file.parentFile!!.mkdirs()
@@ -112,7 +112,7 @@ class EncryptedDatabaseMigrationTest {
                 { if (stop && it == crash) error("simulated death") })
             try { conversion(true).run(); fail("Expected interruption") } catch (_: IllegalStateException) {}
             conversion(false).run()
-            SQLiteDatabase.openDatabase(source.path, "test-key", null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            SQLiteDatabase.openDatabase(source.path, "test-key", null, SQLiteDatabase.OPEN_READONLY, null).use { db ->
                 db.rawQuery("SELECT value FROM evidence", emptyArray<String>()).use {
                     assertTrue(it.moveToFirst()); assertEquals("preserve after crash", it.getString(0))
                 }
@@ -121,7 +121,7 @@ class EncryptedDatabaseMigrationTest {
         }
     }
 
-    @Test fun preservesTrackedDeviceDatabase() = runBlocking {
+    @Test fun preservesTrackedDeviceDatabase(): Unit = runBlocking {
         val name = "devices-" + UUID.randomUUID()
         val original = Room.databaseBuilder(context, DeviceDatabase::class.java, name).build()
         val device = TrackedDevice(identifier = "AA:BB:CC", name = "test device", type = DeviceType.BLE)
@@ -157,7 +157,7 @@ class EncryptedDatabaseMigrationTest {
         } catch (_: IllegalStateException) { }
         EncryptedDatabaseFactory.export(snapshot, target, "correct-passphrase")
         EncryptedDatabaseFactory.validate(target, "correct-passphrase")
-        SQLiteDatabase.openDatabase(target.path, "correct-passphrase", null, SQLiteDatabase.OPEN_READONLY).use { db ->
+        SQLiteDatabase.openDatabase(target.path, "correct-passphrase", null, SQLiteDatabase.OPEN_READONLY, null).use { db ->
             assertEquals(2, db.version)
             db.rawQuery("SELECT value FROM sample", emptyArray<String>()).use {
                 assertTrue(it.moveToFirst()); assertArrayEquals(byteArrayOf(0, 1, -1), it.getBlob(0))

@@ -22,7 +22,6 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         applicationId = "com.vesper.flipper"
         minSdk = 26
         targetSdk = 35
