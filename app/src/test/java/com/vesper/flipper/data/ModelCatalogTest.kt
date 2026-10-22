@@ -17,4 +17,13 @@ class ModelCatalogTest {
     @Test fun `offline catalog never selects an image only default`() {
         assertFalse(SettingsStore.FALLBACK_MODELS.any { it.id.contains("flash-image") })
     }
+    @Test fun `meta llama uses deliberate Meta provider rank`() {
+        val models = OpenRouterModelCatalog().parseCatalog("""{"data":[
+          {"id":"unknown/new","supported_parameters":["tools"],"created":99},
+          {"id":"minimax/new","supported_parameters":["tools"],"created":99},
+          {"id":"meta-llama/llama","supported_parameters":["tools"],"created":1},
+          {"id":"moonshotai/kimi","supported_parameters":["tools"],"created":1}
+        ]}""")
+        assertEquals(listOf("moonshotai/kimi", "meta-llama/llama", "minimax/new", "unknown/new"), models.map { it.id })
+    }
 }

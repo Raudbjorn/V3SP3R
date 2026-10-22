@@ -31,7 +31,10 @@ class OpenRouterModelCatalog @Inject constructor() {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    suspend fun fetchLatestByManufacturer(): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
+    /** Returns all eligible live tool models, or static choices if no eligible entries remain.
+     * HTTP, transport and malformed-payload failures are returned to the caller as failures.
+     */
+    suspend fun fetchToolModels(): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
                 .url(MODELS_URL)
@@ -166,7 +169,7 @@ class OpenRouterModelCatalog @Inject constructor() {
             Manufacturer("qwen", "Qwen"),
             Manufacturer("deepseek", "DeepSeek"),
             Manufacturer("moonshotai", "Moonshot"),
-            Manufacturer("meta", "Meta"),
+            Manufacturer("meta-llama", "Meta"),
             Manufacturer("minimax", "MiniMax")
         )
     }
