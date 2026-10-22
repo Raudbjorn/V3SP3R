@@ -22,8 +22,8 @@ import java.io.File
  * The parse is intentionally strict: each `CommandAction` entry must have a preceding
  * `@SerialName("literal")`, and the extracted literal is the JSON action string.
  *
- * Nothing in the codebase reads this JSON at runtime — it exists as a contract for humans and for
- * LLM tool definitions. The verify task therefore compares parsed JSON (semantic equivalence),
+ * The JSON is a contract for documentation and MCP schema consumers.
+ * The verify task compares parsed JSON (semantic equivalence),
  * not raw text.
  */
 object ExecuteCommandSchemaGenerator {
@@ -76,7 +76,7 @@ object ExecuteCommandSchemaGenerator {
 
     private val ARGS: List<ArgSpec> = listOf(
         ArgSpec("command", "string",
-            "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id. For load_skill: the skill id."),
+            "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id."),
         ArgSpec("path", "string",
             "File or directory path on Flipper (e.g., /ext/subghz/garage.sub). Also the source path for move/copy/rename, target path for push_artifact/download_resource, and signal file for subghz_transmit/ir_transmit/nfc_emulate/rfid_emulate/ibutton_emulate/badusb_execute."),
         ArgSpec("destination_path", "string", "Destination path for move/copy operations"),
@@ -97,7 +97,7 @@ object ExecuteCommandSchemaGenerator {
         ArgSpec("app_args", "string", "Arguments passed to the launched app; also used as the ble_spam mode string"),
         ArgSpec("frequency", "integer", "Frequency in Hz for SubGHz operations"),
         ArgSpec("protocol", "string", "Protocol name for SubGHz/IR/NFC operations"),
-        ArgSpec("address", "string", "Address/identifier: hex address for SubGHz transmit; BLE MAC (AA:BB:CC:DD:EE:FF) for ble_enumerate/read_char/write_char/subscribe"),
+        ArgSpec("address", "string", "Address/identifier for SubGHz transmit"),
         ArgSpec("signal_name", "string", "Named signal for IR transmit operations"),
         ArgSpec("enabled", "boolean", "On/off state (for vibro_control action; defaults to true)"),
         ArgSpec("red", "integer", "Red LED intensity 0-255 (for led_control action)"),
@@ -312,7 +312,7 @@ object ExecuteCommandSchemaGenerator {
     // ─── Parsing Command.kt ───────────────────────────────────────────────────
 
     private val serialNameRegex = Regex("""@SerialName\("([^"]+)"\)""")
-    private val enumEntryRegex = Regex("""^\s*([A-Z][A-Z0-9_]*)\s*(?:,|$)""")
+    private val enumEntryRegex = Regex("""^([A-Z][A-Z0-9_]*)\s*[,;]?$""")
 
     private fun parseCommandActionSerialNames(commandKt: File): List<String> {
         val text = commandKt.readText()
@@ -334,20 +334,25 @@ object ExecuteCommandSchemaGenerator {
 
         val result = mutableListOf<String>()
         var pendingSerialName: String? = null
-        for (raw in body.lines()) {
-            val line = raw.trim()
-            if (line.isEmpty() || line.startsWith("//")) continue
+        val withoutComments = body.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+            .lineSequence().map { it.substringBefore("//") }.joinToString("\n")
+        for (raw in withoutComments.replace(",", ",\n").lines()) {
+            var line = raw.substringBefore("//").trim()
+            if (line.isEmpty()) continue
             serialNameRegex.find(line)?.let {
+                check(pendingSerialName == null) { "Multiple SerialName annotations before enum entry" }
                 pendingSerialName = it.groupValues[1]
-                return@let
+                line = line.removeRange(it.range).trim()
             }
-            enumEntryRegex.find(line)?.let {
-                val name = pendingSerialName
-                    ?: error("CommandAction entry ${it.groupValues[1]} has no preceding @SerialName")
-                result += name
-                pendingSerialName = null
-            }
+            if (line.isEmpty()) continue
+            val entry = enumEntryRegex.matchEntire(line)
+                ?: error("Unsupported CommandAction syntax: $line")
+            val name = pendingSerialName
+                ?: error("CommandAction entry ${entry.groupValues[1]} has no preceding @SerialName")
+            result += name
+            pendingSerialName = null
         }
+        check(pendingSerialName == null) { "SerialName without a CommandAction entry" }
         return result
     }
 }

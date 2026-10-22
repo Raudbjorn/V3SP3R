@@ -27,7 +27,7 @@ abstract class GenerateExecuteCommandSchemaTask : DefaultTask() {
 
 /**
  * Fails if the committed schema doesn't semantically match the generator's output.
- * Compares parsed JSON (order- and whitespace-insensitive) since nothing reads this file at runtime.
+ * Compares parsed JSON (order- and whitespace-insensitive) for consumers such as MCP schema tools.
  */
 abstract class VerifyExecuteCommandSchemaTask : DefaultTask() {
     @get:InputFile

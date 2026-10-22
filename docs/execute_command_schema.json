@@ -48,7 +48,7 @@
       "properties": {
         "command": {
           "type": "string",
-          "description": "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id. For load_skill: the skill id."
+          "description": "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id."
         },
         "path": {
           "type": "string",
@@ -123,7 +123,7 @@
         },
         "address": {
           "type": "string",
-          "description": "Address/identifier: hex address for SubGHz transmit; BLE MAC (AA:BB:CC:DD:EE:FF) for ble_enumerate/read_char/write_char/subscribe"
+          "description": "Address/identifier for SubGHz transmit"
         },
         "signal_name": {
           "type": "string",

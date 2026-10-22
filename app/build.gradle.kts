@@ -95,6 +95,8 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
     // Compose BOM & UI
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
@@ -160,7 +162,7 @@ dependencies {
 }
 
 // Schema contract generated from the supported baseline actions.
- ────────────────────────────────
+// ────────────────────────────────
 // Regenerate: ./gradlew :app:generateExecuteCommandSchema
 // Verify in sync (for CI): ./gradlew :app:verifyExecuteCommandSchema
 
