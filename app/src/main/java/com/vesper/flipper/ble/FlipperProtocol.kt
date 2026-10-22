@@ -34,6 +34,24 @@ class FlipperProtocol @Inject constructor() {
     private var bleService: FlipperBleService? = null
 
     private val responseBuffer = ByteArrayOutputStream()
+    private data class IncomingChunk(val epoch: Int, val bytes: ByteArray)
+    private val connectionEpoch = AtomicInteger()
+    private val incomingData = Channel<IncomingChunk>(Channel.UNLIMITED)
+    private val rpcIngressBuffer = ByteArrayOutputStream()
+    private var rpcIngressResynchronizing = false
+    @Volatile private var screenFrameRouting = false
+    private val _rpcScreenFrames = MutableSharedFlow<Gui.ScreenFrame>(extraBufferCapacity = 2,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    val rpcScreenFrames: SharedFlow<Gui.ScreenFrame> = _rpcScreenFrames.asSharedFlow()
+
+    /** Keep enabled while the device may still be sending unsolicited GUI frames. */
+    fun setScreenFrameRouting(enabled: Boolean) {
+        screenFrameRouting = enabled
+        synchronized(rpcIngressBuffer) {
+            rpcIngressBuffer.reset()
+            rpcIngressResynchronizing = false
+        }
+    }
     @Volatile
     private var pendingRequest: PendingRequest? = null
     private val writeQueue = Channel<ByteArray>(Channel.UNLIMITED)
@@ -73,6 +91,11 @@ class FlipperProtocol @Inject constructor() {
         scope.launch {
             processWriteQueue()
         }
+        scope.launch {
+            for (chunk in incomingData) {
+                if (chunk.epoch == connectionEpoch.get()) processIncomingChunk(chunk.bytes)
+            }
+        }
     }
 
     fun setBleService(service: FlipperBleService) {
@@ -80,8 +103,11 @@ class FlipperProtocol @Inject constructor() {
     }
 
     fun onConnectionReset() {
+        connectionEpoch.incrementAndGet()
         responseBuffer.reset()
         rawCliCollector = null
+        rawBinaryCollector = null
+        setScreenFrameRouting(false)
         firmwareProfile = FirmwareProfile.UNKNOWN
         lastCliProbeAtMs = 0L
         desktopLockProbeSupported = null
@@ -128,23 +154,39 @@ class FlipperProtocol @Inject constructor() {
     }
 
     fun processIncomingData(data: ByteArray) {
-        scope.launch {
-            try {
-                val collector = rawCliCollector
-                if (collector != null) {
-                    collector.append(data)
-                    return@launch
+        incomingData.trySend(IncomingChunk(connectionEpoch.get(), data.copyOf()))
+    }
+
+    private suspend fun processIncomingChunk(data: ByteArray) {
+        try {
+            if (screenFrameRouting) {
+                val peeled = synchronized(rpcIngressBuffer) {
+                    rpcIngressBuffer.write(data)
+                    RpcFrameRouter.peel(rpcIngressBuffer.toByteArray(), resynchronizing = rpcIngressResynchronizing).also {
+                        rpcIngressResynchronizing = it.resynchronizing
+                        rpcIngressBuffer.reset()
+                        rpcIngressBuffer.write(it.remainder)
+                    }
                 }
-                val binaryCollector = rawBinaryCollector
-                if (binaryCollector != null) {
-                    binaryCollector.append(data)
-                    return@launch
+                peeled.screenFrames.forEach { _rpcScreenFrames.tryEmit(it) }
+                // Only complete command packets update the command quiet timer.
+                if (peeled.commandFrames.isNotEmpty()) {
+                    val collector = rawBinaryCollector
+                    if (collector != null) collector.append(peeled.commandFrames)
+                    else {
+                        responseBuffer.write(peeled.commandFrames)
+                        parseResponses()
+                    }
                 }
-                responseBuffer.write(data)
-                parseResponses()
-            } catch (e: Exception) {
-                _responseFlow.emit(ProtocolResponse.Error("Parse error: ${e.message}"))
+                return
             }
+            rawCliCollector?.let { it.append(data); return }
+            rawBinaryCollector?.let { it.append(data); return }
+            responseBuffer.write(data)
+            if (responseBuffer.size() > MAX_FRAME_SIZE + 5) responseBuffer.reset()
+            else parseResponses()
+        } catch (e: Exception) {
+            _responseFlow.emit(ProtocolResponse.Error("Parse error: ${e.message}"))
         }
     }
 
@@ -3696,6 +3738,7 @@ class FlipperProtocol @Inject constructor() {
 
     private class RawCliCollector {
         private val buffer = StringBuilder()
+        @Volatile private var overflow = false
         @Volatile
         var lastUpdateMs: Long = System.currentTimeMillis()
             private set
@@ -3703,6 +3746,10 @@ class FlipperProtocol @Inject constructor() {
         fun append(data: ByteArray) {
             val chunk = String(data, Charsets.UTF_8)
             synchronized(buffer) {
+                if (buffer.length + chunk.length > MAX_FRAME_SIZE) {
+                    overflow = true
+                    return
+                }
                 buffer.append(chunk)
             }
             lastUpdateMs = System.currentTimeMillis()
@@ -3713,18 +3760,24 @@ class FlipperProtocol @Inject constructor() {
         }
 
         fun snapshot(): String = synchronized(buffer) {
+            check(!overflow) { "CLI response exceeds buffer limit" }
             buffer.toString()
         }
     }
 
     private class RawBinaryCollector {
         private val buffer = ByteArrayOutputStream()
+        @Volatile private var overflow = false
         @Volatile
         var lastUpdateMs: Long = System.currentTimeMillis()
             private set
 
         fun append(data: ByteArray) {
             synchronized(buffer) {
+                if (buffer.size() + data.size > MAX_FRAME_SIZE) {
+                    overflow = true
+                    return
+                }
                 buffer.write(data)
             }
             lastUpdateMs = System.currentTimeMillis()
@@ -3735,6 +3788,7 @@ class FlipperProtocol @Inject constructor() {
         }
 
         fun snapshot(): ByteArray = synchronized(buffer) {
+            check(!overflow) { "RPC response exceeds buffer limit" }
             buffer.toByteArray()
         }
     }
