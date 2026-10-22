@@ -4,7 +4,17 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Base64
+import com.vesper.flipper.ai.LlmSelection
+import com.vesper.flipper.ai.LlmProvider
+import com.vesper.flipper.ai.SpeechBackend
 import com.vesper.flipper.data.SettingsStore
+import com.vesper.flipper.data.withCancellableResponse
+import com.vesper.flipper.data.readBoundedBytes
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -15,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -22,15 +33,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.io.InputStreamReader
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Text-to-speech service that routes through OpenRouter's audio-capable models.
- * Uses the existing OpenRouter API key — no separate TTS key needed.
- * Streams PCM audio from GPT-Audio for real-time playback.
+ * Speaks agent replies with the active provider's speech API.
+ * OpenRouter streams chat-audio PCM. OpenAI and xAI return raw PCM.
+ * Gemini returns base64 PCM from its speech model.
  */
 @Singleton
 class OpenRouterTtsService @Inject constructor(
@@ -42,39 +57,58 @@ class OpenRouterTtsService @Inject constructor(
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    private val playbackMutex = Mutex()
+    private val playbackEpoch = AtomicLong()
+
     private val _state = MutableStateFlow<TtsState>(TtsState.Idle)
     val state: StateFlow<TtsState> = _state.asStateFlow()
 
-    private var currentTrack: AudioTrack? = null
-    private var currentJob: Job? = null
+    @Volatile private var currentTrack: AudioTrack? = null
+    @Volatile private var currentJob: Job? = null
 
     /**
-     * Speak the given text using OpenRouter's audio model.
-     * Streams PCM audio for lowest-latency playback.
+     * Speak the given text with the active provider.
      */
     suspend fun speak(text: String) {
         if (text.isBlank()) return
 
         stop()
+        val epoch = playbackEpoch.get()
 
-        val apiKey = settingsStore.apiKey.first()
+        val selection = readSelectionOrReportError(epoch) ?: return
+        if (epoch != playbackEpoch.get()) return
+        val apiKey = selection.apiKey
         if (apiKey.isNullOrBlank()) {
-            _state.value = TtsState.Error("OpenRouter API key not configured")
+            _state.value = TtsState.Error("${selection.provider.displayName} API key not configured")
             return
         }
 
-        val voiceId = settingsStore.ttsVoiceId.first()
+        val voiceId = selection.provider.voiceOrDefault(settingsStore.ttsVoiceId.first()).id
 
+        if (epoch != playbackEpoch.get()) return
+        if (selection.provider.speechBackend == SpeechBackend.NONE) return
         _state.value = TtsState.Loading
 
         coroutineScope {
             currentJob = launch(Dispatchers.IO) {
+                playbackMutex.withLock {
+                if (epoch != playbackEpoch.get()) return@withLock
                 try {
-                    streamAndPlay(apiKey, voiceId, text)
+                    when (selection.provider.speechBackend) {
+                        SpeechBackend.OPENROUTER_AUDIO -> streamOpenRouter(apiKey, voiceId, text)
+                        SpeechBackend.OPENAI_SPEECH -> speakOpenAi(apiKey, voiceId, text)
+                        SpeechBackend.GEMINI_TTS -> speakGemini(apiKey, voiceId, text)
+                        SpeechBackend.XAI_TTS -> speakXai(apiKey, voiceId, text)
+                        SpeechBackend.NONE ->
+                            _state.value = TtsState.Error("This provider has no speech endpoint.")
+                    }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     if (_state.value !is TtsState.Idle) {
-                        _state.value = TtsState.Error(e.message ?: "TTS playback failed")
+                        _state.value = TtsState.Error(e.message ?: "Speech playback failed")
                     }
+                }
                 }
             }
         }
@@ -84,6 +118,7 @@ class OpenRouterTtsService @Inject constructor(
      * Stop current playback immediately.
      */
     fun stop() {
+        playbackEpoch.incrementAndGet()
         currentJob?.cancel()
         currentJob = null
         try {
@@ -102,11 +137,224 @@ class OpenRouterTtsService @Inject constructor(
      */
     suspend fun isAvailable(): Boolean {
         val enabled = settingsStore.ttsEnabled.first()
-        val apiKey = settingsStore.apiKey.first()
-        return enabled && !apiKey.isNullOrBlank()
+        val selection = readSelectionOrReportError() ?: return false
+        return enabled && selection.provider.speechBackend != SpeechBackend.NONE && !selection.apiKey.isNullOrBlank()
     }
 
-    private suspend fun streamAndPlay(apiKey: String, voiceId: String, text: String) {
+    private suspend fun readSelectionOrReportError(epoch: Long? = null): LlmSelection? = try {
+        settingsStore.readLlmSelection()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        if (epoch == null || epoch == playbackEpoch.get())
+            _state.value = TtsState.Error("Could not access your API key securely. Retry credential storage in Settings.")
+        null
+    }
+
+    private suspend fun speakOpenAi(apiKey: String, voiceId: String, text: String) {
+        val cleaned = cleanTextForSpeech(text)
+        if (cleaned.isBlank()) {
+            _state.value = TtsState.Idle
+            return
+        }
+        val body = JSONObject().apply {
+            put("model", OPENAI_TTS_MODEL)
+            put("voice", voiceId)
+            put("input", cleaned)
+            put("response_format", "pcm")
+        }.toString()
+        postPcm(
+            url = "https://api.openai.com/v1/audio/speech",
+            apiKey = apiKey,
+            json = body,
+            providerName = "OpenAI",
+            sampleRate = 24000
+        )
+    }
+
+    private suspend fun speakXai(apiKey: String, voiceId: String, text: String) {
+        val cleaned = cleanTextForSpeech(text)
+        if (cleaned.isBlank()) {
+            _state.value = TtsState.Idle
+            return
+        }
+        val body = JSONObject().apply {
+            put("text", cleaned)
+            put("voice_id", voiceId)
+            put("language", "auto")
+            put("output_format", JSONObject().apply {
+                put("codec", "wav")
+                put("sample_rate", 24000)
+            })
+        }.toString()
+        val request = Request.Builder()
+            .url("https://api.x.ai/v1/tts")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).withCancellableResponse { response ->
+            val bytes = response.body?.readBoundedBytes(SpeechAudio.MAX_RESPONSE_BYTES) ?: ByteArray(0)
+            if (!response.isSuccessful) {
+                _state.value = TtsState.Error(speechError("xAI", response.code, bytes.decodeToString()))
+                return@withCancellableResponse
+            }
+            val (pcm, sampleRate) = SpeechAudio.wavPcm(bytes)
+            if (pcm.isEmpty()) {
+                _state.value = TtsState.Error("xAI returned no speech audio")
+                return@withCancellableResponse
+            }
+            playPcmStream(ByteArrayInputStream(pcm), sampleRate)
+        }
+    }
+
+    private suspend fun speakGemini(apiKey: String, voiceId: String, text: String) {
+        val cleaned = cleanTextForSpeech(text)
+        if (cleaned.isBlank()) {
+            _state.value = TtsState.Idle
+            return
+        }
+        val body = JSONObject().apply {
+            put("contents", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", org.json.JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", "Read the following text aloud with no extra commentary:\n\n$cleaned")
+                        })
+                    })
+                })
+            })
+            put("generationConfig", JSONObject().apply {
+                put("responseModalities", org.json.JSONArray().apply { put("AUDIO") })
+                put("speechConfig", JSONObject().apply {
+                    put("voiceConfig", JSONObject().apply {
+                        put("prebuiltVoiceConfig", JSONObject().apply {
+                            put("voiceName", voiceId)
+                        })
+                    })
+                })
+            })
+        }.toString()
+
+        val request = Request.Builder()
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_TTS_MODEL:generateContent")
+            .addHeader("x-goog-api-key", apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        client.newCall(request).withCancellableResponse { response ->
+            val payload = response.body?.readBoundedBytes(SpeechAudio.MAX_RESPONSE_BYTES)?.decodeToString().orEmpty()
+            if (!response.isSuccessful) {
+                _state.value = TtsState.Error(speechError("Gemini", response.code, payload))
+                return@withCancellableResponse
+            }
+            val pcm = SpeechAudio.geminiPcm(payload)
+            if (pcm == null || pcm.isEmpty()) {
+                _state.value = TtsState.Error("Gemini returned no speech audio")
+                return@withCancellableResponse
+            }
+            playPcmStream(ByteArrayInputStream(pcm), 24000)
+        }
+    }
+
+    private suspend fun postPcm(
+        url: String,
+        apiKey: String,
+        json: String,
+        providerName: String,
+        sampleRate: Int
+    ) {
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        client.newCall(request).withCancellableResponse { response ->
+            if (!response.isSuccessful) {
+                val payload = response.body?.readBoundedBytes(SpeechAudio.MAX_RESPONSE_BYTES)?.decodeToString().orEmpty()
+                _state.value = TtsState.Error(speechError(providerName, response.code, payload))
+                return@withCancellableResponse
+            }
+            val stream = response.body?.byteStream()
+            if (stream == null) {
+                _state.value = TtsState.Error("Empty speech response from $providerName")
+                return@withCancellableResponse
+            }
+            playPcmStream(stream, sampleRate)
+        }
+    }
+
+    private fun speechError(providerName: String, code: Int, body: String): String {
+        val detail = body.replace(Regex("\\s+"), " ").take(240)
+        return if (detail.isBlank()) {
+            "$providerName speech error $code"
+        } else {
+            "$providerName speech error $code: $detail"
+        }
+    }
+
+    private suspend fun playPcmStream(source: InputStream, sampleRate: Int) {
+        coroutineContext.ensureActive()
+        val bufferSize = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        ).coerceAtLeast(4096)
+        val audioTrack = newPcmTrack(sampleRate, bufferSize)
+        currentTrack = audioTrack
+        audioTrack.play()
+        _state.value = TtsState.Speaking
+        try {
+            val written = transferPcm16(source) { buffer, offset, count ->
+                audioTrack.write(buffer, offset, count)
+            }
+            drainAudio(written / 2) { audioTrack.playbackHeadPosition.toLong() and 0xffffffffL }
+        } finally {
+            source.close()
+            releaseTrack(audioTrack)
+        }
+    }
+
+    private fun newPcmTrack(sampleRate: Int, bufferSize: Int): AudioTrack {
+        return AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(bufferSize * 2)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+    }
+
+    private fun releaseTrack(audioTrack: AudioTrack) {
+        try {
+            audioTrack.stop()
+        } catch (_: Exception) {
+        }
+        try {
+            audioTrack.release()
+        } catch (_: Exception) {
+        }
+        if (currentTrack === audioTrack) {
+            currentTrack = null
+            if (_state.value is TtsState.Speaking) _state.value = TtsState.Idle
+        }
+    }
+
+    private suspend fun streamOpenRouter(apiKey: String, voiceId: String, text: String) {
         val cleanedText = cleanTextForSpeech(text)
         if (cleanedText.isBlank()) {
             _state.value = TtsState.Idle
@@ -135,64 +383,43 @@ class OpenRouterTtsService @Inject constructor(
         }.toString()
 
         val request = Request.Builder()
-            .url(API_BASE)
+            .url(LlmProvider.OPENROUTER.chatCompletionsUrl)
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .post(requestJson.toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = client.newCall(request).execute()
-
+        client.newCall(request).withCancellableResponse { response ->
         if (!response.isSuccessful) {
-            val body = response.body?.string() ?: "Unknown error"
-            _state.value = TtsState.Error("OpenRouter API error ${response.code}: $body")
+            val body = response.body?.readBoundedBytes(64 * 1024)?.decodeToString() ?: "Unknown error"
+            _state.value = TtsState.Error(speechError("OpenRouter", response.code, body))
             response.close()
-            return
+            return@withCancellableResponse
         }
 
         val inputStream = response.body?.byteStream() ?: run {
             _state.value = TtsState.Error("Empty response from OpenRouter")
             response.close()
-            return
+            return@withCancellableResponse
         }
 
-        // Set up AudioTrack for PCM 24kHz 16-bit mono playback
         val sampleRate = 24000
         val bufferSize = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(4096)
-
-        val audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize * 2)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-
+        val audioTrack = newPcmTrack(sampleRate, bufferSize)
         currentTrack = audioTrack
         audioTrack.play()
         _state.value = TtsState.Speaking
 
-        val reader = BufferedReader(InputStreamReader(inputStream))
+        val reader = response.body!!.source()
+        var written = 0L
         try {
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                if (!coroutineContext.isActive) break
-
-                val currentLine = line ?: continue
+            while (!reader.exhausted()) {
+                coroutineContext.ensureActive()
+                val currentLine = reader.readUtf8LineStrict(2L * 1024 * 1024)
                 if (!currentLine.startsWith("data: ")) continue
                 val data = currentLine.removePrefix("data: ").trim()
                 if (data == "[DONE]") break
@@ -211,28 +438,22 @@ class OpenRouterTtsService @Inject constructor(
 
                     if (audioData.isNotBlank()) {
                         val pcmBytes = Base64.decode(audioData, Base64.NO_WRAP)
-                        audioTrack.write(pcmBytes, 0, pcmBytes.size)
+                        require(written + pcmBytes.size <= SpeechAudio.MAX_AUDIO_BYTES) { "Speech audio exceeded size limit" }
+                        val count = audioTrack.write(pcmBytes, 0, pcmBytes.size)
+                        check(count == pcmBytes.size) { "Incomplete audio output" }
+                        written += count
                     }
-                } catch (_: Exception) {
-                    // Skip malformed chunks
+                } catch (_: org.json.JSONException) {
+                    // Ignore malformed JSON frames; resource limits and cancellation still fail the request.
                 }
             }
 
-            // Flush remaining audio
-            withContext(Dispatchers.IO) {
-                audioTrack.write(ByteArray(bufferSize), 0, bufferSize)
-            }
+            drainAudio(written / 2) { audioTrack.playbackHeadPosition.toLong() and 0xffffffffL }
         } finally {
             reader.close()
             response.close()
-            try {
-                audioTrack.stop()
-                audioTrack.release()
-            } catch (_: Exception) {}
-            currentTrack = null
-            if (_state.value is TtsState.Speaking) {
-                _state.value = TtsState.Idle
-            }
+            releaseTrack(audioTrack)
+        }
         }
     }
 
@@ -251,33 +472,16 @@ class OpenRouterTtsService @Inject constructor(
             .replace(Regex("^\\s*[-*+]\\s+", RegexOption.MULTILINE), "")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
+            .take(MAX_SPEECH_CHARS)
     }
 
     companion object {
-        private const val API_BASE = "https://openrouter.ai/api/v1/chat/completions"
         private const val TTS_MODEL = "openai/gpt-audio"
-
-        // OpenAI voices available through GPT-Audio
-        val AVAILABLE_VOICES = listOf(
-            VoiceOption("shimmer", "Shimmer", "Soft, warm female"),
-            VoiceOption("coral", "Coral", "Friendly, natural female"),
-            VoiceOption("nova", "Nova", "Energetic young female"),
-            VoiceOption("sage", "Sage", "Calm, wise female"),
-            VoiceOption("alloy", "Alloy", "Neutral, versatile"),
-            VoiceOption("ballad", "Ballad", "Warm, expressive"),
-            VoiceOption("fable", "Fable", "British, storytelling"),
-            VoiceOption("echo", "Echo", "Smooth male"),
-            VoiceOption("ash", "Ash", "Confident male"),
-            VoiceOption("onyx", "Onyx", "Deep, authoritative male")
-        )
+        private const val OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
+        private const val GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
+        private const val MAX_SPEECH_CHARS = 4000
     }
 }
-
-data class VoiceOption(
-    val id: String,
-    val name: String,
-    val description: String
-)
 
 sealed class TtsState {
     data object Idle : TtsState()

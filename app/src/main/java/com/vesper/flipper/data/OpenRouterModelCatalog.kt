@@ -1,5 +1,6 @@
 package com.vesper.flipper.data
 
+import com.vesper.flipper.ai.LlmProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,9 +32,52 @@ class OpenRouterModelCatalog @Inject constructor() {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    /** Returns all eligible live tool models, or static choices if no eligible entries remain.
-     * HTTP, transport and malformed-payload failures are returned to the caller as failures.
-     */
+    suspend fun fetchModels(provider: LlmProvider, apiKey: String?): Result<List<ModelInfo>> {
+        if (provider == LlmProvider.ANTHROPIC) return Result.success(provider.models)
+        if (provider == LlmProvider.OPENROUTER) {
+            return fetchToolModels()
+        }
+        if (apiKey.isNullOrBlank()) {
+            return Result.success(provider.models)
+        }
+        return fetchDirectCatalog(provider, apiKey)
+    }
+
+    private suspend fun fetchDirectCatalog(
+        provider: LlmProvider,
+        apiKey: String
+    ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(provider.modelsUrl)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Accept", "application/json")
+                .build()
+
+            client.newCall(request).withCancellableResponse { response ->
+                if (!response.isSuccessful) {
+                    return@withCancellableResponse Result.failure(
+                        IOException("${provider.displayName} models API error: ${response.code}")
+                    )
+                }
+                val body = response.body?.readBoundedBytes(2 * 1024 * 1024)?.decodeToString()
+                    ?: return@withCancellableResponse Result.failure(IOException("Empty model catalog response"))
+                val root = json.parseToJsonElement(body).jsonObject
+                val rows = root["data"]?.jsonArray ?: root["models"]?.jsonArray
+                    ?: return@withCancellableResponse Result.success(provider.models)
+                val liveIds = rows.mapNotNull { element ->
+                    val modelObj = element.jsonObject
+                    modelObj.string("id") ?: modelObj.string("name")
+                }
+                Result.success(LlmProvider.mergeCatalog(provider, liveIds))
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Result.failure(e)
+        }
+    }
+
+    /** Eligible live OpenRouter tool models; static choices only when no eligible entries remain. */
     suspend fun fetchToolModels(): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
@@ -41,21 +85,22 @@ class OpenRouterModelCatalog @Inject constructor() {
                 .addHeader("Accept", "application/json")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).withCancellableResponse { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(
+                    return@withCancellableResponse Result.failure(
                         IOException("OpenRouter models API error: ${response.code}")
                     )
                 }
 
-                val body = response.body?.string()
-                    ?: return@withContext Result.failure(IOException("Empty model catalog response"))
+                val body = response.body?.readBoundedBytes(2 * 1024 * 1024)?.decodeToString()
+                    ?: return@withCancellableResponse Result.failure(IOException("Empty model catalog response"))
 
                 Result.success(parseCatalog(body))
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }

@@ -2,6 +2,7 @@ package com.vesper.flipper.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vesper.flipper.ai.LlmProvider
 import com.vesper.flipper.data.ModelInfo
 import com.vesper.flipper.data.ModelPickerChoices
 import com.vesper.flipper.data.OpenRouterModelCatalog
@@ -10,11 +11,14 @@ import com.vesper.flipper.domain.model.CommandAction
 import com.vesper.flipper.domain.model.Permission
 import com.vesper.flipper.domain.service.PermissionService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsState(
+    val provider: LlmProvider = LlmProvider.OPENROUTER,
     val apiKey: String = "",
     val selectedModel: String = SettingsStore.DEFAULT_MODEL,
     val aiMaxIterations: Int = SettingsStore.DEFAULT_AI_MAX_ITERATIONS,
@@ -61,6 +65,35 @@ class SettingsViewModel @Inject constructor(
 
     private val _isRefreshingModels = MutableStateFlow(false)
     val isRefreshingModels: StateFlow<Boolean> = _isRefreshingModels.asStateFlow()
+    private var modelRefreshGeneration = 0
+    private var catalogProvider = LlmProvider.OPENROUTER
+    private var modelRefreshJob: Job? = null
+    private val _credentialError = MutableStateFlow<String?>(null)
+    val credentialError: StateFlow<String?> = _credentialError.asStateFlow()
+    private var settingsJob: Job? = null
+    private val pendingApiKeys = mutableMapOf<LlmProvider, String>()
+    private val credentialRevisions = mutableMapOf<LlmProvider, Long>()
+    private val failedCredentialProviders = mutableSetOf<LlmProvider>()
+    private var credentialReadFailed = false
+
+    private fun updateCredentialError() {
+        _credentialError.value = if (credentialReadFailed || failedCredentialProviders.isNotEmpty())
+            "Could not access or save your API key securely. Retry when storage is available." else null
+    }
+
+    private fun reportCredentialFailure(error: Exception) {
+        if (error is CancellationException) throw error
+        credentialReadFailed = true
+        updateCredentialError()
+    }
+
+    fun retryCredentialStorage() {
+        credentialReadFailed = false
+        pendingApiKeys.toMap().forEach { (provider, key) -> saveApiKey(provider, key) }
+        updateCredentialError()
+        loadSettings()
+        refreshAvailableModels()
+    }
 
     init {
         loadSettings()
@@ -69,7 +102,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun loadSettings() {
-        viewModelScope.launch {
+        settingsJob?.cancel()
+        settingsJob = viewModelScope.launch {
             combine(
                 settingsStore.apiKey,
                 settingsStore.selectedModel,
@@ -143,9 +177,12 @@ class SettingsViewModel @Inject constructor(
                     glassesSailorMouth = glasses.glassesSailorMouth,
                     glassesMuted = glasses.glassesMuted
                 )
-            }.collect { settings ->
+            }.combine(settingsStore.llmSelection) { settings, selection ->
+                settings.copy(provider = selection.provider, apiKey = pendingApiKeys[selection.provider] ?: selection.apiKey.orEmpty(), selectedModel = selection.model)
+            }.catch { error -> reportCredentialFailure(error as? Exception ?: throw error) }.collect { settings ->
                 _state.update { it.copy(
-                    apiKey = settings.apiKey,
+                    provider = settings.provider,
+                    apiKey = pendingApiKeys[settings.provider] ?: settings.apiKey,
                     selectedModel = settings.selectedModel,
                     aiMaxIterations = settings.aiMaxIterations,
                     autoConnect = settings.autoConnect,
@@ -166,6 +203,10 @@ class SettingsViewModel @Inject constructor(
                     glassesSailorMouth = settings.glassesSailorMouth,
                     glassesMuted = settings.glassesMuted
                 )}
+                if (catalogProvider != settings.provider) {
+                    catalogProvider = settings.provider
+                    _availableModels.value = settings.provider.models
+                }
             }
         }
     }
@@ -178,17 +219,54 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setApiKey(key: String) {
+    fun setProvider(provider: LlmProvider) {
         viewModelScope.launch {
-            settingsStore.setApiKey(key)
-            _state.update { it.copy(apiKey = key) }
+            try {
+                settingsStore.setProvider(provider)
+                val selection = settingsStore.readLlmSelection()
+                _state.update {
+                    it.copy(provider = selection.provider, apiKey = pendingApiKeys[selection.provider] ?: selection.apiKey.orEmpty(), selectedModel = selection.model)
+                }
+                catalogProvider = provider
+                _availableModels.value = provider.models
+                refreshAvailableModels()
+            } catch (error: Exception) {
+                reportCredentialFailure(error)
+            }
+        }
+    }
+
+    fun setApiKey(key: String) = saveApiKey(_state.value.provider, key)
+
+    private fun saveApiKey(provider: LlmProvider, key: String) {
+        val revision = (credentialRevisions[provider] ?: 0L) + 1
+        credentialRevisions[provider] = revision
+        pendingApiKeys[provider] = key
+        _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
+        viewModelScope.launch {
+            try {
+                settingsStore.setApiKey(key, provider)
+                if (revision == credentialRevisions[provider]) {
+                    pendingApiKeys.remove(provider)
+                    failedCredentialProviders.remove(provider)
+                    updateCredentialError()
+                    _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (revision == credentialRevisions[provider]) {
+                    failedCredentialProviders.add(provider)
+                    updateCredentialError()
+                }
+            }
         }
     }
 
     fun setSelectedModel(model: String) {
+        val provider = _state.value.provider
         viewModelScope.launch {
-            settingsStore.setSelectedModel(model)
-            _state.update { it.copy(selectedModel = model) }
+            settingsStore.setSelectedModel(model, provider)
+            _state.update { if (it.provider == provider) it.copy(selectedModel = model) else it }
         }
     }
 
@@ -200,18 +278,28 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshAvailableModels() {
-        if (_isRefreshingModels.value) return
-
-        viewModelScope.launch {
+        val generation = ++modelRefreshGeneration
+        modelRefreshJob?.cancel()
+        modelRefreshJob = viewModelScope.launch {
             _isRefreshingModels.value = true
-            openRouterModelCatalog.fetchToolModels()
-                .onSuccess { models ->
-                    _availableModels.value = models.distinctBy { it.id }
-                }
-                .onFailure {
-                    _availableModels.value = SettingsStore.FALLBACK_MODELS
-                }
-            _isRefreshingModels.value = false
+            try {
+                val selection = settingsStore.readLlmSelection()
+                openRouterModelCatalog.fetchModels(selection.provider, selection.apiKey)
+                    .onSuccess { models ->
+                        if (generation != modelRefreshGeneration) return@onSuccess
+                        catalogProvider = selection.provider
+                        _availableModels.value = models.distinctBy { it.id }
+                    }
+                    .onFailure {
+                        if (generation != modelRefreshGeneration) return@onFailure
+                        _availableModels.value = selection.provider.models
+                    }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (generation == modelRefreshGeneration) reportCredentialFailure(error)
+            } finally {
+                if (generation == modelRefreshGeneration) _isRefreshingModels.value = false
+            }
         }
     }
 
