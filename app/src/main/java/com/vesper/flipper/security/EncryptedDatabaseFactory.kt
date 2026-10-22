@@ -50,14 +50,15 @@ object EncryptedDatabaseFactory {
             }
         }
 
-    @Synchronized
+    // Keystore preference creation is short; exports never hold this shared lock.
+    private val keyStorageLock = Any()
+
     private fun prepare(context: Context, name: String): ByteArray {
         System.loadLibrary("sqlcipher")
         val file = context.getDatabasePath(name)
         file.parentFile!!.mkdirs()
-        val lockFile = File(context.noBackupFilesDir, "database-encryption.lock")
-        return RandomAccessFile(lockFile, "rw").use { lock ->
-            lock.channel.lock().use {
+        return DatabaseMigrationLocks.withLock(file, context.noBackupFilesDir) {
+            val passphrase = synchronized(keyStorageLock) {
                 val storage = EncryptedStorage(context)
                 val key = "database_passphrase_$name"
                 val saved = storage.getString(key)
@@ -69,16 +70,16 @@ object EncryptedDatabaseFactory {
                     !File(file.path + ".encrypting").exists()) {
                     "Database key is unavailable; existing data has been preserved"
                 }
-                val passphrase = saved ?: ByteArray(32).also(SecureRandom()::nextBytes)
+                saved ?: ByteArray(32).also(SecureRandom()::nextBytes)
                     .joinToString("") { "%02x".format(it) }.also {
                         check(storage.putStringSync(key, it)) { "Cannot persist database key" }
                     }
-                DatabaseConversion(file, ::isPlaintext,
+            }
+            DatabaseConversion(file, ::isPlaintext,
                     { source, target -> export(source, target, passphrase) },
                     { validate(it, passphrase) },
                     { syncDirectory(file.parentFile!!) }).run()
-                passphrase.toByteArray(Charsets.UTF_8)
-            }
+            passphrase.toByteArray(Charsets.UTF_8)
         }
     }
 

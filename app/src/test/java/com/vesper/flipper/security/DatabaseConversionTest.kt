@@ -41,6 +41,10 @@ class DatabaseConversionTest {
         val file = temporary.newFile("invalid").apply { writeText("plain:rows") }
         try { migration(file, invalid = true).run(); fail("Expected failure") } catch (_: IllegalStateException) {}
         assertEquals("plain:rows", file.readText())
+        assertTrue(File(file.path + ".encrypting").exists())
+        migration(file).run() // Invalid staging is disposable while the original remains.
+        assertEquals("encrypted:rows", file.readText())
+        assertFalse(File(file.path + ".encrypting").exists())
     }
     @Test fun wrongKeyPreservesInstalledCopyAndOriginalBackup() {
         val file = temporary.newFile("wrongkey").apply { writeText("plain:rows") }
