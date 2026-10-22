@@ -43,6 +43,18 @@ if (hasSigningConfig) {
     }
 }
 
+// Release device profile. "fold4" (default) targets the Galaxy Z Fold 4's arm64-v8a
+// Snapdragon 8+ Gen 1 and drops native libraries for other ABIs; "universal" keeps all.
+// Override per build: ./gradlew :app:assembleRelease -Pvesper.deviceProfile=universal
+val releaseDeviceProfiles = mapOf(
+    "fold4" to setOf("arm64-v8a"),
+    "universal" to emptySet()
+)
+val releaseDeviceProfile = providers.gradleProperty("vesper.deviceProfile").getOrElse("fold4")
+val releaseAbiFilters = requireNotNull(releaseDeviceProfiles[releaseDeviceProfile]) {
+    "Unknown vesper.deviceProfile '$releaseDeviceProfile'. Use one of: ${releaseDeviceProfiles.keys.joinToString()}."
+}
+
 kotlin {
     jvmToolchain(21)
     compilerOptions {
@@ -93,6 +105,9 @@ android {
             )
             if (hasSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
+            }
+            if (releaseAbiFilters.isNotEmpty()) {
+                ndk { abiFilters += releaseAbiFilters }
             }
         }
     }

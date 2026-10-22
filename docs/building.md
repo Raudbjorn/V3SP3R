@@ -84,6 +84,22 @@ app/build/outputs/apk/release/app-release-unsigned.apk
 app/build/outputs/apk/release/app-release.apk
 ```
 
+### Device profile
+
+Release builds default to the `fold4` profile (`vesper.deviceProfile` in
+`gradle.properties`). It targets the Samsung Galaxy Z Fold 4 (Snapdragon 8+
+Gen 1) and packages only the `arm64-v8a` native libraries, which cuts the APK
+from about 23 MB to about 9 MB. The app has no native code of its own; the
+removed libraries are SQLCipher and DataStore builds for 32-bit ARM and x86.
+Any other 64-bit ARM phone can still install the `fold4` APK. 32-bit devices
+and x86 emulators need the universal build:
+
+```bash
+./gradlew :app:assembleRelease -Pvesper.deviceProfile=universal
+```
+
+Debug builds always include every ABI.
+
 The underlying build command is `./gradlew :app:assembleRelease`. For an
 immediately installable development build using Android's debug key:
 
