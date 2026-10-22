@@ -4,11 +4,12 @@
 local.properties
 /.idea
 .DS_Store
-/build
+build/
 /captures
 .externalNativeBuild
 .cxx
-/app/build
+.kotlin/
+dist/
 
 # Signing keys — NEVER commit these
 *.jks
