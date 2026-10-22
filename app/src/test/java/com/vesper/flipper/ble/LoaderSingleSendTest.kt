@@ -24,6 +24,7 @@ class LoaderSingleSendTest {
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         status(protocol)
+        clearInvocations(service) // Verify command dispatch only, excluding capability setup queries.
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
         whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendUsbDataOnly(any())).thenAnswer {
@@ -45,6 +46,7 @@ class LoaderSingleSendTest {
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         status(protocol)
+        clearInvocations(service) // Verify command dispatch only, excluding capability setup queries.
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
         whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendUsbDataOnly(any())).thenReturn(false)

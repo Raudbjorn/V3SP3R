@@ -693,6 +693,7 @@ class FlipperBleService : Service() {
                         isConfirmedFlipper = true
                     )
                     _connectionState.value = ConnectionState.Connected("Desktop Bridge (USB)")
+                    flipperProtocol.onTransportReady()
                     updateNotification()
                 }
             } ?: false
@@ -823,6 +824,7 @@ class FlipperBleService : Service() {
                         )
                         _connectionState.value = ConnectionState.Connected("$deviceName (USB)")
                         if (cliIdentity != null) flipperProtocol.confirmExplicitUsbCliSession(cliIdentity)
+                        flipperProtocol.onTransportReady()
                         updateNotification()
 
                         if (ticket.mode == UsbSessionMode.RPC) {
@@ -2081,6 +2083,7 @@ class FlipperBleService : Service() {
         }
         _connectedDevice.value = device
         _connectionState.value = ConnectionState.Connected(device.name)
+        flipperProtocol.onTransportReady()
         updateNotification()
         startBleKeepalive()
 
