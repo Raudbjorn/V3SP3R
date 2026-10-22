@@ -19,19 +19,26 @@ val localProps = Properties().apply {
     }
 }
 
-// Environment variables support CI; local.properties remains a local-only fallback.
+// Select a complete signing identity from one source; never mix credentials.
 val signingPropertyNames = listOf(
     "RELEASE_STORE_FILE", "RELEASE_STORE_PASSWORD", "RELEASE_KEY_ALIAS", "RELEASE_KEY_PASSWORD"
 )
-val releaseSigning = signingPropertyNames.associateWith { name ->
-    providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
-        ?: localProps.getProperty(name)?.takeIf { it.isNotBlank() }
+val environmentSigning = signingPropertyNames.associateWith { name ->
+    providers.environmentVariable(name).orNull
 }
-val hasSigningConfig = releaseSigning.values.any { it != null }
+val useEnvironmentSigning = environmentSigning.values.any { it != null }
+val signingSource = if (useEnvironmentSigning) "environment" else "local.properties"
+val selectedSigning = if (useEnvironmentSigning) environmentSigning else {
+    signingPropertyNames.associateWith { localProps.getProperty(it) }
+}
+val releaseSigning = selectedSigning.mapValues { (_, value) ->
+    value?.takeIf { it.isNotBlank() }
+}
+val hasSigningConfig = selectedSigning.values.any { it != null }
 if (hasSigningConfig) {
     val missing = signingPropertyNames.filter { releaseSigning[it] == null }
     require(missing.isEmpty()) {
-        "Incomplete release signing configuration. Missing: ${missing.joinToString()}. " +
+        "Incomplete release signing configuration from $signingSource. Missing: ${missing.joinToString()}. " +
             "Set all four RELEASE_* values or remove them to build an unsigned APK."
     }
 }
