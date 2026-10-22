@@ -350,14 +350,14 @@ class FlipperProtocol @Inject constructor() {
         operation = "list directory",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while listing directory: $path") }
     ) {
-        sendRpcListDirectoryLocked(path) ?: sendLegacyListDirectoryLocked(path)
+        sendRpcListDirectoryLocked(path) ?: legacyTransportFallback { sendLegacyListDirectoryLocked(path) }
     }
 
     suspend fun readFile(path: String): ProtocolResponse = withCommandLock(
         operation = "read file",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while reading file: $path") }
     ) {
-        when (val response = sendRpcReadFileLocked(path) ?: sendLegacyReadFileLocked(path)) {
+        when (val response = sendRpcReadFileLocked(path) ?: legacyTransportFallback { sendLegacyReadFileLocked(path) }) {
             is ProtocolResponse.BinaryContent -> {
                 ProtocolResponse.FileContent(response.data.toString(Charsets.UTF_8))
             }
@@ -369,49 +369,56 @@ class FlipperProtocol @Inject constructor() {
         operation = "read file binary",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while reading binary file: $path") }
     ) {
-        sendRpcReadFileLocked(path) ?: sendLegacyReadFileLocked(path)
+        sendRpcReadFileLocked(path) ?: legacyTransportFallback { sendLegacyReadFileLocked(path) }
     }
 
     suspend fun writeFile(path: String, content: ByteArray): ProtocolResponse = withCommandLock(
         operation = "write file",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while writing file: $path") }
     ) {
-        sendRpcWriteFileLocked(path, content) ?: sendLegacyWriteFileLocked(path, content)
+        sendRpcWriteFileLocked(path, content) ?: legacyTransportFallback { sendLegacyWriteFileLocked(path, content) }
     }
 
     suspend fun createDirectory(path: String): ProtocolResponse = withCommandLock(
         operation = "create directory",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while creating directory: $path") }
     ) {
-        sendRpcCreateDirectoryLocked(path) ?: sendLegacyCreateDirectoryLocked(path)
+        sendRpcCreateDirectoryLocked(path) ?: legacyTransportFallback { sendLegacyCreateDirectoryLocked(path) }
     }
 
     suspend fun delete(path: String, recursive: Boolean = false): ProtocolResponse = withCommandLock(
         operation = "delete path",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while deleting: $path") }
     ) {
-        sendRpcDeleteLocked(path, recursive) ?: sendLegacyDeleteLocked(path, recursive)
+        sendRpcDeleteLocked(path, recursive) ?: legacyTransportFallback { sendLegacyDeleteLocked(path, recursive) }
     }
 
     suspend fun move(sourcePath: String, destPath: String): ProtocolResponse = withCommandLock(
         operation = "move path",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while moving: $sourcePath -> $destPath") }
     ) {
-        sendRpcMoveLocked(sourcePath, destPath) ?: sendLegacyMoveLocked(sourcePath, destPath)
+        sendRpcMoveLocked(sourcePath, destPath) ?: legacyTransportFallback { sendLegacyMoveLocked(sourcePath, destPath) }
     }
 
     suspend fun getDeviceInfo(): ProtocolResponse = withCommandLock(
         operation = "get device info",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while requesting device info") }
     ) {
-        sendRpcDeviceInfoLocked() ?: sendLegacyDeviceInfoLocked()
+        sendRpcDeviceInfoLocked() ?: legacyTransportFallback { sendLegacyDeviceInfoLocked() }
     }
 
     suspend fun getStorageInfo(): ProtocolResponse = withCommandLock(
         operation = "get storage info",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while requesting storage info") }
     ) {
-        sendRpcStorageInfoLocked() ?: sendLegacyStorageInfoLocked()
+        sendRpcStorageInfoLocked() ?: legacyTransportFallback { sendLegacyStorageInfoLocked() }
+    }
+
+    private suspend fun legacyTransportFallback(block: suspend () -> ProtocolResponse): ProtocolResponse {
+        if (bleService?.usesRpcOnlyCommandTransport() == true) {
+            return ProtocolResponse.Error("RPC transport did not respond. Unlock the Flipper and reconnect; no text CLI commands were sent.")
+        }
+        return block()
     }
 
     private suspend fun sendLegacyListDirectoryLocked(path: String): ProtocolResponse {
@@ -1411,6 +1418,9 @@ class FlipperProtocol @Inject constructor() {
      */
     suspend fun sendCliCommand(command: String): ProtocolResponse {
         val normalizedCommand = normalizeCliCommand(command)
+        if (bleService?.usesRpcOnlyCommandTransport() == true) {
+            return executeRpcAppCommand(normalizedCommand)
+        }
         val commandVariants = buildCliCommandVariants(normalizedCommand)
 
         var lastResponse: ProtocolResponse = ProtocolResponse.Error("No response")
@@ -1671,6 +1681,7 @@ class FlipperProtocol @Inject constructor() {
                 markCliUnavailable("Flipper command transport is not connected")
                 return@withCommandLock false
             }
+            if (service.usesRpcOnlyCommandTransport()) return@withCommandLock false
             val data = "$text\r\n".toByteArray(Charsets.UTF_8)
             val sent = service.sendData(data)
             if (!sent) {
@@ -1710,6 +1721,11 @@ class FlipperProtocol @Inject constructor() {
             return@withCommandLock current
         }
 
+        // RPC-only transports consume protobuf messages, not a text console.
+        if (service.usesRpcOnlyCommandTransport()) {
+            return@withCommandLock probeRpcTransportAvailability()
+                ?: markCliUnavailable("RPC transport did not respond. Unlock Flipper and reconnect.")
+        }
         val response = probeRawCliOutput()
 
         return@withCommandLock if (response.isNotBlank()) {
@@ -1796,6 +1812,10 @@ class FlipperProtocol @Inject constructor() {
 
     private suspend fun recoverCliFromRpcSessionLocked(): CliCapabilityStatus {
         val service = bleService ?: return markCliUnavailable("Device service unavailable")
+        if (service.usesRpcOnlyCommandTransport()) {
+            return probeRpcTransportAvailability()
+                ?: markCliUnavailable("RPC transport did not respond. Unlock Flipper and reconnect.")
+        }
         if (!ensureTransportConnected(service)) {
             return markCliUnavailable("Flipper command transport is not connected")
         }
@@ -3145,6 +3165,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun collectRawCliResponse(commandText: String, timeoutMs: Long): String {
+        if (bleService?.usesRpcOnlyCommandTransport() == true) return ""
         val attempts = buildList {
             add(commandText)
             val lf = commandText
@@ -3342,6 +3363,7 @@ class FlipperProtocol @Inject constructor() {
 
     private suspend fun tryStartRpcSession(): Boolean {
         val service = bleService ?: return false
+        if (service.usesRpcOnlyCommandTransport()) return false
         val sessionCommands = listOf(
             "start_rpc_session\r",
             "start_rpc_session\r\n",
@@ -3358,6 +3380,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun tryStopRpcSession(): Boolean {
+        if (bleService?.usesRpcOnlyCommandTransport() == true) return false
         val framedStop = sendRpcMainAndAwaitResponse(timeoutMs = RPC_COMMAND_TIMEOUT_MS) {
             setStopSession(Flipper.StopSession.getDefaultInstance())
         }
