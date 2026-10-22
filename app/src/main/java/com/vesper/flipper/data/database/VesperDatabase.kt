@@ -17,6 +17,12 @@ abstract class VesperDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: VesperDatabase? = null
 
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN imageAttachmentsJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): VesperDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -24,7 +30,8 @@ abstract class VesperDatabase : RoomDatabase() {
                     VesperDatabase::class.java,
                     "vesper_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .openHelperFactory(com.vesper.flipper.security.EncryptedDatabaseFactory.create(context, "vesper_database"))
+                    .addMigrations(MIGRATION_1_2)
                     .build()
                 INSTANCE = instance
                 instance

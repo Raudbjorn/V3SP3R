@@ -22,6 +22,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         applicationId = "com.vesper.flipper"
         minSdk = 26
         targetSdk = 35
@@ -93,6 +94,11 @@ android {
 }
 
 dependencies {
+    implementation("net.zetetic:sqlcipher-android:4.10.0")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
     // Compose BOM & UI
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
