@@ -54,7 +54,7 @@ class CampaignStore(context: Context) : java.io.Closeable {
     }
     /** CAS prevents duplicate workers/approval taps from claiming a command twice. */
     fun transition(row: Row, state: String, message: String = "", phase: Int = row.phase, step: Int = row.step,
-        approval: String? = null, approvalExpires: Long = 0, phaseStarted: Long = row.phaseStarted): Boolean = writableDatabase.update("campaigns", SQLiteDatabase.CONFLICT_ABORT, ContentValues().apply {
+        approval: String? = null, approvalExpires: Long = 0, phaseStarted: Long = row.phaseStarted): Boolean = CampaignTransitions.allows(row.state,state) && writableDatabase.update("campaigns", SQLiteDatabase.CONFLICT_ABORT, ContentValues().apply {
         put("state", state); put("message", message.take(4096)); put("phase", phase); put("step", step)
         put("phaseStarted",phaseStarted); put("approval", approval); put("approvalExpires", approvalExpires); put("updated", System.currentTimeMillis())
     }, "id=? AND state=? AND phase=? AND step=?", arrayOf(row.id,row.state,row.phase.toString(),row.step.toString())) == 1

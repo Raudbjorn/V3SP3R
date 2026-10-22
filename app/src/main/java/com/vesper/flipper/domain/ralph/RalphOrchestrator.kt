@@ -33,7 +33,7 @@ class RalphOrchestrator(private val context: Context) {
     suspend fun approve(id: String) {
         CampaignStore(context).use { store ->
             val row = store.get(id) ?: return
-            check(store.enabled && row.state == "approval" && System.currentTimeMillis() < row.approvalExpires && System.currentTimeMillis() < row.plan.expiresAt) { "Approval expired or campaigns disabled" }
+            check(CampaignTransitions.canApprove(store.enabled,row.state,System.currentTimeMillis(),row.approvalExpires,row.plan.expiresAt)) { "Approval expired or campaigns disabled" }
             check(store.transition(row,"approving")) { "Approval already consumed" }
             val result = executor(context).approve(requireNotNull(row.approval), "campaign-$id")
             val claimed = store.get(id) ?: return
