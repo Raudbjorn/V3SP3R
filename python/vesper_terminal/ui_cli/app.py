@@ -29,7 +29,7 @@ def build_agent(data_dir: str) -> tuple[VesperAgent, dict]:
     permission.grant_path_permission("/ext", action=CommandAction.CREATE_DIRECTORY)
 
     transport, profile = create_transport(config, base)
-    risk = RiskAssessor(permission)
+    risk = RiskAssessor(permission, descendants=getattr(transport, "descendant_paths", None))
     executor = CommandExecutor(
         transport=transport,
         risk_assessor=risk,

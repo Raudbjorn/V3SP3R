@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 from pathlib import PurePosixPath
+from typing import Callable
 
 from .models import CommandAction, ExecuteCommand, RiskAssessment, RiskLevel
 from .permission import PermissionService
@@ -13,8 +14,9 @@ SENSITIVE_EXTENSIONS = [".key", ".priv", ".secret"]
 
 
 class RiskAssessor:
-    def __init__(self, permission_service: PermissionService) -> None:
+    def __init__(self, permission_service: PermissionService, descendants: Callable[[str], list[str]] | None = None) -> None:
         self.permission_service = permission_service
+        self.descendants = descendants
 
     def assess(self, command: ExecuteCommand) -> RiskAssessment:
         try:
@@ -30,6 +32,25 @@ class RiskAssessor:
                 raise ValueError("Only a single CLI command is allowed")
         except (ValueError, TypeError) as exc:
             return RiskAssessment(RiskLevel.BLOCKED, "Invalid path or command", [], False, False, str(exc))
+        recursive = command.action in {CommandAction.MOVE, CommandAction.RENAME, CommandAction.COPY, CommandAction.EXECUTE_CLI} or (command.action == CommandAction.DELETE and command.args.recursive)
+        if recursive:
+            # An ordinary approval cannot unlock known protected descendants.
+            for path in list(paths):
+                for protected in SYSTEM_PATHS + FIRMWARE_PATHS:
+                    if protected.rstrip("/").startswith(path.rstrip("/") + "/"):
+                        paths.append(protected.rstrip("/"))
+            if self.descendants and command.action != CommandAction.EXECUTE_CLI and command.args.path:
+                try:
+                    children = self.descendants(command.args.path)
+                    paths.extend(children)
+                    if command.action in {CommandAction.COPY, CommandAction.MOVE, CommandAction.RENAME}:
+                        destination = command.args.destination_path
+                        if command.action == CommandAction.RENAME:
+                            destination = str(PurePosixPath(command.args.path).parent / (command.args.new_name or ""))
+                        if destination:
+                            paths.extend(destination.rstrip("/") + child[len(command.args.path.rstrip("/")):] for child in children)
+                except (ValueError, OSError) as exc:
+                    return RiskAssessment(RiskLevel.BLOCKED, "Cannot inspect affected paths", paths, False, False, str(exc))
         blocked = next(
             (
                 p
@@ -149,9 +170,6 @@ class RiskAssessor:
                 raise ValueError("new_name must be a single filename")
             paths.append((command.args.path or "").rsplit("/", 1)[0] + "/" + name)
         if command.action == CommandAction.EXECUTE_CLI:
-            for path in paths:
-                if path.startswith("//") or str(PurePosixPath(path)) != (path.rstrip("/") or "/"):
-                    raise ValueError("Use canonical paths without repeated separators")
             cli = command.args.command or command.args.content or ""
             paths.extend(token for token in shlex.split(cli) if token.startswith("/"))
         return paths

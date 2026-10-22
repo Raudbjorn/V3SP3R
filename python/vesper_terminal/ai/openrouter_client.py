@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shlex
 import urllib.error
 import urllib.request
@@ -175,7 +174,6 @@ class OpenRouterClient:
 
     def _load_json_with_repair(self, raw: str) -> dict[str, Any]:
         text = raw.strip()
-        text = text.replace("```json", "").replace("```", "").strip()
 
         candidates = [text]
         extracted = self._extract_first_json_object(text)
@@ -208,9 +206,21 @@ class OpenRouterClient:
         if start < 0:
             return None
         depth = 0
+        quoted = False
+        escaped = False
         for idx in range(start, len(text)):
             char = text[idx]
-            if char == "{":
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+                continue
+            if char == '"':
+                quoted = True
+            elif char == "{":
                 depth += 1
             elif char == "}":
                 depth -= 1
@@ -219,7 +229,28 @@ class OpenRouterClient:
         return None
 
     def _remove_trailing_commas(self, text: str) -> str:
-        return re.sub(r",(\s*[}\]])", r"\1", text)
+        # Repair syntax only; quoted argument values must remain byte-for-byte intact.
+        result = []
+        quoted = False
+        escaped = False
+        for index, char in enumerate(text):
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+            elif char == '"':
+                quoted = True
+            elif char == ",":
+                following = index + 1
+                while following < len(text) and text[following].isspace():
+                    following += 1
+                if following < len(text) and text[following] in "}]":
+                    continue
+            result.append(char)
+        return "".join(result)
 
     def _default_requester(
         self,

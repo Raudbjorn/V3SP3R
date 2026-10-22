@@ -10,7 +10,7 @@ class MockMomentumTransport(FlipperTransport):
     """Momentum-first mock transport for Linux/macOS development."""
 
     def __init__(self, mock_root: str) -> None:
-        self.root = Path(mock_root)
+        self.root = Path(mock_root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "ext").mkdir(exist_ok=True)
 
@@ -29,6 +29,19 @@ class MockMomentumTransport(FlipperTransport):
             if cursor.is_symlink():
                 raise ValueError("Symlinks are not supported in the mock filesystem")
         return target
+
+    def descendant_paths(self, path: str) -> list[str]:
+        target = self._resolve(path)
+        if not target.is_dir():
+            return []
+        paths = []
+        for child in target.rglob("*"):
+            if child.is_symlink():
+                raise ValueError("Cannot operate on a tree containing symlinks")
+            paths.append("/" + child.relative_to(self.root).as_posix())
+            if len(paths) > 10000:
+                raise ValueError("Directory exceeds policy inspection limit")
+        return paths
 
     def list_directory(self, path: str) -> list[dict]:
         p = self._resolve(path)
@@ -74,11 +87,19 @@ class MockMomentumTransport(FlipperTransport):
             target.unlink(missing_ok=False)
 
     def move(self, src: str, dest: str) -> None:
-        shutil.move(str(self._resolve(src)), str(self._resolve(dest)))
+        s = self._resolve(src)
+        d = self._resolve(dest)
+        if d == s or s in d.parents:
+            raise ValueError("Destination must not be the source or its descendant")
+        if d.exists():
+            raise FileExistsError(f"Destination already exists: {dest}")
+        shutil.move(str(s), str(d))
 
     def copy(self, src: str, dest: str) -> None:
         s = self._resolve(src)
         d = self._resolve(dest)
+        if d == s or s in d.parents:
+            raise ValueError("Destination must not be the source or its descendant")
         if s.is_dir():
             if d.exists():
                 raise FileExistsError(f"Destination already exists: {dest}")

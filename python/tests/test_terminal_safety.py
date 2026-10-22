@@ -101,9 +101,9 @@ class TerminalSafetyTest(unittest.TestCase):
 
     def test_interactive_errors_retry_and_quit_during_approval(self):
         result = subprocess.run([sys.executable, "main.py", "--data-dir", str(self.root)],
-            input='{invalid}\nretry\ncli version\nquit\n', text=True, capture_output=True, timeout=10)
+            input='{invalid}\nretry\ncp /ext/a\nretry\ncli version\nquit\n', text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count("Invalid command:"), 2)
+        self.assertEqual(result.stdout.count("Invalid command:"), 4)
         self.assertIn("Type YES to approve", result.stdout)
 
     def test_read_missing_directory_has_no_write_side_effect(self):
