@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vesper.flipper.ai.SpeechBackend
 import com.vesper.flipper.ai.LlmProvider
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.Permission
@@ -428,6 +429,7 @@ fun SettingsScreen(
                         title = "Enable Voice Output",
                         subtitle = "Speak agent responses aloud",
                         checked = state.ttsEnabled,
+                        enabled = state.provider.speechBackend != SpeechBackend.NONE,
                         onCheckedChange = { viewModel.setTtsEnabled(it) }
                     )
                     Text(
@@ -444,13 +446,14 @@ fun SettingsScreen(
 
                     ExposedDropdownMenuBox(
                         expanded = voiceExpanded,
-                        onExpandedChange = { voiceExpanded = it }
+                        onExpandedChange = { voiceExpanded = it && state.provider.speechBackend != SpeechBackend.NONE }
                     ) {
                         OutlinedTextField(
                             value = currentVoice?.let { "${it.name} — ${it.description}" } ?: "Shimmer",
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Voice") },
+                            enabled = state.provider.speechBackend != SpeechBackend.NONE,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(),
@@ -490,6 +493,7 @@ fun SettingsScreen(
                         title = "Auto-Speak",
                         subtitle = "Automatically read agent responses aloud",
                         checked = state.ttsAutoSpeak,
+                        enabled = state.provider.speechBackend != SpeechBackend.NONE,
                         onCheckedChange = { viewModel.setTtsAutoSpeak(it) }
                     )
                 }

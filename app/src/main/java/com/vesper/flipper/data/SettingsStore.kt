@@ -60,6 +60,13 @@ class SettingsStore @Inject constructor(
         readApiKey(LlmProvider.fromId(preferences[PROVIDER]), preferences)
     }
 
+    // Publish credentials and model with the provider from the same preferences snapshot.
+    val llmSelection: Flow<LlmSelection> = combine(context.dataStore.data, secureKeyRevision) { preferences, _ ->
+        val provider = LlmProvider.fromId(preferences[PROVIDER])
+        LlmSelection(provider, readApiKey(provider, preferences),
+            preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel)
+    }
+
     private fun readApiKey(provider: LlmProvider, preferences: Preferences): String? {
         secureStorage.getString(provider.apiKeyPreference)?.takeIf { it.isNotBlank() }?.let { return it }
         // Legacy fallback: keys written to plaintext DataStore before encryption.
