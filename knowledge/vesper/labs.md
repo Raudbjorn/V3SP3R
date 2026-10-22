@@ -139,7 +139,7 @@ unless you are authorized to share them with those cloud providers.
 
 ### Auditing
 
-Everything the Payload Lab writes or executes flows through the same audit pipeline as the rest of the app. **Chat → Audit log** shows every save, every execute, every approval decision, with justification and expected effect visible on each row.
+Audit coverage depends on the execution path. Commands handled by `CommandExecutor` use its audit pipeline. Payload Lab's **Save BadUSB** and **Save Evil Portal** paths call `FlipperToolExecutor` and `FlipperFileSystem` directly; these saves do not call `AuditService`. Do not rely on the audit log as a complete record of Lab deployments, justifications, or expected effects. Record those direct saves separately when evidence is required.
 
 ---
 
