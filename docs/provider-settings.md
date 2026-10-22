@@ -4,7 +4,7 @@ Five separate configurations are available: OpenRouter, Gemini, OpenAI, xAI and 
 
 OpenAI-compatible requests choose the correct URL, credential, attribution headers and token-limit field. Model fallback remains within the selected provider. OpenRouter remains the default provider. Speech chooses the provider's backend and voice set, and Anthropic correctly reports that speech is unavailable.
 
-The Anthropic configuration is defined here, but native Anthropic chat is implemented by [native Anthropic PR #11](https://github.com/Raudbjorn/V3SP3R/pull/11). Until that is integrated, selecting Anthropic returns an explicit error; it never sends Anthropic credentials to an OpenAI-compatible endpoint.
+Anthropic chat uses its native Messages API with provider-specific authentication, tool blocks, tool results, and image encoding. Anthropic speech remains unavailable. [Native Anthropic PR #11](https://github.com/Raudbjorn/V3SP3R/pull/11) supplies this implementation.
 
 The generic protocol boundary is the extension point for native providers. HTTP mocks cover compatible-provider requests; live provider account access and device audio playback have not been tested. Catalog defaults are conservative identifiers rather than unverified future generations from the donor. The OpenRouter subset was checked against its public model catalog on 2026-10-22.
 
