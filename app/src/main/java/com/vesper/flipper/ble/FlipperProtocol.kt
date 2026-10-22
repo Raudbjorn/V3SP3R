@@ -334,11 +334,7 @@ class FlipperProtocol @Inject constructor() {
                 firmwareVersion = "0.0.0",
                 hardwareVersion = "1.0",
                 batteryLevel = batteryLevel,
-                isCharging = isCharging,
-                firmwareTarget = deviceInfoPairs["firmware_target"]?.let { "f" + it.removePrefix("f") },
-                firmwareApi = (deviceInfoPairs["firmware_api_major"] ?: deviceInfoPairs["firmware_api.major"])?.let { major ->
-                    (deviceInfoPairs["firmware_api_minor"] ?: deviceInfoPairs["firmware_api.minor"])?.let { minor -> "$major.$minor" }
-                }
+                isCharging = isCharging
             ),
             storageInfo = StorageInfo(
                 internalTotal = internalTotal,
@@ -943,7 +939,11 @@ class FlipperProtocol @Inject constructor() {
                 firmwareVersion = firmwareVersion,
                 hardwareVersion = hardwareVersion,
                 batteryLevel = batteryLevel.coerceIn(0, 100),
-                isCharging = isCharging
+                isCharging = isCharging,
+                firmwareTarget = deviceInfoPairs["firmware_target"]?.let { "f" + it.removePrefix("f") },
+                firmwareApi = (deviceInfoPairs["firmware_api_major"] ?: deviceInfoPairs["firmware_api.major"])?.let { major ->
+                    (deviceInfoPairs["firmware_api_minor"] ?: deviceInfoPairs["firmware_api.minor"])?.let { minor -> "$major.$minor" }
+                }
             ),
             storageInfo = storageInfo
         )
