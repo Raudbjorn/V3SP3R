@@ -458,8 +458,7 @@ class VesperAgent @Inject constructor(
                                     metadata = mapOf(
                                         "reason" to "tool_argument_parse_failed",
                                         "tool_name" to toolCall.name,
-                                        "tool_args_preview" to toolCall.arguments.take(400),
-                                        "parse_error" to parseError
+                                        "parse_error" to "Invalid tool argument structure"
                                     )
                                 )
                             )

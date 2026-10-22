@@ -45,6 +45,8 @@ class OpenRouterClient @Inject constructor(
     }
 
     private val client = OkHttpClient.Builder()
+        .connectionSpecs(com.vesper.flipper.security.TransportSecurity.tlsOnly)
+        .followSslRedirects(false)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(75, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -302,11 +304,11 @@ class OpenRouterClient @Inject constructor(
                         Log.w(TAG, "describeImageForAgent: $model returned blank, trying next")
                     }
                     is ChatCompletionResult.Error -> {
-                        Log.w(TAG, "describeImageForAgent: $model failed: ${result.message}")
+                        Log.w(TAG, "describeImageForAgent: $model failed: [redacted]")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "describeImageForAgent: exception with $model: ${e.message}")
+                Log.w(TAG, "describeImageForAgent: exception with $model: [redacted]")
             }
         }
 
@@ -379,11 +381,11 @@ class OpenRouterClient @Inject constructor(
                         Log.w(TAG, "describeImage: $model returned blank content, trying next model")
                     }
                     is ChatCompletionResult.Error -> {
-                        Log.w(TAG, "describeImage: $model failed: ${result.message}, trying next model")
+                        Log.w(TAG, "describeImage: $model failed: [redacted], trying next model")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "describeImage: exception with $model: ${e.message}, trying next model")
+                Log.w(TAG, "describeImage: exception with $model: [redacted], trying next model")
             }
         }
 
@@ -519,7 +521,7 @@ class OpenRouterClient @Inject constructor(
                     .coerceAtMost(RetryConfig.MAX_DELAY_MS)
             } catch (e: Exception) {
                 // Non-retryable exception
-                return ChatCompletionResult.Error("Request failed: ${e.message}")
+                return ChatCompletionResult.Error("Request failed: [redacted]")
             }
         }
 
@@ -545,7 +547,7 @@ class OpenRouterClient @Inject constructor(
             if (errorObj != null) {
                 val errorMsg = errorObj["message"]?.jsonPrimitive?.contentOrNull ?: "Unknown API error"
                 val errorCode = errorObj["code"]?.jsonPrimitive?.intOrNull
-                Log.e(TAG, "OpenRouter API error (code=$errorCode): $errorMsg")
+                Log.e(TAG, "OpenRouter API error (code=$errorCode)")
                 return ChatCompletionResult.Error("API error${errorCode?.let { " $it" } ?: ""}: $errorMsg")
             }
 
@@ -554,7 +556,7 @@ class OpenRouterClient @Inject constructor(
             // Warn on missing ID but don't reject — some providers omit it for
             // simple completions (e.g. vision-only calls).
             if (apiResponse.id.isBlank()) {
-                Log.w(TAG, "Response missing ID. Body preview: ${responseBody.take(200)}")
+                Log.w(TAG, "Response missing ID")
             }
 
             val choice = apiResponse.choices.firstOrNull()
@@ -571,7 +573,7 @@ class OpenRouterClient @Inject constructor(
             val toolCalls = rawToolCalls?.mapNotNull { tc ->
                 // Validate tool call structure — reject blanks but log them
                 if (tc.id.isBlank() || tc.function.name.isBlank()) {
-                    Log.w(TAG, "Dropping malformed tool call: id='${tc.id}' name='${tc.function.name}' args='${tc.function.arguments.take(100)}'")
+                    Log.w(TAG, "Dropping malformed tool call")
                     null
                 } else {
                     ToolCall(
@@ -595,7 +597,7 @@ class OpenRouterClient @Inject constructor(
                 tokensUsed = apiResponse.usage?.totalTokens
             )
         } catch (e: Exception) {
-            ChatCompletionResult.Error("Failed to parse response: ${e.message}")
+            ChatCompletionResult.Error("Failed to parse response: [redacted]")
         }
     }
 

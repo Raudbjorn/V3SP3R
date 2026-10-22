@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
+import { createRelayServer } from "./transportServer";
 
 /**
  * V3SP3R ↔ Mentra Glasses Bridge Server
@@ -181,7 +182,9 @@ function getWakeGreeting(hasCommand: boolean): string {
 // ==================== WebSocket Relay Server ====================
 
 const PORT = parseInt(process.env.PORT || "8089", 10);
-const wss = new WebSocketServer({ port: PORT });
+const relayServer = createRelayServer();
+const wss = new WebSocketServer({ server: relayServer });
+relayServer.listen(PORT);
 
 console.log(`V3SP3R Glasses Bridge running on port ${PORT}`);
 
@@ -230,7 +233,7 @@ wss.on("connection", (ws, req) => {
       const message: GlassesMessage = JSON.parse(data.toString());
       handleMessage(ws, message);
     } catch (e) {
-      console.warn("Invalid message:", (e as Error).message);
+      console.warn("Invalid message:");
     }
   });
 
@@ -240,7 +243,7 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("error", (err) => {
-    console.error("WebSocket error:", err.message);
+    console.error("WebSocket error");
     clients.delete(ws);
   });
 
@@ -448,12 +451,12 @@ async function startMentraIntegration() {
             // ── TTS Echo Suppression ────────────────────────────
             // Suppress transcriptions while TTS is playing or in cooldown
             if (ttsSpeaking || Date.now() < ttsEchoSuppressionUntil) {
-              console.log(`[Echo] Suppressed during TTS: "${data.text.trim().slice(0, 40)}"`);
+              console.log("[Echo] Suppressed during TTS");
               return;
             }
             // Also catch echoes that slip past the timing window
             if (isLikelyTtsEcho(data.text.trim())) {
-              console.log(`[Echo] Suppressed echo match: "${data.text.trim().slice(0, 40)}"`);
+              console.log("[Echo] Suppressed echo match");
               return;
             }
 
@@ -487,7 +490,7 @@ async function startMentraIntegration() {
 
               if (hasCommand) {
                 // "Hey Vesper, scan this" — immediate command
-                console.log(`[MentraOS] Wake + command: "${command}"`);
+                console.log("[MentraOS] Wake command received");
                 lastTaskTimestamp = Date.now();
                 resetAwaitingState();
 
@@ -541,7 +544,7 @@ async function startMentraIntegration() {
 
             // ── Armed follow-up: treat this as the command ───────
             if (awaitingCommand) {
-              console.log(`[MentraOS] Follow-up command: "${rawText}"`);
+              console.log("[MentraOS] Follow-up command received");
               lastTaskTimestamp = Date.now();
               resetAwaitingState();
 
@@ -562,7 +565,7 @@ async function startMentraIntegration() {
 
             // ── No wake word, not armed — relay as passive transcription ──
             // (only sent if auto-send is on in the Android app)
-            console.log(`[MentraOS] Voice (passive): "${rawText}"`);
+            console.log("[MentraOS] Passive voice received");
             broadcast(getVesperClients(), {
               type: "VOICE_TRANSCRIPTION",
               text: rawText,
@@ -607,10 +610,6 @@ async function startMentraIntegration() {
                   const rawData = extractPhotoData(data);
                   if (!rawData) {
                     console.error(`[MentraOS] ${evtName}: no data field. Keys:`, Object.keys(data).join(", "));
-                    for (const [k, v] of Object.entries(data)) {
-                      const preview = typeof v === "string" ? v.slice(0, 80) : `[${typeof v}]`;
-                      console.error(`  data.${k} = ${preview}`);
-                    }
                     return;
                   }
                   broadcastPhoto(rawData, "What am I looking at?");
@@ -650,7 +649,7 @@ async function startMentraIntegration() {
           if (session.events && typeof session.events.onButtonPress === "function") {
             session.events.onButtonPress(async (data: Record<string, any>) => {
               const buttonName = (data.button ?? data.name ?? data.type ?? "").toString().toLowerCase();
-              console.log(`[MentraOS] Button press: ${JSON.stringify(data)}`);
+              console.log("[MentraOS] Button press received");
 
               const cameraButtons = ["camera", "capture", "photo", "snap", "shutter"];
               if (cameraButtons.some(b => buttonName.includes(b))) {
@@ -661,7 +660,7 @@ async function startMentraIntegration() {
             console.log("[MentraOS] Button press listener registered (camera fallback)");
           }
         } catch (e) {
-          console.warn(`[MentraOS] Failed to register photo listener: ${(e as Error).message}`);
+          console.warn("[MentraOS] Failed to register photo listener");
         }
 
         // ── Session keepalive ────────────────────────────────────────
@@ -724,7 +723,7 @@ async function startMentraIntegration() {
       "[MentraOS] SDK not available — running in standalone relay mode."
     );
     console.warn(`  Install with: npm install @mentra/sdk`);
-    console.warn(`  Error: ${(e as Error).message}`);
+    console.warn("  SDK initialization failed");
   }
 }
 
@@ -823,24 +822,20 @@ async function captureAndAnalyze(session: any, prompt: string) {
     // Handle URL-based photo responses — fetch and convert to buffer
     if (!rawData && (photo.url || photo.photoUrl)) {
       const photoUrl = photo.url || photo.photoUrl;
-      console.log("[MentraOS] Photo is URL-based, fetching:", photoUrl);
+      console.log("[MentraOS] Fetching photo");
       try {
         const resp = await fetch(photoUrl);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         rawData = Buffer.from(await resp.arrayBuffer());
       } catch (e) {
-        console.error("[MentraOS] Failed to fetch photo from URL:", (e as Error).message);
+        console.error("[MentraOS] Failed to fetch photo from URL:");
         return;
       }
     }
 
     if (!rawData) {
       console.error("[MentraOS] Photo object has no recognizable data field. Keys:", Object.keys(photo).join(", "));
-      // Log all values for debugging — truncate large values
-      for (const [k, v] of Object.entries(photo)) {
-        const preview = typeof v === "string" ? v.slice(0, 80) : typeof v;
-        console.error(`  photo.${k} = ${preview}`);
-      }
+      // Never dump unknown photo payloads or signed URLs.
       return;
     }
 
@@ -860,7 +855,7 @@ async function captureAndAnalyze(session: any, prompt: string) {
     } catch { /* WebSocket may not be ready */ }
   } catch (e) {
     const errMsg = (e as Error).message;
-    console.error("[MentraOS] Vision capture failed:", errMsg);
+    console.error("[MentraOS] Vision capture failed");
     try {
       await session.layouts.showTextWall(`Camera error: ${errMsg.slice(0, 40)}`, { durationMs: 3000 });
     } catch { /* ignore */ }
@@ -942,7 +937,7 @@ async function handleMentraResponse(session: any, message: GlassesMessage) {
         break;
     }
   } catch (e) {
-    console.warn("[MentraOS] Response delivery failed:", (e as Error).message);
+    console.warn("[MentraOS] Response delivery failed:");
   }
 }
 

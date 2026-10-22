@@ -37,6 +37,8 @@ class OpenRouterTtsService @Inject constructor(
     private val settingsStore: SettingsStore
 ) {
     private val client = OkHttpClient.Builder()
+        .connectionSpecs(com.vesper.flipper.security.TransportSecurity.tlsOnly)
+        .followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
