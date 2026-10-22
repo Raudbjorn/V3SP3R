@@ -126,7 +126,7 @@ object FlipperResourceLibrary {
             stars = 2200,
             fileCount = 5000,
             lastUpdated = "2025",
-            tags = listOf("Samsung", "LG", "Sony", "Vizio", "TCL", "AC", "Projector")
+            tags = listOf("infrared", "Samsung", "LG", "Sony", "Vizio", "TCL", "AC", "Projector")
         ),
         FlipperResourceRepo(
             id = "ir_universal",

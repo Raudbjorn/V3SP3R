@@ -28,6 +28,7 @@ import com.vesper.flipper.voice.OpenRouterTtsService
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
+    val campaignContext = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.state.collectAsState()
     val availableModels by viewModel.availableModels.collectAsState()
     val isRefreshingModels by viewModel.isRefreshingModels.collectAsState()
@@ -52,6 +53,11 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item {
+                OutlinedButton(onClick = { campaignContext.startActivity(android.content.Intent(campaignContext, com.vesper.flipper.domain.ralph.CampaignActivity::class.java)) }) {
+                    Text("Experimental campaigns and approval inbox")
+                }
+            }
             // API Configuration Section
             item {
                 SettingsSection(title = "API Configuration") {

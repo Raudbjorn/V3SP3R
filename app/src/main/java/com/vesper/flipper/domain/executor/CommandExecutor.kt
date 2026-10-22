@@ -66,6 +66,9 @@ class CommandExecutor @Inject constructor(
         // Assess risk (Android decides, not the model)
         val riskAssessment = riskAssessor.assess(command)
 
+        if (riskAssessment.level != RiskLevel.BLOCKED && sessionId.startsWith("campaign-") && command.action in setOf(CommandAction.WRITE_FILE, CommandAction.CREATE_DIRECTORY)) {
+            return requestApproval(command, riskAssessment.copy(level=RiskLevel.HIGH, requiresConfirmation=true), sessionId, startTime, traceId)
+        }
         return when (riskAssessment.level) {
             RiskLevel.LOW -> executeDirectly(
                 command = command,

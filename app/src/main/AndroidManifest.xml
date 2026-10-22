@@ -44,6 +44,8 @@
         android:theme="@style/Theme.Vesper"
         tools:targetApi="34">
 
+        <activity android:name=".domain.ralph.CampaignActivity" android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:enabled="true"
