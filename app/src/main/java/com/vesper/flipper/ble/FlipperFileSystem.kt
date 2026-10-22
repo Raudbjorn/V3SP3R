@@ -260,6 +260,36 @@ class FlipperFileSystem @Inject constructor(
         }
     }
 
+    suspend fun sendInputEvent(key: String, pressType: String = "short"): Result<String> {
+        val parsedKey = Gui.InputKey.values().firstOrNull {
+            it != Gui.InputKey.UNRECOGNIZED && it.name.equals(key.trim(), ignoreCase = true)
+        } ?: return Result.failure(IllegalArgumentException("Invalid GUI key: $key"))
+        val parsedType = Gui.InputType.values().firstOrNull {
+            it != Gui.InputType.UNRECOGNIZED && it.name.equals(pressType.trim(), ignoreCase = true)
+        } ?: return Result.failure(IllegalArgumentException("Invalid GUI input type: $pressType"))
+        // Do not retry a timed-out input through CLI: the first input may already have acted.
+        return protocolResponseToStringResult(protocol.sendGuiInputEvent(parsedKey, parsedType))
+    }
+
+    suspend fun executeLoaderControl(verb: String, signalId: Int? = null, argument: String? = null): Result<String> {
+        val command = when (verb) {
+            "list", "close" -> "loader $verb"
+            "signal" -> {
+                if (signalId == null || signalId < 0) return Result.failure(IllegalArgumentException("Nonnegative signal_id required"))
+                val arg = argument.orEmpty()
+                if (arg.any { it == '\n' || it == '\r' || it == '\u0000' || it == ';' || it == '|' || it == '&' }) {
+                    return Result.failure(IllegalArgumentException("Invalid loader signal argument"))
+                }
+                "loader signal $signalId" + if (arg.isBlank()) "" else " $arg"
+            }
+            else -> return Result.failure(IllegalArgumentException("Unknown loader operation"))
+        }
+        if (!protocol.isRawCliTransportConnected() || !firmwareCompatibility.value.supportsCli) {
+            return Result.failure(FlipperException("Loader $verb requires a confirmed USB CLI connection; it is not supported over BLE RPC"))
+        }
+        return executeCli(command)
+    }
+
     suspend fun executeCli(command: String): Result<String> {
         val startedAt = System.currentTimeMillis()
         fun finish(

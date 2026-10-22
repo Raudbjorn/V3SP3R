@@ -538,15 +538,33 @@ class CommandExecutor @Inject constructor(
 
             // ── Hardware control actions ─────────────────────────
 
+            CommandAction.INPUT_SEND -> {
+                val output = fileSystem.sendInputEvent(command.args.key ?: error("key required"),
+                    command.args.pressType ?: "short").getOrThrow()
+                CommandResultData(content = output, message = output)
+            }
+            CommandAction.LOADER_LIST, CommandAction.LOADER_CLOSE, CommandAction.LOADER_SIGNAL -> {
+                val verb = when (command.action) {
+                    CommandAction.LOADER_LIST -> "list"
+                    CommandAction.LOADER_CLOSE -> "close"
+                    else -> "signal"
+                }
+                val output = fileSystem.executeLoaderControl(verb, command.args.signalId, command.args.content).getOrThrow()
+                CommandResultData(content = output, message = "Loader $verb completed")
+            }
             CommandAction.LAUNCH_APP -> {
                 val appName = command.args.appName
                     ?: command.args.command
                     ?: throw IllegalArgumentException("App name required")
+                require(appName.isNotBlank() && appName.none { it == '"' || it == '\\' || it == '\n' || it == '\r' }) {
+                    "Invalid app name"
+                }
+                val quotedAppName = "\"$appName\""
                 val appArgs = command.args.appArgs ?: ""
                 val cliCommand = if (appArgs.isNotBlank()) {
-                    "loader open $appName $appArgs"
+                    "loader open $quotedAppName $appArgs"
                 } else {
-                    "loader open $appName"
+                    "loader open $quotedAppName"
                 }
                 val output = fileSystem.executeCli(cliCommand).getOrThrow()
                 CommandResultData(

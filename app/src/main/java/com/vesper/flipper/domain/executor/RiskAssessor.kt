@@ -42,6 +42,19 @@ class RiskAssessor @Inject constructor(
 
         // Assess based on action type
         return when (command.action) {
+            CommandAction.INPUT_SEND, CommandAction.LOADER_SIGNAL -> RiskAssessment(
+                level = RiskLevel.HIGH,
+                reason = "Remote input or app signal can trigger an unknown foreground action",
+                affectedPaths = paths, requiresDiff = false, requiresConfirmation = true
+            )
+            CommandAction.LOADER_CLOSE -> RiskAssessment(
+                level = RiskLevel.MEDIUM, reason = "Interrupt foreground app",
+                affectedPaths = paths, requiresDiff = false, requiresConfirmation = true
+            )
+            CommandAction.LOADER_LIST -> RiskAssessment(
+                level = RiskLevel.LOW, reason = "Read-only app list",
+                affectedPaths = paths, requiresDiff = false, requiresConfirmation = false
+            )
             // LOW risk: read-only operations
             CommandAction.LIST_DIRECTORY,
             CommandAction.READ_FILE,

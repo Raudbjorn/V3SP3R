@@ -75,6 +75,8 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
+    fun isRawCliTransportConnected(): Boolean = bleService?.isRawCliTransportConnected() == true
+
     fun setBleService(service: FlipperBleService) {
         this.bleService = service
     }
@@ -2969,7 +2971,8 @@ class FlipperProtocol @Inject constructor() {
                     baseCandidates = listOf(appName),
                     customOverride = null
                 ),
-                appArgs = remainingArgs.ifBlank { RPC_APP_START_ARGUMENT },
+                // Interactive launches must not implicitly request headless RPC mode.
+                appArgs = remainingArgs,
                 buttonArgsCandidates = listOf(""),
                 triggerOkPress = false
             )

@@ -1796,6 +1796,9 @@ class FlipperBleService : Service() {
         return flipperProtocol.probeCliAvailability(force)
     }
 
+    /** Raw shell commands are available only on an established USB serial connection. */
+    fun isRawCliTransportConnected(): Boolean = isUsbCommandTransportConnected()
+
     fun isCommandTransportConnected(): Boolean {
         return isUsbCommandTransportConnected() || isBleCommandTransportConnected()
     }
