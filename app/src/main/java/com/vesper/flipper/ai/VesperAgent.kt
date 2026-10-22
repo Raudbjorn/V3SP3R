@@ -699,7 +699,7 @@ class VesperAgent @Inject constructor(
             .map { state ->
                 PersistedConversationSnapshot(
                     sessionId = state.sessionId,
-                    messages = ChatContextWindow.trim(state.messages.filterNot { it.status == MessageStatus.STREAMING }, MAX_PERSISTED_MESSAGES)
+                    messages = ChatContextWindow.trim(state.messages.filterNot { it.status == MessageStatus.STREAMING }, MAX_PERSISTED_MESSAGES, preserveCompaction = true)
                 )
             }
             .distinctUntilChanged()

@@ -99,7 +99,7 @@ class OpenRouterClient @Inject constructor(
 
         val model = selection.model
 
-        val compactMessages = trimConversationForRequest(messages)
+        val compactMessages = trimConversationForRequest(messages, provider == LlmProvider.ANTHROPIC)
 
         // Image preprocessing is handled by VesperAgent.processAIResponse() before
         // calling chat(). If images somehow survive (e.g. direct chat() call), handle
@@ -129,6 +129,10 @@ class OpenRouterClient @Inject constructor(
         var lastError: ChatCompletionResult.Error? = null
         val attemptedModels = mutableListOf<String>()
         val unsupportedModels = mutableListOf<String>()
+        var hasStreamOutput = false
+        val trackedEvents: (suspend (ChatStreamEvent) -> Unit)? = onEvent?.let { callback ->
+            { event -> hasStreamOutput = true; callback(event) }
+        }
 
         for (candidateModel in candidateModels) {
             attemptedModels.add(candidateModel)
@@ -148,7 +152,7 @@ class OpenRouterClient @Inject constructor(
                     stream = onEvent != null,
                     thinkingBudget = if (provider == LlmProvider.ANTHROPIC && settingsStore.extendedThinking.first()) 2048 else 0,
                     effort = settingsStore.reasoningEffort.first()
-                ), onEvent
+                ), trackedEvents
             )
 
             when (result) {
@@ -159,6 +163,7 @@ class OpenRouterClient @Inject constructor(
 
                 is ChatCompletionResult.Error -> {
                     lastError = result
+                    if (hasStreamOutput) return@withContext result
 
                     if (isToolResultPairingError(result.message)) {
                         return@withContext ChatCompletionResult.Error(
@@ -471,7 +476,9 @@ class OpenRouterClient @Inject constructor(
     private suspend fun executeStream(request: Request, onEvent: suspend (ChatStreamEvent) -> Unit): ChatCompletionResult {
         return try {
             client.newCall(request).withCancellation { response ->
-                if (!response.isSuccessful) streamHttpError(response.code, response.body?.string().orEmpty())
+                if (!response.isSuccessful) streamHttpError(response.code, response.body?.string().orEmpty()).copy(
+                    retryAfterMillis = response.header("Retry-After")?.toLongOrNull()?.coerceIn(0, 30)?.times(1000)
+                )
                 else {
                     val body = response.body ?: throw IOException("Empty stream")
                     val native = request.tag(ChatProtocol::class.java) == AnthropicChatProtocol
@@ -485,11 +492,11 @@ class OpenRouterClient @Inject constructor(
                 }
             }
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { ChatCompletionResult.Error(e.message ?: "Stream failed") }
+        catch (e: Exception) { ChatCompletionResult.Error(e.message ?: "Stream failed", retryable = e is IOException) }
     }
 
     private suspend fun executeWithRetry(request: Request, onEvent: (suspend (ChatStreamEvent) -> Unit)? = null): ChatCompletionResult {
-        if (onEvent != null) return executeStream(request, onEvent)
+        if (onEvent != null) return retryStreamBeforeOutput(onEvent) { emit -> executeStream(request, emit) }
         var lastException: Exception? = null
         var delayMs = RetryConfig.INITIAL_DELAY_MS
 
@@ -1323,7 +1330,7 @@ class OpenRouterClient @Inject constructor(
             return@withContext Result.failure(Exception("Invalid API key format"))
         }
 
-        val compactMessages = trimConversationForRequest(messages)
+        val compactMessages = trimConversationForRequest(messages, selection.provider == LlmProvider.ANTHROPIC)
         val requestMessages = buildList {
             add(OpenRouterMessage.text(
                 role = "system",
@@ -1401,8 +1408,8 @@ class OpenRouterClient @Inject constructor(
         toolUnsupportedModels[model] = System.currentTimeMillis()
     }
 
-    private fun trimConversationForRequest(messages: List<ChatMessage>): List<ChatMessage> {
-        return ChatContextWindow.trim(messages, MAX_CONTEXT_MESSAGES)
+    private fun trimConversationForRequest(messages: List<ChatMessage>, preserveCompaction: Boolean): List<ChatMessage> {
+        return ChatContextWindow.trim(messages, MAX_CONTEXT_MESSAGES, preserveCompaction)
     }
 
     companion object {
@@ -1720,7 +1727,7 @@ sealed class ChatCompletionResult {
         val providerContentJson: String? = null
     ) : ChatCompletionResult()
 
-    data class Error(val message: String) : ChatCompletionResult()
+    data class Error(val message: String, val retryable: Boolean = false, val retryAfterMillis: Long? = null) : ChatCompletionResult()
 }
 
 // OpenRouter API models

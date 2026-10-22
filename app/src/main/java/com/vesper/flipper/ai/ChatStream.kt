@@ -29,7 +29,7 @@ internal fun streamHttpError(status: Int, body: String): ChatCompletionResult.Er
         (root["error"] as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull
             ?: root["message"]?.jsonPrimitive?.contentOrNull
     }.getOrNull()?.take(1000).orEmpty()
-    return ChatCompletionResult.Error("Streaming API error $status" + if (detail.isBlank()) "" else ": $detail")
+    return ChatCompletionResult.Error("Streaming API error $status" + if (detail.isBlank()) "" else ": $detail", retryable = status == 429 || status in 500..599)
 }
 
 /** Cancels the underlying socket even while a blocking body read is in progress. */
