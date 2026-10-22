@@ -76,6 +76,30 @@ class BleRpcTransportTest {
         verify(service, never()).sendLegacyData(any())
     }
 
+    @Test fun `generic raw rejection never probes or invalidates a replacement CLI session`() = runBlocking<Unit> {
+        val service = mock<FlipperBleService>()
+        val protocol = FlipperProtocol().apply { setBleService(service) }
+        var replaced = false
+        fun replaceWithCli() {
+            protocol.onConnectionReset()
+            whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+            whenever(service.isRawCliTransportConnected()).thenReturn(true)
+            whenever(service.isCommandTransportConnected()).thenReturn(true)
+            protocol.confirmExplicitUsbCliSession("hardware_model: 1\nfirmware_version: 1.4.3")
+            replaced = true
+        }
+        // Former generic raw handling waited here and then cleared the new session
+        // after its failed probe. The refused API must never enter that wait.
+        whenever(service.awaitCommandTransportReady(any())).thenAnswer { replaceWithCli(); true }
+        val result = protocol.sendRawCliCommand("version")
+        if (!replaced) replaceWithCli()
+        assertTrue(result is ProtocolResponse.Error)
+        assertTrue(protocol.isConfirmedUsbCliSession())
+        verify(service, never()).awaitCommandTransportReady(any())
+        verify(service, never()).sendData(any(), any(), any(), any())
+        verify(service, never()).sendUsbDataOnly(any())
+    }
+
     private suspend fun rejectedStorageDoesNotUseLegacy(disconnectAfterResponse: Boolean) {
         val service = mock<FlipperBleService>()
         whenever(service.usesRpcOnlyCommandTransport()).thenReturn(true)

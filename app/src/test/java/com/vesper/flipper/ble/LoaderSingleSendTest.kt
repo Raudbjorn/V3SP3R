@@ -36,8 +36,8 @@ class LoaderSingleSendTest {
         assertTrue(result is ProtocolResponse.Error)
         assertTrue((result as ProtocolResponse.Error).message.contains("unconfirmed"))
         verify(service, times(1)).sendUsbDataOnly(check { assertArrayEquals("loader signal 1\r\n".toByteArray(), it) })
-        verify(service).isRawCliTransportConnected()
-        verify(service).isUsbCliSessionSelected()
+        verify(service, atLeastOnce()).isRawCliTransportConnected()
+        verify(service, atLeastOnce()).isUsbCliSessionSelected()
         verifyNoMoreInteractions(service)
     }
 
@@ -52,8 +52,8 @@ class LoaderSingleSendTest {
         whenever(service.sendUsbDataOnly(any())).thenReturn(false)
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
         verify(service, times(1)).sendUsbDataOnly(any())
-        verify(service).isRawCliTransportConnected()
-        verify(service).isUsbCliSessionSelected()
+        verify(service, atLeastOnce()).isRawCliTransportConnected()
+        verify(service, atLeastOnce()).isUsbCliSessionSelected()
         verifyNoMoreInteractions(service)
     }
 

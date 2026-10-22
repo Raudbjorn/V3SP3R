@@ -3076,66 +3076,14 @@ class FlipperProtocol @Inject constructor() {
         return tokens.filter { it.isNotBlank() }
     }
 
-    suspend fun sendRawCliCommand(command: String): ProtocolResponse = withProtocolCommandLock(
-        operation = "raw CLI command",
-        onTimeout = {
-            ProtocolResponse.Error("Command pipeline busy; CLI command timed out waiting for lock: $command")
-        }
-    ) {
-        if (bleService?.isUsbCliSessionSelected() == true) return@withProtocolCommandLock ProtocolResponse.Error("Use a supported typed USB action in CLI mode")
-        if (screenFrameRouting) return@withProtocolCommandLock ProtocolResponse.Error(
+    /** Generic text is unsupported; rejection must not probe or change session evidence. */
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun sendRawCliCommand(command: String): ProtocolResponse =
+        if (screenFrameRouting) ProtocolResponse.Error(
             "Pause the screen mirror before raw CLI commands; reconnect if stopping is unacknowledged"
+        ) else ProtocolResponse.Error(
+            "Generic raw CLI commands are unsupported. Use a mapped RPC command or a supported typed action in a fresh USB CLI session."
         )
-        val service = bleService
-            ?: return@withProtocolCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
-                markCliUnavailable("Device service unavailable")
-            }
-        if (!ensureTransportConnected(service)) {
-            return@withProtocolCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
-                markCliUnavailable("Flipper command transport is not connected")
-            }
-        }
-
-        val responseText = collectRawCliResponse("$command\r\n", RAW_CLI_TIMEOUT_MS)
-        if (responseText.isNotBlank() && isLikelyCliText(responseText)) {
-            noteCliResponse(command, responseText)
-            return@withProtocolCommandLock ProtocolResponse.FileContent(responseText.trim())
-        }
-
-        // Validate that the CLI transport is alive before claiming command success.
-        val probeResponse = collectRawCliResponse("version\r\n", RAW_CLI_PROBE_TIMEOUT_MS).trim()
-        if (probeResponse.isBlank() || !isLikelyCliText(probeResponse)) {
-            val rpcStatus = probeRpcTransportAvailability()
-            if (rpcStatus != null) {
-                val recovered = recoverCliFromRpcSessionLocked()
-                if (recovered.level == CliCapabilityLevel.READY && recovered.supportsCli) {
-                    val retriedResponse = collectRawCliResponse("$command\r\n", RAW_CLI_TIMEOUT_MS)
-                    if (retriedResponse.isNotBlank() && isLikelyCliText(retriedResponse)) {
-                        noteCliResponse(command, retriedResponse)
-                        return@withProtocolCommandLock ProtocolResponse.FileContent(retriedResponse.trim())
-                    }
-                }
-                return@withProtocolCommandLock ProtocolResponse.Error(
-                    "CLI is unavailable on this transport, but RPC is responsive. ${recovered.details}"
-                )
-            }
-            markCliUnavailable("No CLI response from Flipper over active transport")
-            return@withProtocolCommandLock ProtocolResponse.Error(
-                "No CLI response from Flipper over active transport. Command not confirmed. " +
-                        "Ensure CLI/RPC is available for this firmware and no other app owns the connection."
-            )
-        }
-        markCliReady(probeResponse)
-
-        return@withProtocolCommandLock if (isLikelyNoOutputCommand(command)) {
-            ProtocolResponse.Error(
-                "Command produced no CLI output, so execution cannot be confirmed: $command. " +
-                        "This firmware may require RPC/app-specific control instead of raw CLI."
-            )
-        } else {
-            ProtocolResponse.Error("Command produced no CLI output and cannot be confirmed: $command")
-        }
-    }
 
     private suspend fun collectRawCliResponse(commandText: String, timeoutMs: Long): String {
         if (bleService?.usesRpcOnlyCommandTransport() == true) return ""

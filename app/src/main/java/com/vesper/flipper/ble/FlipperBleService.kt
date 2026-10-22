@@ -2150,17 +2150,16 @@ class FlipperBleService : Service() {
     }
 
     /**
-     * Send a CLI command string to the Flipper.
-     * Uses the protocol layer for CLI transport and compatibility mapping.
-     * Supports Flipper CLI commands like: subghz, ir, nfc, ble_spam, etc.
+     * Route a supported command through the RPC compatibility mapping.
+     * Unmapped commands fail; explicitly selected USB CLI uses dedicated typed actions.
      */
     suspend fun sendCommand(command: String): Boolean {
         return sendCommandWithOutput(command).isSuccess
     }
 
     /**
-     * Send a CLI command and return raw output when available.
-     * Use this when callers need actionable error text instead of a boolean.
+     * Return the mapped RPC command result, including actionable failure details.
+     * This does not provide an arbitrary serial console.
      */
     suspend fun sendCommandWithOutput(command: String): Result<String> {
         return try {
@@ -2180,8 +2179,8 @@ class FlipperBleService : Service() {
     }
 
     /**
-     * Send a raw CLI command without protocol framing.
-     * Use this for direct serial console interaction.
+     * Legacy raw-console API. Current transports refuse arbitrary text;
+     * use mapped RPC commands or the dedicated confirmed USB CLI actions.
      */
     suspend fun sendRawCliCommand(command: String): Boolean {
         return flipperProtocol.sendRawCli(command)

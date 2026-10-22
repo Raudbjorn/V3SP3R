@@ -20,7 +20,7 @@ class ScreenStreamLifecycleTest {
         flow.value = CliCapabilityStatus(level=CliCapabilityLevel.READY, supportsRpc=true)
     }
 
-    @Test fun `acknowledged stream stop retains last frame and restores raw CLI`() = runBlocking<Unit> {
+    @Test fun `acknowledged stream stop retains last frame and clears routing guard`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
@@ -28,13 +28,9 @@ class ScreenStreamLifecycleTest {
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.sendData(any(), any(), any(), any())).thenAnswer { call ->
             val bytes = call.getArgument<ByteArray>(0)
-            if (bytes.toString(Charsets.UTF_8).startsWith("version")) {
-                protocol.processIncomingData("Firmware version: test\r\n".toByteArray())
-            } else {
-                val request = Flipper.Main.parseDelimitedFrom(ByteArrayInputStream(bytes))
-                protocol.processIncomingData(RpcFrameRouter.encode(Flipper.Main.newBuilder()
-                    .setCommandId(request.commandId).setCommandStatus(Flipper.CommandStatus.OK).build()))
-            }
+            val request = Flipper.Main.parseDelimitedFrom(ByteArrayInputStream(bytes))
+            protocol.processIncomingData(RpcFrameRouter.encode(Flipper.Main.newBuilder()
+                .setCommandId(request.commandId).setCommandStatus(Flipper.CommandStatus.OK).build()))
             true
         }
         assertTrue(protocol.startScreenStream() is ProtocolResponse.Success)
@@ -46,8 +42,14 @@ class ScreenStreamLifecycleTest {
         assertTrue(frame.pixels[0])
         assertTrue(protocol.stopScreenStream() is ProtocolResponse.Success)
         assertEquals(frame, protocol.screenFrame.value)
+        val routing = FlipperProtocol::class.java.getDeclaredField("screenFrameRouting").apply { isAccessible = true }
+        assertFalse("Confirmed stop must clear the stream-routing guard", routing.getBoolean(protocol))
+        clearInvocations(service)
         val cli = protocol.sendRawCliCommand("version")
-        assertTrue("Confirmed stop must restore CLI collection: $cli", cli is ProtocolResponse.FileContent)
+        assertTrue(cli is ProtocolResponse.Error)
+        assertFalse((cli as ProtocolResponse.Error).message.contains("Pause the screen mirror"))
+        verify(service, never()).sendData(any(), any(), any(), any())
+        verify(service, never()).sendUsbDataOnly(any())
         protocol.onConnectionReset()
         assertNull(protocol.screenFrame.value)
     }
