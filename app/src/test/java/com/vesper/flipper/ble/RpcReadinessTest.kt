@@ -14,6 +14,13 @@ class RpcReadinessTest {
         assertFalse(ready(protocol, 1001L))
     }
 
+    @Test fun `optimistic capability status without a response cannot confirm readiness`() {
+        val protocol = FlipperProtocol()
+        FlipperProtocol::class.java.getDeclaredMethod("markRpcReady", String::class.java)
+            .apply { isAccessible = true }.invoke(protocol, "RPC session primed without acknowledgement")
+        assertFalse(ready(protocol, System.currentTimeMillis()))
+    }
+
     @Test fun `verified RPC observation allows stale capability flags until reset or expiry`() {
         val protocol = FlipperProtocol()
         FlipperProtocol::class.java.getDeclaredField("lastVerifiedRpcActivityAtMs").apply { isAccessible = true }.setLong(protocol, 1000L)

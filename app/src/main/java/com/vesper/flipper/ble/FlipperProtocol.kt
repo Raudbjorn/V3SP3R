@@ -2371,15 +2371,11 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private fun isRemoteFastPathReady(nowMs: Long): Boolean {
-        // Successful writes only show Android accepted bytes. Readiness requires
-        // a correlated RPC response or a recent successful capability probe.
+        // Capability flags can also be set optimistically by legacy bootstrap paths.
+        // Require a correlated response; successful RPC probes update this same clock.
         val responseAge = nowMs - lastVerifiedRpcActivityAtMs
-        if (lastVerifiedRpcActivityAtMs > 0L &&
-            responseAge in 0..RPC_REMOTE_FAST_RPC_STATUS_MAX_AGE_MS
-        ) return true
-        val status = _cliStatus.value
-        return status.supportsRpc &&
-                (nowMs - status.checkedAtMs) in 0..RPC_REMOTE_FAST_RPC_STATUS_MAX_AGE_MS
+        return lastVerifiedRpcActivityAtMs > 0L &&
+                responseAge in 0..RPC_REMOTE_FAST_RPC_STATUS_MAX_AGE_MS
     }
 
     private fun shouldProbeDesktopLockForRemoteInput(nowMs: Long): Boolean {
