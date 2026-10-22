@@ -10,8 +10,13 @@ suspend fun installCatalogApp(fileSystem: FlipperFileSystem, catalog: FlipperApp
     val root = fileSystem.listDirectory("/ext/apps").getOrThrow()
     if (root.none { it.name == binary.category && it.isDirectory }) fileSystem.createDirectory(directory).getOrThrow()
     val target = "$directory/${binary.id}.fap"
-    val existing = fileSystem.listDirectory(directory).getOrThrow()
-    check(existing.none { it.name == "${binary.id}.fap" }) { "Already present at $target; existing app was preserved" }
-    fileSystem.writeFileBytes(target, binary.bytes).getOrThrow()
-    return "Installed ${binary.name} ${binary.version} to $target"
+    installVerifiedApp(object : AppInstallStorage {
+        override suspend fun exists(path: String): Boolean =
+            fileSystem.listDirectory(path.substringBeforeLast('/')).getOrThrow().any { it.name == path.substringAfterLast('/') }
+        override suspend fun write(path: String, bytes: ByteArray) { fileSystem.writeFileBytes(path, bytes).getOrThrow() }
+        override suspend fun read(path: String): ByteArray = fileSystem.readFileBytes(path).getOrThrow()
+        override suspend fun move(source: String, target: String) { fileSystem.move(source, target).getOrThrow() }
+        override suspend fun delete(path: String) { fileSystem.deleteFile(path).getOrThrow() }
+    }, target, binary.bytes)
+    return "Installed ${binary.name} ${binary.version} to $target; download checksum and uploaded bytes verified"
 }
