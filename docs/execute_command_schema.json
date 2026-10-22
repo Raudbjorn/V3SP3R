@@ -27,6 +27,10 @@
         "ibutton_emulate",
         "badusb_execute",
         "launch_app",
+        "input_send",
+        "loader_list",
+        "loader_close",
+        "loader_signal",
         "led_control",
         "vibro_control",
         "search_faphub",
@@ -52,7 +56,7 @@
         },
         "content": {
           "type": "string",
-          "description": "Content to write to file (for write_file action)"
+          "description": "File content for write_file, or optional loader_signal argument"
         },
         "new_name": {
           "type": "string",
@@ -129,6 +133,22 @@
         "resource_url": {
           "type": "string",
           "description": "URL of resource to download (for download_resource action)"
+        },
+        "key": {
+          "type": "string",
+          "enum": ["up", "down", "left", "right", "ok", "back"],
+          "description": "Device GUI key for input_send"
+        },
+        "press_type": {
+          "type": "string",
+          "enum": ["press", "release", "short", "long", "repeat"],
+          "default": "short",
+          "description": "Device GUI input gesture"
+        },
+        "signal_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Application signal ID for loader_signal; requires a confirmed USB CLI session"
         }
       }
     },

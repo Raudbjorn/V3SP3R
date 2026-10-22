@@ -287,7 +287,7 @@ class FlipperFileSystem @Inject constructor(
         if (!protocol.isRawCliTransportConnected() || !firmwareCompatibility.value.supportsCli) {
             return Result.failure(FlipperException("Loader $verb requires a confirmed USB CLI connection; it is not supported over BLE RPC"))
         }
-        return executeCli(command)
+        return protocolResponseToStringResult(protocol.sendLoaderCommandOnce(command))
     }
 
     suspend fun executeCli(command: String): Result<String> {

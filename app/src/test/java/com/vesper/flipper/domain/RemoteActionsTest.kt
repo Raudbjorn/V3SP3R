@@ -17,7 +17,7 @@ class RemoteActionsTest {
             FirmwareCompatibilityProfile(transportMode = FirmwareTransportMode.CLI_ONLY, supportsCli = true)))
         whenever(protocol.cliStatus).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(
             CliCapabilityStatus(level = CliCapabilityLevel.READY, supportsCli = true)))
-        whenever(protocol.sendCliCommand("loader list")).thenReturn(ProtocolResponse.Success("NFC\nInfrared"))
+        whenever(protocol.sendLoaderCommandOnce("loader list")).thenReturn(ProtocolResponse.Success("NFC\nInfrared"))
         assertEquals("NFC\nInfrared", fs.executeLoaderControl("list").getOrThrow())
     }
 

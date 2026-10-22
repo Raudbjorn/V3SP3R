@@ -1406,6 +1406,32 @@ class FlipperProtocol @Inject constructor() {
         )
     }
 
+    /** Loader operations may have side effects: never replay an uncertain USB write. */
+    suspend fun sendLoaderCommandOnce(command: String): ProtocolResponse = withCommandLock(
+        operation = "USB loader command",
+        onTimeout = { ProtocolResponse.Error("Loader command pipeline busy") }
+    ) {
+        val status = _cliStatus.value
+        if (!isRawCliTransportConnected() || status.level != CliCapabilityLevel.READY ||
+            !status.supportsCli || status.supportsRpc) {
+            return@withCommandLock ProtocolResponse.Error("Loader commands require confirmed USB CLI-only mode; BLE RPC is unsupported")
+        }
+        val response = collectRawCliResponseAttempt(
+            "$command\r\n".toByteArray(Charsets.UTF_8), RAW_CLI_TIMEOUT_MS, usbOnly = true
+        )
+        val content = response.lineSequence()
+            .map { it.trim().removePrefix(">:").trim() }
+            .filter { it.isNotBlank() && it != command.trim() && it != ">" }
+            .joinToString("\n")
+        if (content.isBlank() || !isLikelyCliText(content)) {
+            ProtocolResponse.Error("Loader command outcome unconfirmed; inspect device before retrying")
+        } else if (content.lineSequence().any { Regex("(?i)^error(?:\\b|:)").containsMatchIn(it) }) {
+            ProtocolResponse.Error("Loader command failed: ${content.take(220)}")
+        } else {
+            normalizeCliResponse(command, ProtocolResponse.FileContent(content))
+        }
+    }
+
     /**
      * Send a CLI command to the Flipper.
      * This sends commands in a format the Flipper CLI understands.
@@ -3169,7 +3195,7 @@ class FlipperProtocol @Inject constructor() {
         return ""
     }
 
-    private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long): String {
+    private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long, usbOnly: Boolean = false): String {
         val collector = RawCliCollector()
         rawCliCollector = collector
         return try {
@@ -3177,7 +3203,7 @@ class FlipperProtocol @Inject constructor() {
             if (service == null) {
                 return ""
             }
-            val sent = service.sendData(payload)
+            val sent = if (usbOnly) service.sendUsbDataOnly(payload) else service.sendData(payload)
             if (!sent) {
                 return ""
             }

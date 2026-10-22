@@ -1274,6 +1274,12 @@ class FlipperBleService : Service() {
         }
     }
 
+    /** USB-bound dispatch never switches to BLE if the active transport changes. */
+    suspend fun sendUsbDataOnly(data: ByteArray): Boolean {
+        if (!isUsbCommandTransportConnected()) return false
+        return sendDataOverUsb(data, preferNoResponse = false)
+    }
+
     private suspend fun sendDataOverUsb(
         data: ByteArray,
         preferNoResponse: Boolean
@@ -1291,6 +1297,10 @@ class FlipperBleService : Service() {
                 try {
                     val chunks = data.toList().chunked(USB_WRITE_CHUNK_SIZE_BYTES)
                     chunks.forEachIndexed { index, chunk ->
+                        if (!isUsbCommandTransportConnected() || usbSerialPort !== port) {
+                            lastWriteFailureReason = "USB connection changed during write"
+                            return@withContext false
+                        }
                         port.write(chunk.toByteArray(), USB_WRITE_TIMEOUT_MS.toInt())
                         if (index < chunks.lastIndex) {
                             delay(USB_WRITE_INTER_CHUNK_DELAY_MS)
