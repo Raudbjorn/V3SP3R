@@ -100,7 +100,6 @@ enum class LlmProvider(
             ModelInfo("gemini-2.5-pro", "gemini-2.5-pro", "Tool-capable model"),
             ModelInfo("gemini-2.5-flash-lite", "gemini-2.5-flash-lite", "Tool-capable model"),
             ModelInfo("gemini-2.0-flash", "gemini-2.0-flash", "Tool-capable model"),
-            ModelInfo("gemini-2.5-pro", "gemini-2.5-pro", "Tool-capable model")
         ),
         visionModels = listOf(
             "gemini-2.5-flash-lite",
@@ -142,10 +141,7 @@ enum class LlmProvider(
         defaultModel = "gpt-4.1",
         models = listOf(
             ModelInfo("gpt-4.1", "gpt-4.1", "Tool-capable model"),
-            ModelInfo("gpt-4.1", "gpt-4.1", "Tool-capable model"),
             ModelInfo("gpt-4.1-mini", "gpt-4.1-mini", "Tool-capable model"),
-            ModelInfo("gpt-4.1", "gpt-4.1", "Tool-capable model"),
-            ModelInfo("gpt-4.1-mini", "gpt-4.1-mini", "Tool-capable model")
         ),
         visionModels = listOf(
             "gpt-4.1-mini",
@@ -182,7 +178,6 @@ enum class LlmProvider(
             ModelInfo("grok-4-fast-reasoning", "grok-4-fast-reasoning", "Tool-capable model"),
             ModelInfo("grok-3", "grok-3", "Tool-capable model"),
             ModelInfo("grok-3-mini", "grok-3-mini", "Tool-capable model"),
-            ModelInfo("grok-4", "grok-4", "Tool-capable model")
         ),
         visionModels = listOf(
             "grok-4",
@@ -226,8 +221,6 @@ enum class LlmProvider(
             ModelInfo("claude-sonnet-4-5", "claude-sonnet-4-5", "Tool-capable model"),
             ModelInfo("claude-haiku-4-5", "claude-haiku-4-5", "Tool-capable model"),
             ModelInfo("claude-opus-4-1", "claude-opus-4-1", "Tool-capable model"),
-            ModelInfo("claude-sonnet-4-5", "claude-sonnet-4-5", "Tool-capable model"),
-            ModelInfo("claude-haiku-4-5", "claude-haiku-4-5", "Tool-capable model")
         ),
         visionModels = listOf(
             "claude-sonnet-4-5",

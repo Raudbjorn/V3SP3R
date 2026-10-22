@@ -517,7 +517,7 @@ class OpenRouterTtsService @Inject constructor(
     companion object {
         private const val TTS_MODEL = "openai/gpt-audio"
         private const val OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
-        private const val GEMINI_TTS_MODEL = "gemini-3.8-flash-tts"
+        private const val GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
         private const val MAX_SPEECH_CHARS = 4000
     }
 }
