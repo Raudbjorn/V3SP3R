@@ -146,7 +146,8 @@ regulated activity. What you *run* on those boards may be; see
 *Attribution:* Flipper-Devices GPIO documentation
 (<https://docs.flipper.net/gpio-and-modules>), STM32WB55RG reference
 manual (RM0434). Retrieved 2025-Q3.
-Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
-Momentum-Firmware-CN CN-Clipper 5efbb3f28.
+Written as of 2026-10-22 against V3SP3R 338e935 and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28. Sourced by reading
+firmware and app source, not from a run on hardware.
 
 Pin numbering checked against the [official F7 GPIO resource table](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/targets/f7/furi_hal/furi_hal_resources.c); pin 1 is 5V and pin 17 is PB14 / 1-Wire.

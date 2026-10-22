@@ -139,5 +139,6 @@ credential-cloning notes.
 *Attribution:* Flipper-Devices file-format documentation
 (<https://docs.flipper.net/file-formats>), Momentum firmware repo
 (directory conventions). Retrieved 2025-Q3.
-Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
-Momentum-Firmware-CN CN-Clipper 5efbb3f28.
+Written as of 2026-10-22 against V3SP3R 338e935 and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28. Sourced by reading
+firmware and app source, not from a run on hardware.
