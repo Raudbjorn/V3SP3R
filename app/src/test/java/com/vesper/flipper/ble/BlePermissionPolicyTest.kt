@@ -22,4 +22,11 @@ class BlePermissionPolicyTest {
     @Test fun legacyScanningRequiresLocation() {
         assertTrue(BlePermissionPolicy.required(30).contains(Manifest.permission.ACCESS_FINE_LOCATION))
     }
+    @Test fun modernLocationAndNotificationConsentRemainsOptional() {
+        assertTrue(BlePermissionPolicy.optional(30).isEmpty())
+        assertEquals(setOf(Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION), BlePermissionPolicy.optional(31).toSet())
+        assertTrue(BlePermissionPolicy.optional(33).contains(Manifest.permission.POST_NOTIFICATIONS))
+        assertTrue(BlePermissionPolicy.granted(33) { it !in BlePermissionPolicy.optional(33) })
+    }
 }

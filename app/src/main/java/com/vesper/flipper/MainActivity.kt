@@ -1,6 +1,5 @@
 package com.vesper.flipper
 
-import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -40,9 +39,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsStore: SettingsStore
 
     private val essentialPermissions = com.vesper.flipper.ble.BlePermissionPolicy.required(Build.VERSION.SDK_INT)
-    private val optionalPermissions = if (Build.VERSION.SDK_INT >= 33) {
-        listOf(Manifest.permission.POST_NOTIFICATIONS)
-    } else emptyList()
+    private val optionalPermissions = com.vesper.flipper.ble.BlePermissionPolicy.optional(Build.VERSION.SDK_INT)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -72,7 +69,8 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missingPermissions.isNotEmpty()) {
-            permissionLauncher.launch(missingPermissions.toTypedArray())
+            // Keep the coarse/fine pair together even when coarse was granted earlier.
+            permissionLauncher.launch((essentialPermissions + optionalPermissions).toTypedArray())
         }
     }
 

@@ -15,6 +15,15 @@ object BlePermissionPolicy {
             Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
+    fun optional(sdk: Int): List<String> = buildList {
+        if (sdk >= 31) {
+            // Android 12+ requires coarse and fine to be requested together.
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (sdk >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     fun granted(sdk: Int, check: (String) -> Boolean): Boolean = required(sdk).all(check)
 
     fun hasPermissions(context: Context): Boolean = granted(Build.VERSION.SDK_INT) {
