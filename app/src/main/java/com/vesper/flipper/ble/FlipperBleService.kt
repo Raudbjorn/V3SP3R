@@ -1976,8 +1976,11 @@ class FlipperBleService : Service() {
         return flipperProtocol.probeCliAvailability(force)
     }
 
-    // The desktop host already entered RPC; text commands would corrupt its stream.
-    fun usesRpcOnlyCommandTransport(): Boolean = activeTransport == CommandTransport.DESKTOP_BRIDGE
+    // Physical BLE and the primed desktop host both consume RPC, not text CLI.
+    fun usesBleCommandTransport(): Boolean = activeTransport == CommandTransport.BLE
+
+    fun usesRpcOnlyCommandTransport(): Boolean =
+        usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE
 
     fun isCommandTransportConnected(): Boolean {
         return isUsbCommandTransportConnected() ||

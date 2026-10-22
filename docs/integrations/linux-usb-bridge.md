@@ -20,3 +20,5 @@ python3 -m unittest discover -s tools -p 'test_*.py' -v
 ```
 
 A pseudo-terminal test covers fragmented/coalesced frames, byte-for-byte round trips, and disconnect cleanup. Physical Flipper firmware, USB permissions, and an Android emulator attached to this host were not available for end-to-end testing; real hardware acceptance remains required. On repeated reconnects, reset the device RPC session if firmware leaves it open.
+
+Integration with T2: `usesRpcOnlyCommandTransport()` includes physical BLE **or** `DESKTOP_BRIDGE` on this branch already. Keep that union when merging the T2 protocol guards; `usesBleCommandTransport()` remains true only for physical BLE for transport telemetry. Neither merge order may remove the desktop guard.
