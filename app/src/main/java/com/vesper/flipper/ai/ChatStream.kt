@@ -1,6 +1,8 @@
 package com.vesper.flipper.ai
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.serialization.json.*
 import okhttp3.Call
 import okhttp3.Response
@@ -12,6 +14,12 @@ sealed interface ChatStreamEvent {
     data class ToolDelta(val index: Int, val arguments: String) : ChatStreamEvent
     data object Thinking : ChatStreamEvent
     data class Complete(val result: ChatCompletionResult) : ChatStreamEvent
+}
+
+/** Network callbacks run on IO; channelFlow permits those cross-context emissions. */
+internal fun completionEvents(request: suspend (suspend (ChatStreamEvent) -> Unit) -> ChatCompletionResult): Flow<ChatStreamEvent> = channelFlow {
+    val result = request { send(it) }
+    send(ChatStreamEvent.Complete(result))
 }
 
 /** Retain structured provider failures so the existing model fallback policy can classify them. */

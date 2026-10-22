@@ -13,7 +13,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -465,9 +464,8 @@ class OpenRouterClient @Inject constructor(
     /**
      * Execute HTTP request with exponential backoff retry for transient failures.
      */
-    fun chatStream(messages: List<ChatMessage>, sessionId: String): Flow<ChatStreamEvent> = flow {
-        val result = chat(messages, sessionId) { emit(it) }
-        emit(ChatStreamEvent.Complete(result))
+    fun chatStream(messages: List<ChatMessage>, sessionId: String): Flow<ChatStreamEvent> = completionEvents { onEvent ->
+        chat(messages, sessionId, onEvent)
     }
 
     private suspend fun executeStream(request: Request, onEvent: suspend (ChatStreamEvent) -> Unit): ChatCompletionResult {

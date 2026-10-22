@@ -2,6 +2,7 @@ package com.vesper.flipper.ai
 
 import com.vesper.flipper.domain.model.MessageMetadata
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
@@ -51,6 +52,14 @@ class ChatStreamTest {
         assertEquals("Hello", message["content"]!!.jsonPrimitive.content)
         assertEquals("assistant", Json.decodeFromString<OpenRouterResponse>(raw).choices.first().message.role)
     }
+    @Test fun `network callbacks can emit across IO context into the chat flow`() = runBlocking {
+        val events = completionEvents { onEvent ->
+            withContext(Dispatchers.IO) { onEvent(ChatStreamEvent.TextDelta("hello")) }
+            ChatCompletionResult.Success("hello", null, "test", 1)
+        }.toList()
+        assertEquals("hello", (events.first() as ChatStreamEvent.TextDelta).text)
+        assertTrue(events.last() is ChatStreamEvent.Complete)
+    }
     @Test fun `HTTP errors retain model fallback classification without echoing arbitrary bodies`() {
         val error = streamHttpError(404, """{"error":{"message":"No endpoints found that support tool use"}}""")
         assertTrue(error.message.contains("No endpoints found that support tool use"))
@@ -68,7 +77,12 @@ class ChatStreamTest {
         MockWebServer().use { server ->
             server.start(); server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
             val call = OkHttpClient().newCall(Request.Builder().url(server.url("/stream")).build())
-            val task = launch { call.withCancellation { it.body?.string() } }
+            val task = launch {
+                completionEvents {
+                    call.withCancellation { it.body?.string() }
+                    ChatCompletionResult.Success("done", null, "test", 1)
+                }.toList()
+            }
             withContext(Dispatchers.IO) { server.takeRequest() }
             task.cancel()
             withTimeout(2000) { task.join() }
