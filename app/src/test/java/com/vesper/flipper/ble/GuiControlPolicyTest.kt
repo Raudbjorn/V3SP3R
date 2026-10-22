@@ -64,6 +64,16 @@ class GuiControlPolicyTest {
         }
         assertTrue(GuiRemoteInput.complementarySequence(Gui.InputType.UNRECOGNIZED).isEmpty())
     }
+    @Test fun `bulk flow timeout remains normal for small MTU and final short chunk`() {
+        for (payloadSize in listOf(97, 512, 1024)) {
+            val chunks = ByteArray(payloadSize).toList().chunked(20)
+            assertTrue(chunks.all { it.size <= 20 })
+            for (chunk in chunks) {
+                assertTrue(chunk.size <= SerialFlowControl.CONTROL_WRITE_MAX_BYTES)
+                assertEquals(3000L, SerialFlowControl.waitTimeoutMs(payloadSize, 3000))
+            }
+        }
+    }
     @Test fun `flow control uses documented byte order and rejects malformed capacity`() {
         assertEquals(1024, SerialFlowControl.remainingBytes(byteArrayOf(0, 0, 4, 0)))
         assertEquals(0, SerialFlowControl.remainingBytes(ByteArray(4)))

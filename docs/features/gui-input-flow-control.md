@@ -14,3 +14,10 @@ subsequent Back input for three seconds. Explicit unsupported lock probes are ca
 while missing replies and transient busy status do not erase support knowledge.
 Unused immediate sender implementations were removed; the shared firmware readiness
 diagnostic remains for the transport routing feature.
+
+The non-retry policy reaches the BLE writer: press/action use one write attempt and
+one characteristic write type, so a missing GATT acknowledgement cannot cause an
+uncertain input packet to be retransmitted. Release retains recovery retries.
+Capacity wait duration is chosen from the original RPC payload size before MTU
+fragmentation; each fragment still consumes its own byte credits. Bulk transfers
+therefore retain the normal wait even at the default 23-byte MTU or on a short tail.

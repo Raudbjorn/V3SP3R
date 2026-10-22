@@ -2919,7 +2919,9 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
-    private suspend fun collectRawBinaryResponseAttempt(payload: ByteArray, timeoutMs: Long): ByteArray {
+    private suspend fun collectRawBinaryResponseAttempt(
+        payload: ByteArray, timeoutMs: Long, allowWriteRetry: Boolean = true
+    ): ByteArray {
         val collector = RawBinaryCollector()
         rawBinaryCollector = collector
         return try {
@@ -2927,7 +2929,7 @@ class FlipperProtocol @Inject constructor() {
             if (service == null) {
                 return ByteArray(0)
             }
-            val sent = service.sendData(payload)
+            val sent = service.sendData(payload, allowWriteRetry = allowWriteRetry)
             if (!sent) {
                 return ByteArray(0)
             }
@@ -3017,7 +3019,8 @@ class FlipperProtocol @Inject constructor() {
         val firstAttempt = collectRpcMainResponsesOnce(
             request = request,
             commandId = commandId,
-            timeoutMs = timeoutMs
+            timeoutMs = timeoutMs,
+            allowWriteRetry = allowRetry
         )
         if (firstAttempt.isNotEmpty()) {
             return firstAttempt
@@ -3033,16 +3036,18 @@ class FlipperProtocol @Inject constructor() {
         return collectRpcMainResponsesOnce(
             request = request,
             commandId = commandId,
-            timeoutMs = retryTimeoutMs
+            timeoutMs = retryTimeoutMs,
+            allowWriteRetry = allowRetry
         )
     }
 
     private suspend fun collectRpcMainResponsesOnce(
         request: ByteArray,
         commandId: Int,
-        timeoutMs: Long
+        timeoutMs: Long,
+        allowWriteRetry: Boolean = true
     ): List<Flipper.Main> {
-        val responseBytes = collectRawBinaryResponseAttempt(request, timeoutMs)
+        val responseBytes = collectRawBinaryResponseAttempt(request, timeoutMs, allowWriteRetry)
         if (responseBytes.isEmpty()) return emptyList()
         val collected = findRpcMainMessages(responseBytes, commandId).toMutableList()
         if (collected.isEmpty()) {
