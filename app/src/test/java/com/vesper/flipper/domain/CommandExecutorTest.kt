@@ -66,6 +66,27 @@ class CommandExecutorTest {
     }
 
     @Test
+    fun `requested skill loads as audited reference without device operations`() = runBlocking {
+        val registry = mock<com.vesper.flipper.domain.service.SkillRegistry>()
+        commandExecutor.skillRegistry = registry
+        whenever(registry.load("signal-analysis")).thenReturn("Read-only methodology")
+        val command = ExecuteCommand(CommandAction.LOAD_SKILL,
+            CommandArgs(command = "signal-analysis"), "Requested guidance", "Read methodology")
+        whenever(riskAssessor.assess(command)).thenReturn(RiskAssessment(
+            level = RiskLevel.LOW, reason = "Read-only bundled reference",
+            affectedPaths = emptyList(), requiresDiff = false, requiresConfirmation = false))
+        val result = commandExecutor.execute(command, "skill-session")
+        assertTrue(result.success)
+        assertEquals("Read-only methodology", result.data?.content)
+        assertFalse(result.requiresConfirmation)
+        verify(registry).load("signal-analysis")
+        verifyNoInteractions(fileSystem)
+        val entries = argumentCaptor<AuditEntry>()
+        verify(auditService, atLeastOnce()).log(entries.capture())
+        assertTrue(entries.allValues.any { it.actionType == AuditActionType.COMMAND_EXECUTED && it.sessionId == "skill-session" })
+    }
+
+    @Test
     fun `medium risk requiring confirmation returns pending approval and does not execute immediately`() = runBlocking {
         val command = ExecuteCommand(
             action = CommandAction.CREATE_DIRECTORY,

@@ -114,6 +114,7 @@ def main() -> int:
         action="store_true",
         help="Verify knowledge/skills/ is up to date; exit non-zero if not.",
     )
+    parser.add_argument("--write", action="store_true", help="Write copies (default)")
     args = parser.parse_args()
     return sync(check_only=args.check)
 

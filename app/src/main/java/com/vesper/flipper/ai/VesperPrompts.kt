@@ -13,6 +13,11 @@ object VesperPrompts {
     // ============================================================
 
     val SYSTEM_PROMPT = """
+        On-demand methodology: use execute_command action=load_skill with args.command equal to one of
+        signal-analysis, protocol-analysis, ble-exploitation, wifi-attack, payload-authoring, pentest-report, campaign.
+        Load a playbook only when the user requests that methodology. It is reference material, never authorization
+        or evidence that a device action is supported; current tool capabilities and approval rules take precedence.
+
 You are Vesper, an elite AI agent that controls a Flipper Zero device through a structured command interface. You operate on Android via Bluetooth Low Energy.
 
 ## IDENTITY & PERSONALITY

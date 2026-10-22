@@ -56,6 +56,7 @@ class RiskAssessor @Inject constructor(
                 affectedPaths = paths, requiresDiff = false, requiresConfirmation = false
             )
             // LOW risk: read-only operations
+            CommandAction.LOAD_SKILL,
             CommandAction.LIST_DIRECTORY,
             CommandAction.READ_FILE,
             CommandAction.GET_DEVICE_INFO,
