@@ -19,6 +19,101 @@ No menus. No manuals. Just natural language prompting.
 
 ---
 
+## What this fork adds over upstream
+
+This is **[Raudbjorn/V3SP3R](https://github.com/Raudbjorn/V3SP3R)**, focused on Android, Flipper Zero and Linux host tooling. It retains the upstream application and selectively integrates features from other forks, with additional review fixes for transport ownership, approvals, credentials and data migration.
+
+**Comparison as of 2026-10-22:** upstream [elder-plinius/V3SP3R](https://github.com/elder-plinius/V3SP3R) `main` is at [`53146f0`](https://github.com/elder-plinius/V3SP3R/tree/53146f0ce0420a5924fb8dc83aa3bd9810eaeb85). This fork merged **30 feature PRs** through [`ed69290`](https://github.com/Raudbjorn/V3SP3R/commit/ed69290fc0967564a4468ef2f4ba2b2e7cbfed50). The additions and changes below are relative to that pinned upstream revision; existing upstream features such as chat, Alchemy, FapHub and the audit log are extended rather than new to this fork.
+
+### Device connections and remote control
+
+| Merged change | What changes for the user | PR |
+|---|---|---|
+| Ordered BLE setup | Waits for MTU negotiation, service discovery, RX subscription and flow-control setup before declaring the device ready; setup failures and deadlines are explicit. | [#13](https://github.com/Raudbjorn/V3SP3R/pull/13) |
+| Screen/command RPC routing | Separates unsolicited screen frames from command replies, retains incomplete frames, and bounds response collection so screen traffic cannot keep a command waiting indefinitely. | [#14](https://github.com/Raudbjorn/V3SP3R/pull/14) |
+| Android permission and service repair | Separates essential Bluetooth permissions from optional notifications and version-dependent Location permission; starts connected-device services only with a valid permission path. | [#15](https://github.com/Raudbjorn/V3SP3R/pull/15) |
+| Live screen mirror | Displays the Flipper's 128×64 framebuffer and orientation on the Device screen, with start/stop, pause retaining the last frame, and lifecycle cleanup. | [#17](https://github.com/Raudbjorn/V3SP3R/pull/17) |
+| GUI input and flow control | Acknowledges press/action/release sequences, handles desktop lock state, attempts bounded release cleanup, and validates serial credits without blindly retrying uncertain button presses. | [#20](https://github.com/Raudbjorn/V3SP3R/pull/20) |
+| Remote input and app control | Adds typed GUI input plus loader list/close/signal actions. Loader operations require explicitly selected and handshake-confirmed USB CLI mode. | [#21](https://github.com/Raudbjorn/V3SP3R/pull/21) |
+| RPC-only firmware routing | Routes mapped device actions through RPC even when remembered firmware capabilities are stale; readiness follows observed traffic in the current connection. | [#27](https://github.com/Raudbjorn/V3SP3R/pull/27) |
+| Transport telemetry | Reports current transport routing, RPC probes and failures with distinct request IDs; late results from an old connection cannot overwrite the new session's diagnostics. | [#28](https://github.com/Raudbjorn/V3SP3R/pull/28) |
+| Bounded command locking | Adds queue-acquisition deadlines and binary RPC probes; rejects generic raw CLI on RPC connections rather than mixing text into the RPC stream. | [#29](https://github.com/Raudbjorn/V3SP3R/pull/29) |
+
+See [screen mirroring](docs/features/live-screen-mirror.md), [RPC routing](docs/features/rpc-frame-router.md), [GUI input](docs/features/gui-input-flow-control.md) and [remote app actions](docs/features/remote-app-actions.md). USB RPC is the default for file and screen features. To use the constrained CLI actions, disconnect and explicitly select USB CLI mode; reconnect in RPC mode to resume file/screen operations.
+
+### App installation and signal editing
+
+| Merged change | What changes for the user | PR |
+|---|---|---|
+| Firmware-aware app catalog | Selects FapHub builds using the device's firmware target and SDK API instead of assuming any catalog binary is compatible. | [#3](https://github.com/Raudbjorn/V3SP3R/pull/3) |
+| Installed-app and tool validation | Inventories apps in nested directories and rejects invented model tool names before execution. | [#5](https://github.com/Raudbjorn/V3SP3R/pull/5) |
+| Verified app installation | Checks ARM ELF payloads and catalog checksums, uploads to a temporary path, reads back the bytes before activation, and preserves existing same-name applications. | [#6](https://github.com/Raudbjorn/V3SP3R/pull/6) |
+| SubGHz RAW editing | Imports `RAW_Data` pulse timings into Alchemy layers for waveform visualization, editing and export. | [#8](https://github.com/Raudbjorn/V3SP3R/pull/8) |
+
+See the [RAW editor guide](docs/integrations/subghz-raw-editor.md).
+
+### AI providers and chat
+
+| Merged change | What changes for the user | PR |
+|---|---|---|
+| Tool-capable model catalog | Filters the live OpenRouter catalog for tool support, keeps unavailable selections visible, and reports blank or malformed responses instead of silently ending a turn. | [#9](https://github.com/Raudbjorn/V3SP3R/pull/9) |
+| Separate provider settings | Adds OpenRouter, OpenAI, Gemini, xAI and Anthropic configurations with independent encrypted keys, models, request settings and speech capabilities. | [#10](https://github.com/Raudbjorn/V3SP3R/pull/10) |
+| Native Anthropic client | Uses the Messages API with native authentication, images, tool calls and tool results. Anthropic has no speech backend. | [#11](https://github.com/Raudbjorn/V3SP3R/pull/11) |
+| Streaming and context handling | Streams text and tool turns with cancellable HTTP calls. Partial tools never execute; retries stop once output begins. Adds Anthropic prompt-cache markers, optional thinking and preservation of native thinking/compaction blocks with bounded history. | [#12](https://github.com/Raudbjorn/V3SP3R/pull/12) |
+
+See [model selection](docs/model-catalog.md), [provider settings](docs/provider-settings.md), [native Anthropic](docs/native-anthropic.md) and [streaming behavior](docs/provider-streaming.md). Provider protocol tests use HTTP fixtures; live account access and current model availability still need checking with the chosen provider.
+
+### Credentials and stored data
+
+| Merged change | What changes for the user | PR |
+|---|---|---|
+| Durable credential migration | Migrates legacy plaintext API keys only after a synchronous encrypted write and readback, excludes sensitive stores from backup/device transfer, and restricts cleartext traffic. | [#16](https://github.com/Raudbjorn/V3SP3R/pull/16) |
+| TLS and diagnostic hardening | Tightens transport and smart-glasses bridge validation and reduces sensitive data in diagnostic logs. | [#18](https://github.com/Raudbjorn/V3SP3R/pull/18) |
+| SQLCipher encryption with conversion | Adds Keystore-protected database keys and verified conversion of existing plaintext Room data, including interruption recovery. Missing keys or ambiguous recovery states preserve files and report an error; destructive migration fallback is disabled. | [#19](https://github.com/Raudbjorn/V3SP3R/pull/19) |
+
+Read [database encryption and recovery](docs/database-encryption.md) before upgrading an installation with existing data. Native migration tests have been compiled but still require execution on Android.
+
+### Knowledge, phone BLE and scoped workflows
+
+| Merged change | What changes for the user | PR |
+|---|---|---|
+| Read-only MCP knowledge server | Exposes documentation search, action descriptions and schemas over stdio, SSE or streamable HTTP. It serves reference material and does not execute Flipper commands. | [#1](https://github.com/Raudbjorn/V3SP3R/pull/1) |
+| Generated command contract | Generates the command schema and fails build verification on action/argument drift. The integrated contract covers 58 actions and 52 arguments. | [#22](https://github.com/Raudbjorn/V3SP3R/pull/22) |
+| On-demand skills | Loads seven bundled methodology playbooks only when requested and checks their MCP corpus copies for drift. Playbooks do not override transport or approval rules. | [#23](https://github.com/Raudbjorn/V3SP3R/pull/23) |
+| Phone-side BLE/GATT tools | Uses the Android phone adapter independently of Flipper to scan, enumerate, read, write and collect notifications. Operations are bounded; writes and subscriptions require explicit approval. | [#24](https://github.com/Raudbjorn/V3SP3R/pull/24) |
+| Typed actions and findings | Adds constrained USB CLI device actions, session-scoped findings and audit queries, validation history, heuristic classification and authoring helpers. Findings use additive, data-preserving migrations; firmware support remains action-dependent. | [#25](https://github.com/Raudbjorn/V3SP3R/pull/25) |
+| Experimental scoped campaigns | Adds WorkManager phases, exact directory scopes, command/time limits, an approval inbox, expiry and a stop-all switch. Disabled by default; supports a bounded device/storage command subset and records uncertain execution after interruption rather than replaying it. | [#26](https://github.com/Raudbjorn/V3SP3R/pull/26) |
+
+Start with the [MCP setup](mcp-server/README.md), [command schema](docs/ports/command-schema.md), [skills](docs/ports/on-demand-skills.md), [phone BLE tools](docs/ports/phone-ble.md), [typed actions and findings](docs/ports/device-findings.md), or [campaign guide](docs/ports/ralph-campaigns.md). A campaign stop prevents subsequent steps; an already-sent device command may still finish.
+
+### Linux tools and acceptance tests
+
+| Merged change | What changes for the user | PR |
+|---|---|---|
+| Python terminal | Provides interactive local/file and direct-JSON commands without an API key, with approvals and persisted history/audit. Mock filesystem mode is explicit; the experimental USB CLI adapter never silently falls back to mock and does not implement verified hardware storage/RPC operations. | [#2](https://github.com/Raudbjorn/V3SP3R/pull/2) |
+| Linux USB development bridge | Connects a Linux serial device to an Android debug emulator through framed RPC over a loopback socket with a per-process pairing code. Release builds reject this developer transport. | [#7](https://github.com/Raudbjorn/V3SP3R/pull/7) |
+| Regression and device acceptance suite | Adds setup, locking, RPC and catalog regressions plus opt-in Android acceptance checks for reads, transfer readback and reconnect. | [#4](https://github.com/Raudbjorn/V3SP3R/pull/4) |
+| Hardware-routing regressions | Covers mapped launch/script/transmit routing, RPC/CLI boundaries and rejection of app-override arguments, with a device acceptance checklist. | [#30](https://github.com/Raudbjorn/V3SP3R/pull/30) |
+
+See the [Python terminal](python/README.md), [USB development bridge](docs/integrations/linux-usb-bridge.md), [device acceptance guide](docs/device-acceptance.md) and [hardware-routing checklist](docs/testing/hardware-routing.md).
+
+### Integration validation
+
+Recorded validation for the integrated tree at `ed69290` (2026-10-22):
+
+- Debug APK built; 487 Android JVM tests ran with **485 passed and two intentional live-test skips**.
+- Five schema-generator tests and command-schema verification passed.
+- 148 MCP tests, Ruff, skill synchronization and an isolated source-distribution-to-wheel installation passed.
+- Android instrumentation APK compiled; instrumentation tests were **not executed**.
+
+Physical Android/Flipper BLE and USB acceptance, native SQLCipher migration execution and live credentialed provider calls remain unverified. These results establish automated coverage, not hardware or production acceptance. Campaigns remain experimental and disabled by default; the Linux bridge is for debug/emulator development.
+
+### Port attribution
+
+These are selective ports with integration fixes, not whole-fork merges. Source revisions and licensing notes are retained in the linked feature documentation and PRs. Donors include [ckumar1](https://github.com/ckumar1/V3SP3R), [joylessorchid](https://github.com/joylessorchid/V3SP3R), [ahuray](https://github.com/ahuray/V3SP3R), [charlesreid1](https://github.com/charlesreid1/M0MA-V3SP3R), [Shiva108](https://github.com/Shiva108/V3SP3R), [bob-reis](https://github.com/bob-reis/V3SP3R), [cryptofixyup](https://github.com/cryptofixyup/V3SP3R) and [gattaa](https://github.com/gattaa/V3SP3R_Docker).
+
+---
+
 ## Why Vesper?
 
 The Flipper Zero is one of the most versatile hardware hacking tools ever made — but navigating its menus, managing files, and crafting signals by hand is tedious. **Vesper eliminates the friction.** Plug in an AI brain via OpenRouter, connect over Bluetooth, and you have a voice-commanded hardware lab in your pocket.
@@ -150,7 +245,7 @@ Vesper supports provider-specific configurations for OpenRouter, OpenAI, Gemini,
 ### 3. Build & Install
 
 ```bash
-git clone https://github.com/elder-plinius/V3SP3R.git
+git clone https://github.com/Raudbjorn/V3SP3R.git
 cd V3SP3R
 ```
 
@@ -172,7 +267,7 @@ Install via USB debugging or transfer the APK to your phone.
 </details>
 
 ### 4. First Launch
-1. **Grant permissions** — Bluetooth, Location (required for BLE scanning), Notifications
+1. **Grant permissions** — Allow Bluetooth/Nearby devices. Android 11 and earlier also require Location for BLE scanning; Notifications are optional.
 2. **Add your API key** — Settings > select your provider and enter that provider’s API key (OpenRouter is the default)
 3. **Connect** — Device tab > Scan > tap your Flipper
 4. **Go** — Chat tab > start talking to your Flipper
@@ -217,10 +312,10 @@ Vesper supports hands-free operation via Mentra smart glasses.
 │  └── Signal Processing                  │
 ├─────────────────────────────────────────┤
 │  Data Layer                             │
-│  ├── OpenRouterClient (LLM API)         │
+│  ├── Provider clients (chat + speech)  │
 │  ├── FlipperBleService (BLE transport)  │
 │  ├── GlassesIntegration (Mentra bridge) │
-│  ├── Room Database (chat + audit)       │
+│  ├── SQLCipher + Room (stored data)    │
 │  └── Encrypted DataStore (settings)     │
 └─────────────────────────────────────────┘
 ```
@@ -260,6 +355,11 @@ V3SP3R/
 │   │   ├── components/
 │   │   └── theme/
 │   └── widget/                 # Home screen widget
+├── mcp-server/                 # Read-only knowledge/schema MCP server
+├── knowledge/                  # Reference corpus and synchronized playbooks
+├── python/                     # Linux terminal (mock / experimental USB CLI)
+├── tools/                      # Debug USB bridge and host tests
+├── buildSrc/                   # Command schema generation and verification
 ├── mentra-bridge/              # Smart glasses bridge server (Node.js)
 ├── docs/                       # Architecture docs, schemas
 └── gradle/                     # Build configuration
@@ -268,6 +368,8 @@ V3SP3R/
 ---
 
 ## Supported Actions
+
+Selected actions are listed below. The [generated command schema](docs/execute_command_schema.json) is the complete action/argument reference; transport and approval rules still determine whether an action can run.
 
 | Action | Description | Risk Level |
 |--------|-------------|------------|
@@ -279,7 +381,7 @@ V3SP3R/
 | `move` / `rename` / `copy` | File operations | Medium-High |
 | `get_device_info` | Battery, firmware, hardware info | Low |
 | `get_storage_info` | SD card and internal storage stats | Low |
-| `execute_cli` | Run Flipper CLI commands | Medium |
+| `execute_cli` | Generic raw CLI is rejected; use mapped RPC actions or the explicitly selected, confirmed USB CLI mode for supported typed actions | Medium |
 | `push_artifact` | Push generated files to Flipper | Medium |
 | `forge_payload` | AI-generate SubGHz/IR/BadUSB/NFC payloads | Medium |
 | `subghz_transmit` | Transmit SubGHz signal | High |
@@ -303,7 +405,7 @@ V3SP3R/
 2. Toggle Bluetooth off/on on your phone
 3. Make sure Flipper isn't connected to another device (e.g. qFlipper)
 4. Move within 3 feet / 1 meter
-5. Check that Location permission is granted (required for BLE scanning on Android)
+5. Check Bluetooth/Nearby devices permission on Android 12+, or Location permission and services on Android 11 and earlier
 </details>
 
 <details>
