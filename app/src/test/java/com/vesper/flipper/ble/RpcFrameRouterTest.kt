@@ -6,6 +6,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RpcFrameRouterTest {
+    @Test fun `corrupt recovery has a small work budget while clean large frames still fragment`() {
+        try {
+            RpcFrameRouter.peel(ByteArray(RpcFrameRouter.MAX_RECOVERY_BYTES + 2))
+            fail("Corrupt recovery must not scan an arbitrary full-size frame")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("recovery window"))
+        }
+        val frame = RpcFrameRouter.encode(com.flipperdevices.protobuf.Flipper.Main.newBuilder()
+            .setGuiScreenFrame(com.flipperdevices.protobuf.screen.Gui.ScreenFrame.newBuilder()
+                .setData(com.google.protobuf.ByteString.copyFrom(ByteArray(4096))).build()).build())
+        val partial = RpcFrameRouter.peel(frame.copyOfRange(0, 3000))
+        assertArrayEquals(frame.copyOfRange(0, 3000), partial.remainder)
+        assertEquals(1, RpcFrameRouter.peel(partial.remainder + frame.copyOfRange(3000, frame.size)).screenFrames.size)
+    }
+
     private fun command() = RpcFrameRouter.encode(Flipper.Main.newBuilder().setCommandId(42).build())
     private fun screen(id: Int = 0) = RpcFrameRouter.encode(Flipper.Main.newBuilder()
         .setCommandId(id).setGuiScreenFrame(Gui.ScreenFrame.newBuilder()

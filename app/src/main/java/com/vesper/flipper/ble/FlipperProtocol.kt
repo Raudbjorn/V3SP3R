@@ -34,9 +34,12 @@ class FlipperProtocol @Inject constructor() {
     private var bleService: FlipperBleService? = null
 
     private val responseBuffer = ByteArrayOutputStream()
-    private data class IncomingChunk(val epoch: Int, val bytes: ByteArray)
+    private data class IncomingChunk(val epoch: Int, val routingEpoch: Int, val bytes: ByteArray)
+    private var routingEpoch = 0
     private val connectionEpoch = AtomicInteger()
-    private val incomingData = Channel<IncomingChunk>(Channel.UNLIMITED)
+    private val ingressStateLock = Any()
+    private val incomingData = Channel<IncomingChunk>(64)
+    @Volatile private var ingressFailure: String? = null
     private val rpcIngressBuffer = ByteArrayOutputStream()
     private var rpcIngressResynchronizing = false
     @Volatile private var screenFrameRouting = false
@@ -45,7 +48,8 @@ class FlipperProtocol @Inject constructor() {
     val rpcScreenFrames: SharedFlow<Gui.ScreenFrame> = _rpcScreenFrames.asSharedFlow()
 
     /** Keep enabled while the device may still be sending unsolicited GUI frames. */
-    fun setScreenFrameRouting(enabled: Boolean) {
+    fun setScreenFrameRouting(enabled: Boolean) = synchronized(ingressStateLock) {
+        routingEpoch++
         screenFrameRouting = enabled
         synchronized(rpcIngressBuffer) {
             rpcIngressBuffer.reset()
@@ -80,7 +84,8 @@ class FlipperProtocol @Inject constructor() {
     private var currentRequestId: UInt = 0u
     private val immediateRpcCommandId = AtomicInteger(10_000)
 
-    private val _responseFlow = MutableSharedFlow<ProtocolResponse>()
+    private val _responseFlow = MutableSharedFlow<ProtocolResponse>(extraBufferCapacity = 64,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val responseFlow: SharedFlow<ProtocolResponse> = _responseFlow.asSharedFlow()
     private val _cliStatus = MutableStateFlow(CliCapabilityStatus())
     val cliStatus: StateFlow<CliCapabilityStatus> = _cliStatus.asStateFlow()
@@ -93,7 +98,9 @@ class FlipperProtocol @Inject constructor() {
         }
         scope.launch {
             for (chunk in incomingData) {
-                if (chunk.epoch == connectionEpoch.get()) processIncomingChunk(chunk.bytes)
+                synchronized(ingressStateLock) {
+                    if (chunk.epoch == connectionEpoch.get() && chunk.routingEpoch == routingEpoch && ingressFailure == null) processIncomingChunk(chunk.bytes)
+                }
             }
         }
     }
@@ -102,8 +109,9 @@ class FlipperProtocol @Inject constructor() {
         this.bleService = service
     }
 
-    fun onConnectionReset() {
+    fun onConnectionReset() = synchronized(ingressStateLock) {
         connectionEpoch.incrementAndGet()
+        ingressFailure = null
         responseBuffer.reset()
         rawCliCollector = null
         rawBinaryCollector = null
@@ -153,11 +161,33 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
-    fun processIncomingData(data: ByteArray) {
-        incomingData.trySend(IncomingChunk(connectionEpoch.get(), data.copyOf()))
+    fun processIncomingData(data: ByteArray) = synchronized(ingressStateLock) {
+        if (ingressFailure != null) return@synchronized
+        // BLE notifications and USB reads are small. Bound both item size and queue length.
+        if (data.size > 64 * 1024 || !incomingData.trySend(IncomingChunk(connectionEpoch.get(), routingEpoch, data.copyOf())).isSuccess) {
+            failIngress("Incoming data exceeded processing capacity; reconnect the device")
+        }
     }
 
-    private suspend fun processIncomingChunk(data: ByteArray) {
+    private fun failIngress(message: String) {
+        ingressFailure = message
+        markCliUnavailable(message)
+        connectionEpoch.incrementAndGet()
+        rawCliCollector?.fail(message)
+        rawBinaryCollector?.fail(message)
+        responseBuffer.reset()
+        rpcIngressBuffer.reset()
+        rpcIngressResynchronizing = false
+        while (incomingData.tryReceive().isSuccess) { /* discard this failed generation */ }
+        completePendingRequest(ProtocolResponse.Error(message))
+        _responseFlow.tryEmit(ProtocolResponse.Error(message))
+    }
+
+    private fun publishScreenFrame(frame: Gui.ScreenFrame) {
+        _rpcScreenFrames.tryEmit(frame)
+    }
+
+    private fun processIncomingChunk(data: ByteArray) {
         try {
             if (screenFrameRouting) {
                 val peeled = synchronized(rpcIngressBuffer) {
@@ -168,7 +198,7 @@ class FlipperProtocol @Inject constructor() {
                         rpcIngressBuffer.write(it.remainder)
                     }
                 }
-                peeled.screenFrames.forEach { _rpcScreenFrames.tryEmit(it) }
+                peeled.screenFrames.forEach(::publishScreenFrame)
                 // Only complete command packets update the command quiet timer.
                 if (peeled.commandFrames.isNotEmpty()) {
                     val collector = rawBinaryCollector
@@ -186,11 +216,11 @@ class FlipperProtocol @Inject constructor() {
             if (responseBuffer.size() > MAX_FRAME_SIZE + 5) responseBuffer.reset()
             else parseResponses()
         } catch (e: Exception) {
-            _responseFlow.emit(ProtocolResponse.Error("Parse error: ${e.message}"))
+            failIngress("RPC stream could not be decoded: ${e.message}; reconnect the device")
         }
     }
 
-    private suspend fun parseResponses() {
+    private fun parseResponses() {
         while (true) {
             val buffer = responseBuffer.toByteArray()
             if (buffer.isEmpty()) return
@@ -225,7 +255,7 @@ class FlipperProtocol @Inject constructor() {
             }
 
             val response = parseFrame(frameData)
-            _responseFlow.emit(response)
+            _responseFlow.tryEmit(response)
 
             // Handle pending request
             completePendingRequest(response)
@@ -280,7 +310,7 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
-    private suspend fun handleNonProtocolResponse(buffer: ByteArray) {
+    private fun handleNonProtocolResponse(buffer: ByteArray) {
         responseBuffer.reset()
         val snippet = String(buffer, Charsets.UTF_8)
             .replace("\u0000", "")
@@ -292,7 +322,7 @@ class FlipperProtocol @Inject constructor() {
             "Device returned invalid protocol frame"
         }
         val response = ProtocolResponse.Error(message)
-        _responseFlow.emit(response)
+        _responseFlow.tryEmit(response)
 
         // Avoid failing in-flight RPC requests on benign textual noise.
         val shouldFailPending = snippet.isBlank() || !isLikelyCliText(snippet)
@@ -388,14 +418,14 @@ class FlipperProtocol @Inject constructor() {
 
     // Command building and sending
 
-    suspend fun listDirectory(path: String): ProtocolResponse = withCommandLock(
+    suspend fun listDirectory(path: String): ProtocolResponse = withProtocolCommandLock(
         operation = "list directory",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while listing directory: $path") }
     ) {
         sendRpcListDirectoryLocked(path) ?: sendLegacyListDirectoryLocked(path)
     }
 
-    suspend fun readFile(path: String): ProtocolResponse = withCommandLock(
+    suspend fun readFile(path: String): ProtocolResponse = withProtocolCommandLock(
         operation = "read file",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while reading file: $path") }
     ) {
@@ -407,49 +437,49 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
-    suspend fun readFileBinary(path: String): ProtocolResponse = withCommandLock(
+    suspend fun readFileBinary(path: String): ProtocolResponse = withProtocolCommandLock(
         operation = "read file binary",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while reading binary file: $path") }
     ) {
         sendRpcReadFileLocked(path) ?: sendLegacyReadFileLocked(path)
     }
 
-    suspend fun writeFile(path: String, content: ByteArray): ProtocolResponse = withCommandLock(
+    suspend fun writeFile(path: String, content: ByteArray): ProtocolResponse = withProtocolCommandLock(
         operation = "write file",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while writing file: $path") }
     ) {
         sendRpcWriteFileLocked(path, content) ?: sendLegacyWriteFileLocked(path, content)
     }
 
-    suspend fun createDirectory(path: String): ProtocolResponse = withCommandLock(
+    suspend fun createDirectory(path: String): ProtocolResponse = withProtocolCommandLock(
         operation = "create directory",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while creating directory: $path") }
     ) {
         sendRpcCreateDirectoryLocked(path) ?: sendLegacyCreateDirectoryLocked(path)
     }
 
-    suspend fun delete(path: String, recursive: Boolean = false): ProtocolResponse = withCommandLock(
+    suspend fun delete(path: String, recursive: Boolean = false): ProtocolResponse = withProtocolCommandLock(
         operation = "delete path",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while deleting: $path") }
     ) {
         sendRpcDeleteLocked(path, recursive) ?: sendLegacyDeleteLocked(path, recursive)
     }
 
-    suspend fun move(sourcePath: String, destPath: String): ProtocolResponse = withCommandLock(
+    suspend fun move(sourcePath: String, destPath: String): ProtocolResponse = withProtocolCommandLock(
         operation = "move path",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while moving: $sourcePath -> $destPath") }
     ) {
         sendRpcMoveLocked(sourcePath, destPath) ?: sendLegacyMoveLocked(sourcePath, destPath)
     }
 
-    suspend fun getDeviceInfo(): ProtocolResponse = withCommandLock(
+    suspend fun getDeviceInfo(): ProtocolResponse = withProtocolCommandLock(
         operation = "get device info",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while requesting device info") }
     ) {
         sendRpcDeviceInfoLocked() ?: sendLegacyDeviceInfoLocked()
     }
 
-    suspend fun getStorageInfo(): ProtocolResponse = withCommandLock(
+    suspend fun getStorageInfo(): ProtocolResponse = withProtocolCommandLock(
         operation = "get storage info",
         onTimeout = { ProtocolResponse.Error("Command pipeline busy while requesting storage info") }
     ) {
@@ -1258,15 +1288,29 @@ class FlipperProtocol @Inject constructor() {
         return Regex("-?\\d+").find(value)?.value?.toIntOrNull()
     }
 
+    private suspend fun withProtocolCommandLock(
+        operation: String,
+        timeoutMs: Long = COMMAND_MUTEX_LOCK_TIMEOUT_MS,
+        onTimeout: () -> ProtocolResponse,
+        block: suspend () -> ProtocolResponse
+    ): ProtocolResponse = withCommandLock(operation, timeoutMs, onTimeout,
+        onCollectionFailure = { ProtocolResponse.Error(it) }) {
+        ingressFailure?.let { throw ResponseCollectionException(it) }
+        block()
+    }
+
     private suspend fun <T> withCommandLock(
         operation: String,
         timeoutMs: Long = COMMAND_MUTEX_LOCK_TIMEOUT_MS,
         onTimeout: () -> T,
+        onCollectionFailure: (String) -> T = { onTimeout() },
         block: suspend () -> T
     ): T {
         val result = withTimeoutOrNull(timeoutMs) {
             commandMutex.withLock {
-                block()
+                try { block() } catch (e: ResponseCollectionException) {
+                    onCollectionFailure(e.message ?: "Response collection failed")
+                }
             }
         }
         if (result != null) {
@@ -1893,7 +1937,7 @@ class FlipperProtocol @Inject constructor() {
         return ""
     }
 
-    suspend fun executeRpcAppCommand(command: String): ProtocolResponse = withCommandLock(
+    suspend fun executeRpcAppCommand(command: String): ProtocolResponse = withProtocolCommandLock(
         operation = "RPC app command",
         timeoutMs = COMMAND_MUTEX_LOCK_RPC_APP_TIMEOUT_MS,
         onTimeout = {
@@ -1901,11 +1945,11 @@ class FlipperProtocol @Inject constructor() {
         }
     ) {
         val service = bleService
-            ?: return@withCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
+            ?: return@withProtocolCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
                 markCliUnavailable("Device service unavailable")
             }
         if (!ensureTransportConnected(service)) {
-            return@withCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
+            return@withProtocolCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
                 markCliUnavailable("Flipper command transport is not connected")
             }
         }
@@ -1915,16 +1959,16 @@ class FlipperProtocol @Inject constructor() {
         } else {
             probeRpcTransportAvailability(
                 detail = "RPC ping responded for app command bridge"
-            ) ?: return@withCommandLock ProtocolResponse.Error(
+            ) ?: return@withProtocolCommandLock ProtocolResponse.Error(
                 "RPC transport is unavailable, so app command bridge cannot execute: $command"
             )
         }
         if (!rpcReady.supportsRpc) {
-            return@withCommandLock ProtocolResponse.Error("RPC transport unavailable for app command bridge")
+            return@withProtocolCommandLock ProtocolResponse.Error("RPC transport unavailable for app command bridge")
         }
 
         val plan = parseRpcCommandPlan(command)
-            ?: return@withCommandLock ProtocolResponse.Error(
+            ?: return@withProtocolCommandLock ProtocolResponse.Error(
                 "No RPC action mapping for command: $command"
             )
         val appStartCacheKey = buildRpcAppStartCacheKey(plan.appCandidates)
@@ -1951,7 +1995,7 @@ class FlipperProtocol @Inject constructor() {
                     executionKey = executionKey,
                     completedAtMs = now
                 )
-                return@withCommandLock ProtocolResponse.Success(details)
+                return@withProtocolCommandLock ProtocolResponse.Success(details)
             }
         }
 
@@ -1978,7 +2022,7 @@ class FlipperProtocol @Inject constructor() {
             val appErrorSuffix = formatAppErrorSuffix(
                 requestAppErrorInfoLocked(timeoutMs = RPC_APP_ERROR_TIMEOUT_MS)
             )
-            return@withCommandLock ProtocolResponse.Error(
+            return@withProtocolCommandLock ProtocolResponse.Error(
                 "RPC app start failed for \"$command\": ${startStatus.name}$appErrorSuffix"
             )
         }
@@ -1991,7 +2035,7 @@ class FlipperProtocol @Inject constructor() {
             } else {
                 "Unlock/open the target app on Flipper."
             }
-            return@withCommandLock ProtocolResponse.Error(
+            return@withProtocolCommandLock ProtocolResponse.Error(
                 "RPC app start is system-locked for \"$command\". $lockHint"
             )
         }
@@ -2008,7 +2052,7 @@ class FlipperProtocol @Inject constructor() {
                 val appErrorSuffix = formatAppErrorSuffix(
                     requestAppErrorInfoLocked(timeoutMs = RPC_APP_ERROR_TIMEOUT_MS)
                 )
-                return@withCommandLock ProtocolResponse.Error(
+                return@withProtocolCommandLock ProtocolResponse.Error(
                     "RPC app_load_file failed for ${plan.filePath}: ${loadStatus.name}$appErrorSuffix"
                 )
             }
@@ -2029,7 +2073,7 @@ class FlipperProtocol @Inject constructor() {
                             .setType(Gui.InputType.SHORT)
                             .build()
                     )
-                } ?: return@withCommandLock ProtocolResponse.Error(
+                } ?: return@withProtocolCommandLock ProtocolResponse.Error(
                     "No RPC response for app button or GUI input event request"
                 )
 
@@ -2037,7 +2081,7 @@ class FlipperProtocol @Inject constructor() {
                     val appErrorSuffix = formatAppErrorSuffix(
                         requestAppErrorInfoLocked(timeoutMs = RPC_APP_ERROR_TIMEOUT_MS)
                     )
-                    return@withCommandLock ProtocolResponse.Error(
+                    return@withProtocolCommandLock ProtocolResponse.Error(
                         "RPC input failed for \"$command\": app_button=${buttonStatus.name}, gui=${inputResponse.commandStatus.name}$appErrorSuffix"
                     )
                 }
@@ -2055,7 +2099,7 @@ class FlipperProtocol @Inject constructor() {
                 completedAtMs = System.currentTimeMillis()
             )
         }
-        return@withCommandLock ProtocolResponse.Success(details)
+        return@withProtocolCommandLock ProtocolResponse.Success(details)
     }
 
     /**
@@ -2065,7 +2109,7 @@ class FlipperProtocol @Inject constructor() {
     suspend fun sendGuiInputEvent(
         key: Gui.InputKey,
         inputType: Gui.InputType = Gui.InputType.SHORT
-    ): ProtocolResponse = withCommandLock(
+    ): ProtocolResponse = withProtocolCommandLock(
         operation = "direct GUI input",
         onTimeout = {
             ProtocolResponse.Error(
@@ -2074,11 +2118,11 @@ class FlipperProtocol @Inject constructor() {
         }
     ) {
         val service = bleService
-            ?: return@withCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
+            ?: return@withProtocolCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
                 markCliUnavailable("Device service unavailable")
             }
         if (!ensureTransportConnected(service)) {
-            return@withCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
+            return@withProtocolCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
                 markCliUnavailable("Flipper command transport is not connected")
             }
         }
@@ -2089,9 +2133,9 @@ class FlipperProtocol @Inject constructor() {
                 inputType = inputType
             )
             if (bootstrapFallback != null) {
-                return@withCommandLock bootstrapFallback
+                return@withProtocolCommandLock bootstrapFallback
             }
-            return@withCommandLock ProtocolResponse.Error(
+            return@withProtocolCommandLock ProtocolResponse.Error(
                 "RPC transport is unavailable for direct GUI input events."
             )
         }
@@ -2129,7 +2173,7 @@ class FlipperProtocol @Inject constructor() {
                         }
                     }
                     markRpcReady(details)
-                    return@withCommandLock ProtocolResponse.Success(details)
+                    return@withProtocolCommandLock ProtocolResponse.Success(details)
                 }
 
                 val releaseStatus = sendGuiInputEventStatusLocked(
@@ -2152,7 +2196,7 @@ class FlipperProtocol @Inject constructor() {
                         }
                     }
                     markRpcReady(details)
-                    return@withCommandLock ProtocolResponse.Success(details)
+                    return@withProtocolCommandLock ProtocolResponse.Success(details)
                 }
             }
         }
@@ -2165,7 +2209,7 @@ class FlipperProtocol @Inject constructor() {
                     .setType(inputType)
                     .build()
             )
-        } ?: return@withCommandLock ProtocolResponse.Error(
+        } ?: return@withProtocolCommandLock ProtocolResponse.Error(
             "No RPC response for GUI input event (${key.name}/${inputType.name}). Input not confirmed."
         )
 
@@ -2173,7 +2217,7 @@ class FlipperProtocol @Inject constructor() {
             val appErrorSuffix = formatAppErrorSuffix(
                 requestAppErrorInfoLocked(timeoutMs = RPC_APP_ERROR_TIMEOUT_MS)
             )
-            return@withCommandLock ProtocolResponse.Error(
+            return@withProtocolCommandLock ProtocolResponse.Error(
                 "GUI input failed (${key.name}/${inputType.name}): ${response.commandStatus.name}$appErrorSuffix",
                 response.commandStatus.number
             )
@@ -2191,7 +2235,7 @@ class FlipperProtocol @Inject constructor() {
             }
         }
         markRpcReady(details)
-        return@withCommandLock ProtocolResponse.Success(details)
+        return@withProtocolCommandLock ProtocolResponse.Success(details)
     }
 
     /**
@@ -2203,6 +2247,7 @@ class FlipperProtocol @Inject constructor() {
         key: Gui.InputKey,
         inputType: Gui.InputType = Gui.InputType.SHORT
     ): ProtocolResponse {
+        ingressFailure?.let { return ProtocolResponse.Error(it) }
         val service = bleService
             ?: return ProtocolResponse.Error("Flipper device service unavailable").also {
                 markCliUnavailable("Device service unavailable")
@@ -3132,18 +3177,21 @@ class FlipperProtocol @Inject constructor() {
         return tokens.filter { it.isNotBlank() }
     }
 
-    suspend fun sendRawCliCommand(command: String): ProtocolResponse = withCommandLock(
+    suspend fun sendRawCliCommand(command: String): ProtocolResponse = withProtocolCommandLock(
         operation = "raw CLI command",
         onTimeout = {
             ProtocolResponse.Error("Command pipeline busy; CLI command timed out waiting for lock: $command")
         }
     ) {
+        if (screenFrameRouting) return@withProtocolCommandLock ProtocolResponse.Error(
+            "Pause the screen mirror before raw CLI commands; reconnect if stopping is unacknowledged"
+        )
         val service = bleService
-            ?: return@withCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
+            ?: return@withProtocolCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
                 markCliUnavailable("Device service unavailable")
             }
         if (!ensureTransportConnected(service)) {
-            return@withCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
+            return@withProtocolCommandLock ProtocolResponse.Error("Flipper command transport is not connected").also {
                 markCliUnavailable("Flipper command transport is not connected")
             }
         }
@@ -3151,7 +3199,7 @@ class FlipperProtocol @Inject constructor() {
         val responseText = collectRawCliResponse("$command\r\n", RAW_CLI_TIMEOUT_MS)
         if (responseText.isNotBlank() && isLikelyCliText(responseText)) {
             markCliReady(responseText)
-            return@withCommandLock ProtocolResponse.FileContent(responseText.trim())
+            return@withProtocolCommandLock ProtocolResponse.FileContent(responseText.trim())
         }
 
         // Validate that the CLI transport is alive before claiming command success.
@@ -3164,22 +3212,22 @@ class FlipperProtocol @Inject constructor() {
                     val retriedResponse = collectRawCliResponse("$command\r\n", RAW_CLI_TIMEOUT_MS)
                     if (retriedResponse.isNotBlank() && isLikelyCliText(retriedResponse)) {
                         markCliReady(retriedResponse)
-                        return@withCommandLock ProtocolResponse.FileContent(retriedResponse.trim())
+                        return@withProtocolCommandLock ProtocolResponse.FileContent(retriedResponse.trim())
                     }
                 }
-                return@withCommandLock ProtocolResponse.Error(
+                return@withProtocolCommandLock ProtocolResponse.Error(
                     "CLI is unavailable on this transport, but RPC is responsive. ${recovered.details}"
                 )
             }
             markCliUnavailable("No CLI response from Flipper over active transport")
-            return@withCommandLock ProtocolResponse.Error(
+            return@withProtocolCommandLock ProtocolResponse.Error(
                 "No CLI response from Flipper over active transport. Command not confirmed. " +
                         "Ensure CLI/RPC is available for this firmware and no other app owns the connection."
             )
         }
         markCliReady(probeResponse)
 
-        return@withCommandLock if (isLikelyNoOutputCommand(command)) {
+        return@withProtocolCommandLock if (isLikelyNoOutputCommand(command)) {
             ProtocolResponse.Error(
                 "Command produced no CLI output, so execution cannot be confirmed: $command. " +
                         "This firmware may require RPC/app-specific control instead of raw CLI."
@@ -3212,8 +3260,13 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long): String {
+        ingressFailure?.let { throw ResponseCollectionException(it) }
+        if (screenFrameRouting) return ""
         val collector = RawCliCollector()
-        rawCliCollector = collector
+        synchronized(ingressStateLock) {
+            ingressFailure?.let { throw ResponseCollectionException(it) }
+            rawCliCollector = collector
+        }
         return try {
             val service = bleService
             if (service == null) {
@@ -3234,13 +3287,17 @@ class FlipperProtocol @Inject constructor() {
                 collector.snapshot()
             } ?: collector.snapshot()
         } finally {
-            rawCliCollector = null
+            synchronized(ingressStateLock) { if (rawCliCollector === collector) rawCliCollector = null }
         }
     }
 
     private suspend fun collectRawBinaryResponseAttempt(payload: ByteArray, timeoutMs: Long): ByteArray {
+        ingressFailure?.let { throw ResponseCollectionException(it) }
         val collector = RawBinaryCollector()
-        rawBinaryCollector = collector
+        synchronized(ingressStateLock) {
+            ingressFailure?.let { throw ResponseCollectionException(it) }
+            rawBinaryCollector = collector
+        }
         return try {
             val service = bleService
             if (service == null) {
@@ -3261,13 +3318,16 @@ class FlipperProtocol @Inject constructor() {
                 collector.snapshot()
             } ?: collector.snapshot()
         } finally {
-            rawBinaryCollector = null
+            synchronized(ingressStateLock) { if (rawBinaryCollector === collector) rawBinaryCollector = null }
         }
     }
 
     private suspend fun collectRawBinaryTailResponse(timeoutMs: Long): ByteArray {
         val collector = RawBinaryCollector()
-        rawBinaryCollector = collector
+        synchronized(ingressStateLock) {
+            ingressFailure?.let { throw ResponseCollectionException(it) }
+            rawBinaryCollector = collector
+        }
         return try {
             withTimeoutOrNull(timeoutMs) {
                 while (true) {
@@ -3280,7 +3340,7 @@ class FlipperProtocol @Inject constructor() {
                 collector.snapshot()
             } ?: collector.snapshot()
         } finally {
-            rawBinaryCollector = null
+            synchronized(ingressStateLock) { if (rawBinaryCollector === collector) rawBinaryCollector = null }
         }
     }
 
@@ -3407,6 +3467,7 @@ class FlipperProtocol @Inject constructor() {
             setStopSession(Flipper.StopSession.getDefaultInstance())
         }
         if (framedStop?.commandStatus == Flipper.CommandStatus.OK) {
+            setScreenFrameRouting(false)
             return true
         }
 
@@ -3741,7 +3802,8 @@ class FlipperProtocol @Inject constructor() {
 
     private class RawCliCollector {
         private val buffer = StringBuilder()
-        @Volatile private var overflow = false
+        private var receivedBytes = 0
+        @Volatile private var failure: String? = null
         @Volatile
         var lastUpdateMs: Long = System.currentTimeMillis()
             private set
@@ -3749,28 +3811,31 @@ class FlipperProtocol @Inject constructor() {
         fun append(data: ByteArray) {
             val chunk = String(data, Charsets.UTF_8)
             synchronized(buffer) {
-                if (buffer.length + chunk.length > MAX_FRAME_SIZE) {
-                    overflow = true
+                if (receivedBytes + data.size > MAX_FRAME_SIZE) {
+                    failure = "Response exceeds buffer limit"
                     return
                 }
+                receivedBytes += data.size
                 buffer.append(chunk)
             }
             lastUpdateMs = System.currentTimeMillis()
         }
+
+        fun fail(message: String) { failure = message }
 
         fun hasData(): Boolean = synchronized(buffer) {
             buffer.isNotEmpty()
         }
 
         fun snapshot(): String = synchronized(buffer) {
-            check(!overflow) { "CLI response exceeds buffer limit" }
+            failure?.let { throw ResponseCollectionException(it) }
             buffer.toString()
         }
     }
 
     private class RawBinaryCollector {
         private val buffer = ByteArrayOutputStream()
-        @Volatile private var overflow = false
+        @Volatile private var failure: String? = null
         @Volatile
         var lastUpdateMs: Long = System.currentTimeMillis()
             private set
@@ -3778,7 +3843,7 @@ class FlipperProtocol @Inject constructor() {
         fun append(data: ByteArray) {
             synchronized(buffer) {
                 if (buffer.size() + data.size > MAX_RPC_RESPONSE_BYTES) {
-                    overflow = true
+                    failure = "Response exceeds buffer limit"
                     return
                 }
                 buffer.write(data)
@@ -3786,12 +3851,14 @@ class FlipperProtocol @Inject constructor() {
             lastUpdateMs = System.currentTimeMillis()
         }
 
+        fun fail(message: String) { failure = message }
+
         fun hasData(): Boolean = synchronized(buffer) {
             buffer.size() > 0
         }
 
         fun snapshot(): ByteArray = synchronized(buffer) {
-            check(!overflow) { "RPC response exceeds buffer limit" }
+            failure?.let { throw ResponseCollectionException(it) }
             buffer.toByteArray()
         }
     }

@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream
  */
 object RpcFrameRouter {
     const val MAX_FRAME_SIZE = 256 * 1024
+    const val MAX_RECOVERY_BYTES = 2 * 1024
 
     data class PeelResult(
         val screenFrames: List<Gui.ScreenFrame>,
@@ -37,6 +38,12 @@ object RpcFrameRouter {
         val passthrough = ByteArrayOutputStream()
         var offset = 0
         while (offset < buffer.size) {
+            // Recovery is best effort within two screen frames, never a scan of an
+            // arbitrary 256 KiB malformed body on every notification. Clean fragmented
+            // frames retain the normal full frame allowance.
+            require(!seeking || buffer.size - offset <= MAX_RECOVERY_BYTES) {
+                "Corrupt RPC recovery window exceeded"
+            }
             val lengthRead = readVarint(buffer, offset)
             if (lengthRead == null) {
                 return result(screenFrames, commandFrames, passthrough, buffer, offset, seeking)

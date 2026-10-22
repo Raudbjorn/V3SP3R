@@ -20,6 +20,16 @@ class RpcCollectorBoundsTest {
         val result = type.getDeclaredMethod("snapshot").apply { isAccessible = true }.invoke(collector) as ByteArray
         assertArrayEquals(chunk + chunk + chunk, result)
     }
+    @Test fun `CLI budget counts UTF8 bytes rather than decoded characters`() {
+        val type = Class.forName("com.vesper.flipper.ble.FlipperProtocol\$RawCliCollector")
+        val collector = type.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+        type.getDeclaredMethod("append", ByteArray::class.java).apply { isAccessible = true }
+            .invoke(collector, "€".repeat(100_000).toByteArray(Charsets.UTF_8))
+        try {
+            type.getDeclaredMethod("snapshot").apply { isAccessible = true }.invoke(collector)
+            fail("Multibyte CLI output must respect the byte cap")
+        } catch (e: InvocationTargetException) { assertTrue(e.cause is ResponseCollectionException) }
+    }
     private fun assertOverflow(name: String, capacity: Int) {
         val type = Class.forName("com.vesper.flipper.ble.FlipperProtocol\$$name")
         val collector = type.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
