@@ -208,7 +208,7 @@ class CommandExecutor @Inject constructor(
         )
 
         pendingApprovals[approval.id] = approval
-        _currentApproval.value = approval
+        if (!sessionId.startsWith("campaign-")) _currentApproval.value = approval
 
         auditService.log(
             AuditEntry(

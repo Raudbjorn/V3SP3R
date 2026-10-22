@@ -47,9 +47,7 @@ class RalphOrchestrator(private val context: Context) {
     }
     suspend fun reject(id: String) {
         CampaignStore(context).use { store ->
-            val row = store.get(id) ?: return
-            row.approval?.let { executor(context).reject(it,"campaign-$id") }
-            store.transition(row,"cancelled","Rejected by operator")
+            store.cancel(id)?.let { executor(context).reject(it,"campaign-$id") }
         }
     }
     suspend fun kill() {

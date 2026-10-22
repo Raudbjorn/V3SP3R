@@ -61,6 +61,16 @@ class CampaignStore(context: Context) : java.io.Closeable {
     fun pendingApprovals(): List<Pair<String,String>> = readableDatabase.query(
         "SELECT id,approval FROM campaigns WHERE state='approval' AND approval IS NOT NULL"
     ).use { cursor -> buildList { while(cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1)) } }
+    fun cancel(id: String): String? {
+        val db=writableDatabase
+        db.beginTransaction()
+        try {
+            val pending=get(id)?.approval
+            db.execSQL("UPDATE campaigns SET state='cancelled', approval=NULL WHERE id=? AND state NOT IN ('completed','failed','cancelled')", arrayOf(id))
+            db.setTransactionSuccessful()
+            return pending
+        } finally { db.endTransaction() }
+    }
     fun killAll(): List<Pair<String,String>> {
         enabled = false
         val db = writableDatabase
