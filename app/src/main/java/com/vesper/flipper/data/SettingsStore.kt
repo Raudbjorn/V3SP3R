@@ -66,8 +66,8 @@ class SettingsStore @Inject constructor(
         return preferences[stringPreferencesKey(provider.apiKeyPreference)]?.takeIf { it.isNotBlank() }
     }
 
-    suspend fun setApiKey(key: String) = apiKeyMutex.withLock {
-        val provider = LlmProvider.fromId(context.dataStore.data.first()[PROVIDER])
+    suspend fun setApiKey(key: String, forProvider: LlmProvider? = null) = apiKeyMutex.withLock {
+        val provider = forProvider ?: LlmProvider.fromId(context.dataStore.data.first()[PROVIDER])
         val trimmed = key.trim()
         if (trimmed.isEmpty()) {
             secureStorage.remove(provider.apiKeyPreference)
@@ -111,9 +111,9 @@ class SettingsStore @Inject constructor(
         preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel
     }
 
-    suspend fun setSelectedModel(model: String) {
+    suspend fun setSelectedModel(model: String, forProvider: LlmProvider? = null) {
         context.dataStore.edit { preferences ->
-            val provider = LlmProvider.fromId(preferences[PROVIDER])
+            val provider = forProvider ?: LlmProvider.fromId(preferences[PROVIDER])
             preferences[stringPreferencesKey(provider.modelPreference)] = model
         }
     }

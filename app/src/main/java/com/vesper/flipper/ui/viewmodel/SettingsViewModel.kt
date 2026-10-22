@@ -198,16 +198,18 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setApiKey(key: String) {
+        val provider = _state.value.provider
         viewModelScope.launch {
-            settingsStore.setApiKey(key)
-            _state.update { it.copy(apiKey = key) }
+            settingsStore.setApiKey(key, provider)
+            _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
         }
     }
 
     fun setSelectedModel(model: String) {
+        val provider = _state.value.provider
         viewModelScope.launch {
-            settingsStore.setSelectedModel(model)
-            _state.update { it.copy(selectedModel = model) }
+            settingsStore.setSelectedModel(model, provider)
+            _state.update { if (it.provider == provider) it.copy(selectedModel = model) else it }
         }
     }
 

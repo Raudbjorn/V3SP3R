@@ -52,7 +52,7 @@ object AnthropicChatProtocol : ChatProtocol {
                 put("name", tool.function.name); put("description", tool.function.description)
                 put("input_schema", tool.function.parameters)
             } }))
-            put("tool_choice", buildJsonObject { put("type", "auto") })
+            put("tool_choice", buildJsonObject { put("type", "auto"); put("disable_parallel_tool_use", true) })
         }
     }
 
@@ -103,6 +103,7 @@ object AnthropicChatProtocol : ChatProtocol {
                 })
             }
         }
+        require(calls.size <= 1) { "Anthropic returned more tool calls than requested" }
         require(text.isNotBlank() || calls.isNotEmpty()) { "Anthropic returned no text or tool calls" }
         return buildJsonObject {
             put("id", root["id"] ?: JsonPrimitive("anthropic"))
