@@ -100,6 +100,9 @@ class CommandExecutor @Inject constructor(
             ), sessionId, startTime, traceId)
         }
 
+        if (riskAssessment.level != RiskLevel.BLOCKED && sessionId.startsWith("campaign-") && command.action in setOf(CommandAction.WRITE_FILE, CommandAction.CREATE_DIRECTORY)) {
+            return requestApproval(command, riskAssessment.copy(level=RiskLevel.HIGH, requiresConfirmation=true), sessionId, startTime, traceId)
+        }
         return when (riskAssessment.level) {
             RiskLevel.LOW -> executeDirectly(
                 command = command,
@@ -244,7 +247,7 @@ class CommandExecutor @Inject constructor(
         )
 
         pendingApprovals[approval.id] = ScopedApproval(approval, sessionId)
-        _currentApproval.value = approval
+        if (!sessionId.startsWith("campaign-")) _currentApproval.value = approval
 
         auditService.log(
             AuditEntry(

@@ -105,6 +105,7 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     // Compose BOM & UI
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
