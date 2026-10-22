@@ -159,4 +159,45 @@ class LoaderSingleSendTest {
         verify(service, never()).sendUsbDataOnly(any())
     }
 
+    @Test fun `multiline raw dispatch revokes CLI for a later session-control command`() = runBlocking<Unit> {
+        val protocol = FlipperProtocol()
+        val service = mock<FlipperBleService>()
+        protocol.setBleService(service)
+        status(protocol)
+        whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isCommandTransportConnected()).thenReturn(true)
+        whenever(service.sendData(any(), any(), any())).thenReturn(true)
+        assertTrue(protocol.isConfirmedUsbCliSession())
+        val text = "version\r\n  start_rpc_session\nhelp"
+        assertTrue(protocol.sendRawCli(text))
+        verify(service).sendData(check { assertArrayEquals("$text\r\n".toByteArray(), it) }, eq(false), eq(false))
+        assertFalse(protocol.isConfirmedUsbCliSession())
+        assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
+        verify(service, never()).sendUsbDataOnly(any())
+    }
+
+    @Test fun `USB bootstrap revokes CLI before writing a session start command`() = runBlocking<Unit> {
+        val protocol = FlipperProtocol()
+        val service = mock<FlipperBleService>(defaultAnswer = org.mockito.Mockito.CALLS_REAL_METHODS)
+        service.flipperProtocol = protocol
+        protocol.setBleService(service)
+        doReturn(true).whenever(service).isRawCliTransportConnected()
+        status(protocol)
+        assertTrue(protocol.isConfirmedUsbCliSession())
+        val port = mock<com.hoho.android.usbserial.driver.UsbSerialPort>()
+        var wroteWhileCliConfirmed = false
+        doAnswer {
+            wroteWhileCliConfirmed = wroteWhileCliConfirmed || protocol.isConfirmedUsbCliSession()
+            null
+        }.whenever(port).write(any(), any())
+        kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
+            FlipperBleService::class.java.getDeclaredMethod("primeUsbRpcSession",
+                com.hoho.android.usbserial.driver.UsbSerialPort::class.java, kotlin.coroutines.Continuation::class.java)
+                .apply { isAccessible = true }.invoke(service, port, continuation)
+        }
+        verify(port, atLeastOnce()).write(any(), any())
+        assertFalse("Bootstrap must revoke CLI before any port write", wroteWhileCliConfirmed)
+        assertFalse(protocol.isConfirmedUsbCliSession())
+    }
+
 }

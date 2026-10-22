@@ -620,6 +620,7 @@ class FlipperBleService : Service() {
     }
 
     private suspend fun primeUsbRpcSession(port: UsbSerialPort) {
+        flipperProtocol.onRpcDispatch()
         drainUsbInput(port, USB_RPC_PRIME_DRAIN_WINDOW_MS)
         USB_RPC_PRIME_COMMANDS.forEach { command ->
             runCatching {

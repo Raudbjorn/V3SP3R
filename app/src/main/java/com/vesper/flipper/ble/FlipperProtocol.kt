@@ -63,9 +63,10 @@ class FlipperProtocol @Inject constructor() {
     private enum class CommandSessionMode { UNKNOWN, CLI, RPC }
     @Volatile private var observedCommandSessionMode = CommandSessionMode.UNKNOWN
 
-    private fun onRpcDispatch() { observedCommandSessionMode = CommandSessionMode.UNKNOWN }
-    private fun isRpcSessionControl(command: String) = command.trim().let {
-        it.startsWith("start_rpc_session") || it.startsWith("stop_rpc_session")
+    internal fun onRpcDispatch() { observedCommandSessionMode = CommandSessionMode.UNKNOWN }
+    private fun isRpcSessionControl(command: String) = command.lineSequence().any { line ->
+        val token = line.trim().takeWhile { !it.isWhitespace() }.lowercase()
+        token == "start_rpc_session" || token == "stop_rpc_session"
     }
     private fun noteCliResponse(command: String, response: String) {
         if (isRpcSessionControl(command)) onRpcDispatch() else markCliReady(response)
