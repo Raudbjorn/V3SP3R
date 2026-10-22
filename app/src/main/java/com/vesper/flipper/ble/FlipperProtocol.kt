@@ -32,6 +32,7 @@ class FlipperProtocol @Inject constructor() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var bleService: FlipperBleService? = null
+    private val connectionEpoch = AtomicInteger()
 
     private val responseBuffer = ByteArrayOutputStream()
     @Volatile
@@ -80,6 +81,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     fun onConnectionReset() {
+        connectionEpoch.incrementAndGet()
         responseBuffer.reset()
         rawCliCollector = null
         rawBinaryCollector = null
@@ -3314,8 +3316,11 @@ class FlipperProtocol @Inject constructor() {
         commandId: Int,
         timeoutMs: Long
     ): List<Flipper.Main> {
+        val epoch = connectionEpoch.get()
+        val service = bleService
+        val telemetrySession = service?.rpcTelemetrySessionId()
         val responseBytes = collectRawBinaryResponseAttempt(request, timeoutMs)
-        if (responseBytes.isEmpty()) return emptyList()
+        if (connectionEpoch.get() != epoch || responseBytes.isEmpty()) return emptyList()
         val collected = findRpcMainMessages(responseBytes, commandId).toMutableList()
         if (collected.isEmpty()) {
             return emptyList()
@@ -3335,8 +3340,9 @@ class FlipperProtocol @Inject constructor() {
             if (tailResponses.isEmpty()) break
             collected += tailResponses
         }
+        if (connectionEpoch.get() != epoch) return emptyList()
         if (collected.isNotEmpty()) {
-            bleService?.recordRpcResponseReceived()
+            if (telemetrySession != null) service?.recordRpcResponseReceived(telemetrySession)
             lastRpcActivityAtMs = System.currentTimeMillis()
         }
         return collected

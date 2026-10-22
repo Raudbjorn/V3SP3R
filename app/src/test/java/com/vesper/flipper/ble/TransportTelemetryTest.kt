@@ -13,14 +13,26 @@ class TransportTelemetryTest {
         assertEquals("Gatt rejected write", recorder.state.value.lastWriteFailure)
         assertFalse(recorder.state.value.writeRouteVerified)
         assertEquals("7 bytes", recorder.state.value.lastRxSummary)
-        recorder.rpcResponseReceived()
+        recorder.rpcResponseReceived(recorder.sessionId())
         assertTrue(recorder.state.value.writeRouteVerified)
         recorder.routeChanged("None", null, null)
-        recorder.rpcResponseReceived() // late completion from the old session
+        recorder.rpcResponseReceived(recorder.sessionId()) // late completion from the old session
         assertFalse(recorder.state.value.writeRouteVerified)
         assertNull(recorder.state.value.lastRxSummary)
         assertNull(recorder.state.value.lastWriteFailure)
         assertNull(recorder.state.value.lastWriteTypeLabel)
+    }
+
+    @Test fun `old session cannot verify a reconnect using identical characteristics`() {
+        val recorder = TransportTelemetryRecorder()
+        recorder.routeChanged("BLE", "tx", "rx")
+        val oldSession = recorder.sessionId()
+        recorder.routeChanged("None", null, null)
+        recorder.routeChanged("BLE", "tx", "rx")
+        recorder.rpcResponseReceived(oldSession)
+        assertFalse(recorder.state.value.writeRouteVerified)
+        recorder.rpcResponseReceived(recorder.sessionId())
+        assertTrue(recorder.state.value.writeRouteVerified)
     }
 
     @Test fun `successful retry clears failure while preserving received byte count`() {

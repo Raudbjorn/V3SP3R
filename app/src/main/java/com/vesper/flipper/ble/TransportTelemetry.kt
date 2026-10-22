@@ -25,26 +25,32 @@ internal class TransportTelemetryRecorder(private val clock: () -> Long = System
     private val mutableState = MutableStateFlow(TransportTelemetry.idle())
     val state = mutableState.asStateFlow()
 
-    fun routeChanged(transport: String, writeUuid: String?, notifyUuid: String?) {
+    private var session = 0L
+    @Synchronized fun sessionId(): Long = session
+
+    @Synchronized fun routeChanged(transport: String, writeUuid: String?, notifyUuid: String?) {
         mutableState.update { previous ->
             if (previous.transportLabel == transport && previous.writeCharacteristicUuid == writeUuid &&
                 previous.notifyCharacteristicUuid == notifyUuid) previous
-            else TransportTelemetry(
-                transportLabel = transport, writeCharacteristicUuid = writeUuid,
-                notifyCharacteristicUuid = notifyUuid, lastUpdatedAtMs = clock()
-            )
+            else {
+                session++
+                TransportTelemetry(
+                    transportLabel = transport, writeCharacteristicUuid = writeUuid,
+                    notifyCharacteristicUuid = notifyUuid, lastUpdatedAtMs = clock()
+                )
+            }
         }
     }
 
-    fun writeAttempt(type: String) {
+    @Synchronized fun writeAttempt(type: String) {
         mutableState.update { it.copy(lastWriteTypeLabel = type, lastUpdatedAtMs = clock()) }
     }
 
-    fun writeFailure(reason: String?) {
+    @Synchronized fun writeFailure(reason: String?) {
         mutableState.update { it.copy(lastWriteFailure = reason, lastUpdatedAtMs = clock()) }
     }
 
-    fun received(byteCount: Int) {
+    @Synchronized fun received(byteCount: Int) {
         require(byteCount >= 0)
         mutableState.update {
             it.copy(lastRxSummary = "$byteCount bytes", receivedByteCount = it.receivedByteCount + byteCount,
@@ -52,10 +58,26 @@ internal class TransportTelemetryRecorder(private val clock: () -> Long = System
         }
     }
 
-    fun rpcResponseReceived() {
+    @Synchronized fun rpcResponseReceived(expectedSession: Long) {
+        if (expectedSession != session) return
         mutableState.update {
             if (it.transportLabel == "None") it
             else it.copy(writeRouteVerified = true, lastUpdatedAtMs = clock())
         }
+    }
+}
+
+/** Consuming an error message must not erase the user's diagnostic history. */
+internal class WriteFailureTracker(private val recordDiagnostic: (String?) -> Unit) {
+    @Volatile var pending: String? = null
+        private set
+    @Synchronized fun record(reason: String?) {
+        pending = reason
+        if (reason != null) recordDiagnostic(reason)
+    }
+    @Synchronized fun consume(): String? = pending.also { pending = null }
+    @Synchronized fun succeeded() {
+        pending = null
+        recordDiagnostic(null)
     }
 }

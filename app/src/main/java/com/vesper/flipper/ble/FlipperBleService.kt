@@ -96,12 +96,10 @@ class FlipperBleService : Service() {
     private var negotiatedMtu: Int = DEFAULT_ATT_MTU
     @Volatile
     private var currentUsbBaudRate: Int? = null
-    @Volatile
-    private var lastWriteFailureReason: String? = null
-        set(value) {
-            field = value
-            telemetryRecorder.writeFailure(value)
-        }
+    private val writeFailures = WriteFailureTracker(telemetryRecorder::writeFailure)
+    private var lastWriteFailureReason: String?
+        get() = writeFailures.pending
+        set(value) { writeFailures.record(value) }
     private var serialCharacteristic: BluetoothGattCharacteristic? = null
     private var serialRxCharacteristic: BluetoothGattCharacteristic? = null
     private var serialServiceUuid: UUID? = null
@@ -1298,7 +1296,7 @@ class FlipperBleService : Service() {
                             delay(USB_WRITE_INTER_CHUNK_DELAY_MS)
                         }
                     }
-                    lastWriteFailureReason = null
+                    writeFailures.succeeded()
                     true
                 } catch (t: Throwable) {
                     lastWriteFailureReason = "USB write failed: ${t.message ?: t::class.java.simpleName}"
@@ -1437,7 +1435,7 @@ class FlipperBleService : Service() {
                         return@withContext false
                     }
                 }
-                lastWriteFailureReason = null
+                writeFailures.succeeded()
                 true
             }
         } ?: run {
@@ -1684,9 +1682,7 @@ class FlipperBleService : Service() {
     }
 
     fun consumeLastWriteFailureReason(): String? {
-        val reason = lastWriteFailureReason
-        lastWriteFailureReason = null
-        return reason
+        return writeFailures.consume()
     }
 
     private fun supportsNotifyOrIndicate(characteristic: BluetoothGattCharacteristic): Boolean {
@@ -1802,8 +1798,10 @@ class FlipperBleService : Service() {
     }
 
     /** Called only after the protocol matches an incoming response to its request. */
-    fun recordRpcResponseReceived() {
-        telemetryRecorder.rpcResponseReceived()
+    fun rpcTelemetrySessionId(): Long = telemetryRecorder.sessionId()
+
+    fun recordRpcResponseReceived(expectedSession: Long) {
+        telemetryRecorder.rpcResponseReceived(expectedSession)
     }
 
     private fun refreshTransportTelemetry() {
