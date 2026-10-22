@@ -54,7 +54,16 @@ import javax.inject.Inject
 class FlipperBleService : Service() {
 
     private val binder = LocalBinder()
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val transportLifecycle = ForegroundTransportLifecycle(
+        onStarted = { registerUsbReceivers() },
+        onStopped = {
+            unregisterUsbReceivers()
+            runCatching { stopScan() }
+            runCatching { disconnect() }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+    )
+    private val serviceScope get() = transportLifecycle.scope
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
@@ -137,6 +146,7 @@ class FlipperBleService : Service() {
 
     private val usbBroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (!transportLifecycle.active) return
             when (intent?.action) {
                 ACTION_USB_PERMISSION -> {
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
@@ -183,38 +193,36 @@ class FlipperBleService : Service() {
         initializeBluetooth()
         initializeUsb()
         loadPersistedConfirmedFlippers()
-        registerUsbReceivers()
         flipperProtocol.setBleService(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START_FOREGROUND -> startForegroundService()
-            ACTION_STOP -> {
-                stopSelf()
-                return START_NOT_STICKY
-            }
-            else -> {
-                // START_STICKY restarts with a null intent after the system kills the
-                // service. We must call startForeground() promptly or Android 12+ will
-                // throw ForegroundServiceDidNotStartInTimeException and crash the app.
-                startForegroundService()
-            }
+        // Recheck on sticky restart and after permission revocation, before promotion.
+        if (intent?.action != ACTION_STOP && !BlePermissionPolicy.hasPermissions(this)) {
+            transportLifecycle.stop()
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_STOP) {
+            transportLifecycle.stop()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (!startForegroundService()) return START_NOT_STICKY
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        unregisterUsbReceivers()
-        disconnect()
-        serviceScope.cancel()
+        transportLifecycle.stop()
     }
 
     private fun initializeBluetooth() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
-        bleScanner = bluetoothAdapter?.bluetoothLeScanner
+        bleScanner = if (BlePermissionPolicy.hasPermissions(this)) {
+            runCatching { bluetoothAdapter?.bluetoothLeScanner }.getOrNull()
+        } else null
     }
 
     private fun initializeUsb() {
@@ -243,9 +251,21 @@ class FlipperBleService : Service() {
         usbReceiverRegistered = false
     }
 
-    private fun startForegroundService() {
-        val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
+    private fun startForegroundService(): Boolean {
+        val promoted = transportLifecycle.promote {
+            val notification = createNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }
+        if (!promoted) {
+            _connectionState.value = ConnectionState.Error("Foreground service unavailable; reopen the app to retry")
+            stopSelf()
+        }
+        return promoted
     }
 
     private fun createNotification(): Notification {
@@ -276,6 +296,7 @@ class FlipperBleService : Service() {
     }
 
     private fun updateNotification() {
+        if (!transportLifecycle.active) return
         val notification = createNotification()
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         notificationManager.notify(NOTIFICATION_ID, notification)
@@ -285,6 +306,12 @@ class FlipperBleService : Service() {
 
     @SuppressLint("MissingPermission")
     fun startScan() {
+        transportLifecycle.whileActive { startScanActive() }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startScanActive() {
+        if (!transportLifecycle.active) return
         if (!hasBluetoothPermissions()) {
             _connectionState.value = ConnectionState.Error("Bluetooth permissions not granted")
             return
@@ -313,7 +340,16 @@ class FlipperBleService : Service() {
             .build()
 
         try {
-            bleScanner?.startScan(flipperFilters, scanSettings, scanCallback)
+            // Binding may have created the service before the user granted permissions.
+            bleScanner = bluetoothAdapter?.bluetoothLeScanner
+            val scanner = bleScanner ?: run {
+                _connectionState.value = ConnectionState.Error("Bluetooth scanner unavailable")
+                return
+            }
+            scanner.startScan(flipperFilters, scanSettings, scanCallback)
+        } catch (_: SecurityException) {
+            _connectionState.value = ConnectionState.Error("Bluetooth permission required")
+            return
         } catch (e: IllegalStateException) {
             _connectionState.value = ConnectionState.Error("Failed to start BLE scan: ${e.message}")
             return
@@ -339,6 +375,12 @@ class FlipperBleService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startBroadScan() {
+        transportLifecycle.whileActive { startBroadScanActive() }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startBroadScanActive() {
+        if (!transportLifecycle.active) return
         if (!hasBluetoothPermissions()) return
         if (broadScanStarted) return
 
@@ -500,6 +542,12 @@ class FlipperBleService : Service() {
 
     @SuppressLint("MissingPermission")
     fun connect(device: FlipperDevice) {
+        transportLifecycle.whileActive { connectActive(device) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun connectActive(device: FlipperDevice) {
+        if (!transportLifecycle.active) return
         if (!hasBluetoothPermissions()) {
             _connectionState.value = ConnectionState.Error("Bluetooth permissions not granted")
             return
@@ -531,6 +579,7 @@ class FlipperBleService : Service() {
     }
 
     fun connectUsbIfAvailable() {
+        if (!transportLifecycle.active) return
         serviceScope.launch {
             stopScan()
             disconnect()
@@ -539,6 +588,7 @@ class FlipperBleService : Service() {
     }
 
     fun connectDesktopBridgeIfAvailable(pairingCode: String, host: String = "10.0.2.2", port: Int = 8765) {
+        if (!transportLifecycle.active) return
         if (!BuildConfig.DEBUG || host !in setOf("10.0.2.2", "127.0.0.1", "::1") || port !in 1..65535) {
             _connectionState.value = ConnectionState.Error("Desktop Bridge requires a debug build and a loopback/emulator host")
             return
@@ -553,6 +603,8 @@ class FlipperBleService : Service() {
     }
 
     private suspend fun connectDesktopBridgeInternal(host: String, port: Int, pairingCode: String): Boolean {
+        currentCoroutineContext().ensureActive()
+        if (!transportLifecycle.active) return false
         if (!BuildConfig.DEBUG) {
             _connectionState.value = ConnectionState.Error("Desktop Bridge is only available in debug builds")
             updateNotification()
@@ -578,23 +630,25 @@ class FlipperBleService : Service() {
                 }
             }
 
-            val installed = desktopBridgeSession.install(generation, socket) {
-                desktopBridgeInput = DataInputStream(socket.getInputStream())
-                desktopBridgeOutput = DataOutputStream(socket.getOutputStream())
-                desktopBridgeHost = host
-                desktopBridgePort = port
-                activeTransport = CommandTransport.DESKTOP_BRIDGE
-                flipperProtocol.onConnectionReset()
-                startDesktopBridgeReadLoop(socket, desktopBridgeInput!!)
-                _connectedDevice.value = FlipperDevice(
-                    address = "desktop:$host:$port",
-                    name = "Desktop Bridge (USB)",
-                    rssi = 0,
-                    isConfirmedFlipper = true
-                )
-                _connectionState.value = ConnectionState.Connected("Desktop Bridge (USB)")
-                updateNotification()
-            }
+            val installed = transportLifecycle.whileActive {
+                desktopBridgeSession.install(generation, socket) {
+                    desktopBridgeInput = DataInputStream(socket.getInputStream())
+                    desktopBridgeOutput = DataOutputStream(socket.getOutputStream())
+                    desktopBridgeHost = host
+                    desktopBridgePort = port
+                    activeTransport = CommandTransport.DESKTOP_BRIDGE
+                    flipperProtocol.onConnectionReset()
+                    startDesktopBridgeReadLoop(socket, desktopBridgeInput!!)
+                    _connectedDevice.value = FlipperDevice(
+                        address = "desktop:$host:$port",
+                        name = "Desktop Bridge (USB)",
+                        rssi = 0,
+                        isConfirmedFlipper = true
+                    )
+                    _connectionState.value = ConnectionState.Connected("Desktop Bridge (USB)")
+                    updateNotification()
+                }
+            } ?: false
             if (!installed) return false
 
             serviceScope.launch {
@@ -617,6 +671,8 @@ class FlipperBleService : Service() {
     }
 
     private suspend fun connectUsbInternal(preferredDevice: UsbDevice? = null): Boolean {
+        if (!transportLifecycle.active) return false
+        currentCoroutineContext().ensureActive()
         val manager = usbManager ?: run {
             _connectionState.value = ConnectionState.Error("USB host manager unavailable")
             updateNotification()
@@ -651,6 +707,8 @@ class FlipperBleService : Service() {
             return false
         }
 
+        currentCoroutineContext().ensureActive()
+        if (!transportLifecycle.active) return false
         val connection = manager.openDevice(device)
         if (connection == null) {
             _connectionState.value = ConnectionState.Error("Failed to open USB device")
@@ -672,33 +730,39 @@ class FlipperBleService : Service() {
             runCatching { port.setDTR(true) }
             runCatching { port.setRTS(true) }
             primeUsbRpcSession(port)
+            currentCoroutineContext().ensureActive()
+            check(transportLifecycle.active) { "Foreground transport stopped" }
 
-            usbSerialDriver = driver
-            usbSerialPort = port
-            usbDeviceConnection = connection
-            connectedUsbDevice = device
-            activeTransport = CommandTransport.USB
-            flipperProtocol.onConnectionReset()
-            startUsbReadLoop()
+            transportLifecycle.whileActive {
+                usbSerialDriver = driver
+                usbSerialPort = port
+                usbDeviceConnection = connection
+                connectedUsbDevice = device
+                activeTransport = CommandTransport.USB
+                flipperProtocol.onConnectionReset()
+                startUsbReadLoop()
 
-            val deviceName = resolveUsbDeviceName(device)
-            _connectedDevice.value = FlipperDevice(
-                address = "usb:${device.deviceId}",
-                name = "$deviceName (USB)",
-                rssi = 0,
-                isConfirmedFlipper = true
-            )
-            _connectionState.value = ConnectionState.Connected("$deviceName (USB)")
-            updateNotification()
+                val deviceName = resolveUsbDeviceName(device)
+                _connectedDevice.value = FlipperDevice(
+                    address = "usb:${device.deviceId}",
+                    name = "$deviceName (USB)",
+                    rssi = 0,
+                    isConfirmedFlipper = true
+                )
+                _connectionState.value = ConnectionState.Connected("$deviceName (USB)")
+                updateNotification()
 
-            serviceScope.launch {
-                validateUsbBaudWithRpcProbe(port)
-                flipperProtocol.probeCliAvailability(force = true)
-            }
-            true
+                serviceScope.launch {
+                    validateUsbBaudWithRpcProbe(port)
+                    flipperProtocol.probeCliAvailability(force = true)
+                }
+                true
+            } ?: throw CancellationException("Foreground transport stopped")
         } catch (t: Throwable) {
             runCatching { port.close() }
             runCatching { connection.close() }
+            // A canceled old scope must not clear a newer foreground session's transport.
+            if (t is CancellationException) throw t
             usbSerialDriver = null
             usbSerialPort = null
             usbDeviceConnection = null
@@ -1673,7 +1737,7 @@ class FlipperBleService : Service() {
     }
 
     private fun isCurrentGatt(gatt: BluetoothGatt): Boolean {
-        return bluetoothGatt === gatt
+        return transportLifecycle.active && bluetoothGatt === gatt
     }
 
     @SuppressLint("MissingPermission")
@@ -1984,9 +2048,9 @@ class FlipperBleService : Service() {
         usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE
 
     fun isCommandTransportConnected(): Boolean {
-        return isUsbCommandTransportConnected() ||
+        return transportLifecycle.active && (isUsbCommandTransportConnected() ||
                 isDesktopBridgeCommandTransportConnected() ||
-                isBleCommandTransportConnected()
+                isBleCommandTransportConnected())
     }
 
     private fun isBleCommandTransportConnected(): Boolean {
@@ -2394,15 +2458,7 @@ class FlipperBleService : Service() {
         }
     }
 
-    private fun hasBluetoothPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
-                    ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-        } else {
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED &&
-                    ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED
-        }
-    }
+    private fun hasBluetoothPermissions(): Boolean = BlePermissionPolicy.hasPermissions(this)
 
     private fun resolveScanDeviceName(result: ScanResult): String {
         return result.scanRecord?.deviceName?.takeIf { it.isNotBlank() }
@@ -2706,21 +2762,26 @@ class FlipperBleService : Service() {
         private val KNOWN_FLIPPER_USB_PRODUCT_IDS = setOf(0x5740, 0x5741)
 
         fun startService(context: Context) {
+            if (!BlePermissionPolicy.hasPermissions(context)) return
             val intent = Intent(context, FlipperBleService::class.java).apply {
                 action = ACTION_START_FOREGROUND
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+                try {
+                    context.startForegroundService(intent)
+                } catch (_: SecurityException) {
+                    return
+                } catch (_: IllegalStateException) {
+                    // Background starts may be prohibited; retry when the UI is visible.
+                    return
+                }
             } else {
                 context.startService(intent)
             }
         }
 
         fun stopService(context: Context) {
-            val intent = Intent(context, FlipperBleService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, FlipperBleService::class.java))
         }
     }
 }

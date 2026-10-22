@@ -1,6 +1,5 @@
 package com.vesper.flipper
 
-import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -39,26 +38,12 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsStore: SettingsStore
 
-    private val requiredPermissions = buildList {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            add(Manifest.permission.BLUETOOTH_SCAN)
-            add(Manifest.permission.BLUETOOTH_CONNECT)
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        } else {
-            add(Manifest.permission.BLUETOOTH)
-            add(Manifest.permission.BLUETOOTH_ADMIN)
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-    }.toTypedArray()
+    private val essentialPermissions = com.vesper.flipper.ble.BlePermissionPolicy.required(Build.VERSION.SDK_INT)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
+    ) {
+        if (com.vesper.flipper.ble.BlePermissionPolicy.hasPermissions(this)) {
             startBleService()
         }
     }
@@ -77,13 +62,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        val missingPermissions = requiredPermissions.filter {
+        if (com.vesper.flipper.ble.BlePermissionPolicy.hasPermissions(this)) startBleService()
+        val missingPermissions = essentialPermissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (missingPermissions.isEmpty()) {
-            startBleService()
-        } else {
+        if (missingPermissions.isNotEmpty()) {
+            // Optional consent belongs to the feature that needs it, not each BLE launch.
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
