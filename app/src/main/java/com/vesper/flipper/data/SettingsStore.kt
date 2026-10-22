@@ -4,9 +4,18 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.vesper.flipper.ai.LlmProvider
+import com.vesper.flipper.ai.LlmSelection
+import com.vesper.flipper.security.EncryptedStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,30 +26,105 @@ class SettingsStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
-    // OpenRouter API Key
-    private val API_KEY = stringPreferencesKey("openrouter_api_key")
+    private val secureStorage by lazy { EncryptedStorage(context) }
 
-    val apiKey: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[API_KEY]
+    private val PROVIDER = stringPreferencesKey("llm_provider")
+
+    // Bumped whenever an API key is written so [apiKey] re-emits; encrypted
+    // storage is not observable on its own.
+    private val secureKeyRevision = MutableStateFlow(0)
+
+    // Serializes API-key writes against legacy migration so migration cannot
+    // clobber a freshly saved key or resurrect a deleted one.
+    private val apiKeyMutex = Mutex()
+
+    val selectedProvider: Flow<LlmProvider> = context.dataStore.data.map { preferences ->
+        LlmProvider.fromId(preferences[PROVIDER])
     }
 
-    suspend fun setApiKey(key: String) {
+    suspend fun setProvider(provider: LlmProvider) {
         context.dataStore.edit { preferences ->
-            preferences[API_KEY] = key
+            preferences[PROVIDER] = provider.id
         }
     }
 
-    // Selected Model
-    private val SELECTED_MODEL = stringPreferencesKey("selected_model")
+    /**
+     * API key for the active provider. Keys are held in encrypted storage
+     * (see [EncryptedStorage]); any plaintext key left by an older build is
+     * read transparently here and migrated on the next read or write.
+     */
+    val apiKey: Flow<String?> = combine(
+        context.dataStore.data,
+        secureKeyRevision
+    ) { preferences, _ ->
+        readApiKey(LlmProvider.fromId(preferences[PROVIDER]), preferences)
+    }
+
+    private fun readApiKey(provider: LlmProvider, preferences: Preferences): String? {
+        secureStorage.getString(provider.apiKeyPreference)?.takeIf { it.isNotBlank() }?.let { return it }
+        // Legacy fallback: keys written to plaintext DataStore before encryption.
+        return preferences[stringPreferencesKey(provider.apiKeyPreference)]?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setApiKey(key: String) = apiKeyMutex.withLock {
+        val provider = LlmProvider.fromId(context.dataStore.data.first()[PROVIDER])
+        val trimmed = key.trim()
+        if (trimmed.isEmpty()) {
+            secureStorage.remove(provider.apiKeyPreference)
+        } else {
+            check(secureStorage.putStringSync(provider.apiKeyPreference, trimmed)) { "Unable to save API key" }
+        }
+        // Drop any plaintext copy that an older build may have persisted.
+        context.dataStore.edit { it.remove(stringPreferencesKey(provider.apiKeyPreference)) }
+        secureKeyRevision.update { it + 1 }
+    }
+
+    /**
+     * Move any plaintext API keys left by older builds into encrypted storage,
+     * then purge them from the plaintext DataStore. Idempotent, and serialized
+     * with [setApiKey] so it never overwrites a key the user just saved.
+     */
+    private suspend fun migrateLegacyApiKeys() = apiKeyMutex.withLock {
+        val preferences = context.dataStore.data.first()
+        val plaintext = LlmProvider.entries.mapNotNull { provider ->
+            preferences[stringPreferencesKey(provider.apiKeyPreference)]
+                ?.takeIf { it.isNotBlank() }
+                ?.let { provider to it }
+        }
+        if (plaintext.isEmpty()) return@withLock
+        plaintext.forEach { (provider, key) ->
+            // Only seed encrypted storage when it has no key yet — never clobber
+            // a key written since migration started.
+            if (secureStorage.getString(provider.apiKeyPreference).isNullOrBlank()) {
+                check(secureStorage.putStringSync(provider.apiKeyPreference, key)) { "Unable to migrate API key" }
+            }
+        }
+        // Purge the insecure plaintext residue regardless.
+        context.dataStore.edit { prefs ->
+            LlmProvider.entries.forEach { prefs.remove(stringPreferencesKey(it.apiKeyPreference)) }
+        }
+        secureKeyRevision.update { it + 1 }
+    }
 
     val selectedModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[SELECTED_MODEL] ?: DEFAULT_MODEL
+        val provider = LlmProvider.fromId(preferences[PROVIDER])
+        preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel
     }
 
     suspend fun setSelectedModel(model: String) {
         context.dataStore.edit { preferences ->
-            preferences[SELECTED_MODEL] = model
+            val provider = LlmProvider.fromId(preferences[PROVIDER])
+            preferences[stringPreferencesKey(provider.modelPreference)] = model
         }
+    }
+
+    suspend fun readLlmSelection(): LlmSelection {
+        migrateLegacyApiKeys()
+        val preferences = context.dataStore.data.first()
+        val provider = LlmProvider.fromId(preferences[PROVIDER])
+        val apiKey = readApiKey(provider, preferences)
+        val model = preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel
+        return LlmSelection(provider, apiKey, model)
     }
 
     // Last Connected Device
@@ -150,6 +234,19 @@ class SettingsStore @Inject constructor(
     suspend fun setHapticFeedback(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[HAPTIC_FEEDBACK] = enabled
+        }
+    }
+
+    private val MOUNTED_ACCESSORIES = stringSetPreferencesKey("mounted_accessories")
+
+    val mountedAccessoryIds: Flow<Set<String>> = context.dataStore.data.map { preferences ->
+        preferences[MOUNTED_ACCESSORIES] ?: emptySet()
+    }
+
+    suspend fun setAccessoryMounted(id: String, mounted: Boolean) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[MOUNTED_ACCESSORIES] ?: emptySet()
+            preferences[MOUNTED_ACCESSORIES] = if (mounted) current + id else current - id
         }
     }
 
@@ -301,29 +398,13 @@ class SettingsStore @Inject constructor(
     }
 
     companion object {
-        // Default to the largest Hermes 4 model on OpenRouter.
-        const val DEFAULT_MODEL = "nousresearch/hermes-4-405b"
-        // Shimmer: soft, warm female — default TTS voice (OpenAI via OpenRouter)
+        val DEFAULT_MODEL: String = LlmProvider.OPENROUTER.defaultModel
         const val DEFAULT_TTS_VOICE = "shimmer"
         const val DEFAULT_AI_MAX_ITERATIONS = 10
         const val MIN_AI_MAX_ITERATIONS = 4
         const val MAX_AI_MAX_ITERATIONS = 20
 
-        // Used when fetching live catalog fails (offline/rate-limited).
-        val FALLBACK_MODELS = listOf(
-            ModelInfo("nousresearch/hermes-4-405b", "Hermes 4 405B", "Largest Hermes 4"),
-            ModelInfo("anthropic/claude-sonnet-4.5", "Claude Sonnet 4.5", "Latest Anthropic"),
-            ModelInfo("openai/gpt-oss-120b", "GPT-OSS 120B", "Latest OpenAI"),
-            ModelInfo("google/gemini-2.5-flash-image-preview", "Gemini 2.5 Flash Image Preview", "Latest Google"),
-            ModelInfo("meta-llama/llama-3.3-8b-instruct", "Llama 3.3 8B Instruct", "Latest Meta"),
-            ModelInfo("mistralai/devstral-small", "Devstral Small", "Latest Mistral"),
-            ModelInfo("x-ai/grok-4-fast", "Grok 4 Fast", "Latest xAI"),
-            ModelInfo("qwen/qwen3-coder", "Qwen3 Coder", "Latest Qwen"),
-            ModelInfo("deepseek/deepseek-r1-0528", "DeepSeek R1 0528", "Latest DeepSeek"),
-            ModelInfo("cohere/command-a", "Command A", "Latest Cohere"),
-            ModelInfo("moonshotai/kimi-k2", "Kimi K2", "Latest Moonshot"),
-            ModelInfo("z-ai/glm-4.5", "GLM 4.5", "Latest Z.ai")
-        )
+        val FALLBACK_MODELS: List<ModelInfo> = LlmProvider.OPENROUTER.models
 
         fun getModelDisplayName(
             modelId: String,

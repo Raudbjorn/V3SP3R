@@ -173,6 +173,9 @@ class EncryptedStorage(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
+    fun putStringSync(key: String, value: String): Boolean =
+        encryptedPrefs.edit().putString(key, value).commit() && encryptedPrefs.getString(key, null) == value
+
     fun putString(key: String, value: String) {
         encryptedPrefs.edit().putString(key, value).apply()
     }

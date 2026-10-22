@@ -2,6 +2,7 @@ package com.vesper.flipper.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vesper.flipper.ai.LlmProvider
 import com.vesper.flipper.data.ModelInfo
 import com.vesper.flipper.data.OpenRouterModelCatalog
 import com.vesper.flipper.data.SettingsStore
@@ -14,6 +15,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsState(
+    val provider: LlmProvider = LlmProvider.OPENROUTER,
     val apiKey: String = "",
     val selectedModel: String = SettingsStore.DEFAULT_MODEL,
     val aiMaxIterations: Int = SettingsStore.DEFAULT_AI_MAX_ITERATIONS,
@@ -54,6 +56,7 @@ class SettingsViewModel @Inject constructor(
 
     private val _isRefreshingModels = MutableStateFlow(false)
     val isRefreshingModels: StateFlow<Boolean> = _isRefreshingModels.asStateFlow()
+    private var modelRefreshGeneration = 0
 
     init {
         loadSettings()
@@ -136,8 +139,11 @@ class SettingsViewModel @Inject constructor(
                     glassesSailorMouth = glasses.glassesSailorMouth,
                     glassesMuted = glasses.glassesMuted
                 )
+            }.combine(settingsStore.selectedProvider) { settings, provider ->
+                settings.copy(provider = provider)
             }.collect { settings ->
                 _state.update { it.copy(
+                    provider = settings.provider,
                     apiKey = settings.apiKey,
                     selectedModel = settings.selectedModel,
                     aiMaxIterations = settings.aiMaxIterations,
@@ -159,6 +165,10 @@ class SettingsViewModel @Inject constructor(
                     glassesSailorMouth = settings.glassesSailorMouth,
                     glassesMuted = settings.glassesMuted
                 )}
+                val providerModelIds = settings.provider.models.map { it.id }.toSet()
+                if (_availableModels.value.none { it.id in providerModelIds }) {
+                    _availableModels.value = settings.provider.models
+                }
             }
         }
     }
@@ -168,6 +178,22 @@ class SettingsViewModel @Inject constructor(
             permissionService.activePermissions.collect { permissions ->
                 _state.update { it.copy(activePermissions = permissions) }
             }
+        }
+    }
+
+    fun setProvider(provider: LlmProvider) {
+        viewModelScope.launch {
+            settingsStore.setProvider(provider)
+            val selection = settingsStore.readLlmSelection()
+            _state.update {
+                it.copy(
+                    provider = selection.provider,
+                    apiKey = selection.apiKey.orEmpty(),
+                    selectedModel = selection.model
+                )
+            }
+            _availableModels.value = provider.models
+            refreshAvailableModels()
         }
     }
 
@@ -193,26 +219,29 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshAvailableModels() {
-        if (_isRefreshingModels.value) return
-
+        val generation = ++modelRefreshGeneration
         viewModelScope.launch {
             _isRefreshingModels.value = true
-            openRouterModelCatalog.fetchLatestByManufacturer()
+            val selection = settingsStore.readLlmSelection()
+            openRouterModelCatalog.fetchModels(selection.provider, selection.apiKey)
                 .onSuccess { models ->
-                    val merged = (
-                            models + SettingsStore.FALLBACK_MODELS.filter { it.id == SettingsStore.DEFAULT_MODEL }
-                            ).distinctBy { it.id }
-                    _availableModels.value = merged
+                    if (generation != modelRefreshGeneration) return@onSuccess
+                    val curatedDefault = selection.provider.models.filter { it.id == selection.provider.defaultModel }
+                    _availableModels.value = (models + curatedDefault).distinctBy { it.id }
                 }
                 .onFailure {
-                    _availableModels.value = SettingsStore.FALLBACK_MODELS
+                    if (generation != modelRefreshGeneration) return@onFailure
+                    _availableModels.value = selection.provider.models
                 }
-            _isRefreshingModels.value = false
+            if (generation == modelRefreshGeneration) {
+                _isRefreshingModels.value = false
+            }
         }
     }
 
     fun getModelDisplayName(modelId: String): String {
-        val displayList = (_availableModels.value + SettingsStore.FALLBACK_MODELS).distinctBy { it.id }
+        val providerModels = _state.value.provider.models
+        val displayList = (_availableModels.value + providerModels).distinctBy { it.id }
         return SettingsStore.getModelDisplayName(modelId, displayList)
     }
 

@@ -1,5 +1,6 @@
 package com.vesper.flipper.data
 
+import com.vesper.flipper.ai.LlmProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -30,6 +31,50 @@ class OpenRouterModelCatalog @Inject constructor() {
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
+
+    suspend fun fetchModels(provider: LlmProvider, apiKey: String?): Result<List<ModelInfo>> {
+        if (provider == LlmProvider.ANTHROPIC) return Result.success(provider.models)
+        if (provider == LlmProvider.OPENROUTER) {
+            return fetchLatestByManufacturer()
+        }
+        if (apiKey.isNullOrBlank()) {
+            return Result.success(provider.models)
+        }
+        return fetchDirectCatalog(provider, apiKey)
+    }
+
+    private suspend fun fetchDirectCatalog(
+        provider: LlmProvider,
+        apiKey: String
+    ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(provider.modelsUrl)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Accept", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        IOException("${provider.displayName} models API error: ${response.code}")
+                    )
+                }
+                val body = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("Empty model catalog response"))
+                val root = json.parseToJsonElement(body).jsonObject
+                val rows = root["data"]?.jsonArray ?: root["models"]?.jsonArray
+                    ?: return@withContext Result.success(provider.models)
+                val liveIds = rows.mapNotNull { element ->
+                    val modelObj = element.jsonObject
+                    modelObj.string("id") ?: modelObj.string("name")
+                }
+                Result.success(LlmProvider.mergeCatalog(provider, liveIds))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     suspend fun fetchLatestByManufacturer(): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         try {

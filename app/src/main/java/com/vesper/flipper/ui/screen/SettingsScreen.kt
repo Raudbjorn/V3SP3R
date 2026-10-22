@@ -17,11 +17,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vesper.flipper.ai.LlmProvider
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.Permission
 import com.vesper.flipper.ui.theme.*
 import com.vesper.flipper.ui.viewmodel.SettingsViewModel
-import com.vesper.flipper.voice.OpenRouterTtsService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,11 +55,56 @@ fun SettingsScreen(
             // API Configuration Section
             item {
                 SettingsSection(title = "API Configuration") {
-                    // API Key
+                    var providerExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = providerExpanded,
+                        onExpandedChange = { providerExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = state.provider.displayName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("LLM provider") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = providerExpanded)
+                            },
+                            supportingText = { Text(state.provider.summary) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = providerExpanded,
+                            onDismissRequest = { providerExpanded = false }
+                        ) {
+                            LlmProvider.entries.forEach { provider ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(provider.displayName, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                provider.summary,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setProvider(provider)
+                                        providerExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     OutlinedTextField(
                         value = state.apiKey,
                         onValueChange = { viewModel.setApiKey(it) },
-                        label = { Text("OpenRouter API Key") },
+                        label = { Text(state.provider.keyLabel) },
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = if (showApiKey) {
                             VisualTransformation.None
@@ -79,7 +124,7 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
                     Text(
-                        text = "Paste your OpenRouter key here (starts with \"sk-or-\").",
+                        text = state.provider.keyHint,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -116,7 +161,7 @@ fun SettingsScreen(
                         }
                     }
                     Text(
-                        text = "Tool calls auto-fallback across multiple models; if it still fails, pick a different model and retry.",
+                        text = "If this model cannot call tools, Vesper tries the other models from this provider.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -130,7 +175,7 @@ fun SettingsScreen(
                             value = viewModel.getModelDisplayName(state.selectedModel),
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Model (OpenRouter)") },
+                            label = { Text("Model") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(),
@@ -318,35 +363,14 @@ fun SettingsScreen(
 
                     SettingsSwitch(
                         title = "High risk",
-                        subtitle = "Deletes, moves, overwrites, mass ops",
+                        subtitle = if (state.autoApproveHigh) {
+                            "On. Deletes and overwrites run without asking."
+                        } else {
+                            "Deletes, moves, overwrites, mass ops."
+                        },
                         checked = state.autoApproveHigh,
                         onCheckedChange = { viewModel.setAutoApproveHigh(it) }
                     )
-                    if (state.autoApproveHigh) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = RiskHigh.copy(alpha = 0.15f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = RiskHigh,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    "Destructive actions will execute without confirmation.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = RiskHigh
-                                )
-                            }
-                        }
-                    }
                 }
             }
 
@@ -399,25 +423,24 @@ fun SettingsScreen(
 
             // Voice / TTS Section
             item {
-                SettingsSection(title = "Voice (OpenRouter TTS)") {
+                SettingsSection(title = "Voice") {
                     SettingsSwitch(
                         title = "Enable Voice Output",
-                        subtitle = "Speak agent responses via OpenRouter audio",
+                        subtitle = "Speak agent responses aloud",
                         checked = state.ttsEnabled,
                         onCheckedChange = { viewModel.setTtsEnabled(it) }
                     )
                     Text(
-                        text = "Uses your OpenRouter API key — no extra key needed.",
+                        text = state.provider.speechSummary,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Voice Selection
                     var voiceExpanded by remember { mutableStateOf(false) }
-                    val currentVoice = OpenRouterTtsService.AVAILABLE_VOICES
-                        .find { it.id == state.ttsVoiceId }
+                    val voices = state.provider.voices
+                    val currentVoice = state.provider.voiceOrDefault(state.ttsVoiceId)
 
                     ExposedDropdownMenuBox(
                         expanded = voiceExpanded,
@@ -440,7 +463,7 @@ fun SettingsScreen(
                             expanded = voiceExpanded,
                             onDismissRequest = { voiceExpanded = false }
                         ) {
-                            OpenRouterTtsService.AVAILABLE_VOICES.forEach { voice ->
+                            voices.forEach { voice ->
                                 DropdownMenuItem(
                                     text = {
                                         Column {
@@ -482,18 +505,18 @@ fun SettingsScreen(
                         onCheckedChange = { viewModel.setGlassesEnabled(it) }
                     )
 
-                    if (state.glassesEnabled) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                        OutlinedTextField(
-                            value = state.glassesBridgeUrl,
-                            onValueChange = { viewModel.setGlassesBridgeUrl(it) },
-                            label = { Text("Bridge Server URL") },
-                            placeholder = { Text("ws://your-server:8089") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                    OutlinedTextField(
+                        value = state.glassesBridgeUrl,
+                        onValueChange = { viewModel.setGlassesBridgeUrl(it) },
+                        enabled = state.glassesEnabled,
+                        label = { Text("Bridge Server URL") },
+                        placeholder = { Text("ws://your-server:8089") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
                         Text(
                             text = "Your mentra-bridge server URL. Use ngrok for local dev.",
                             style = MaterialTheme.typography.bodySmall,
@@ -506,6 +529,7 @@ fun SettingsScreen(
                             title = "Auto-Send Voice",
                             subtitle = "Send glasses transcriptions to AI automatically",
                             checked = state.glassesAutoSend,
+                            enabled = state.glassesEnabled,
                             onCheckedChange = { viewModel.setGlassesAutoSend(it) }
                         )
 
@@ -515,6 +539,7 @@ fun SettingsScreen(
                             title = "Auto-Connect",
                             subtitle = "Reconnect to bridge on app startup",
                             checked = state.glassesAutoConnect,
+                            enabled = state.glassesEnabled,
                             onCheckedChange = { viewModel.setGlassesAutoConnect(it) }
                         )
 
@@ -524,6 +549,7 @@ fun SettingsScreen(
                             title = "Sailor Mouth Mode",
                             subtitle = "Vesper swears like a hacker. Not for the faint of heart.",
                             checked = state.glassesSailorMouth,
+                            enabled = state.glassesEnabled,
                             onCheckedChange = { viewModel.setGlassesSailorMouth(it) }
                         )
 
@@ -533,9 +559,9 @@ fun SettingsScreen(
                             title = "Mute Glasses Mic",
                             subtitle = "Pause listening — glasses won't hear audio until unmuted.",
                             checked = state.glassesMuted,
+                            enabled = state.glassesEnabled,
                             onCheckedChange = { viewModel.setGlassesMuted(it) }
                         )
-                    }
                 }
             }
 
@@ -625,6 +651,7 @@ private fun SettingsSwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -645,6 +672,7 @@ private fun SettingsSwitch(
         }
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = VesperOrange,
