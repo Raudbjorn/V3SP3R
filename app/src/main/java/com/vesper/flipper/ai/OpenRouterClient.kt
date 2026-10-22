@@ -443,7 +443,7 @@ class OpenRouterClient {
         return postChat(provider, apiKey, request.copy(stream = stream, thinkingBudget = thinkingBudget, effort = effort))
     }
 
-    private fun limitedRequest(
+    internal fun limitedRequest(
         provider: LlmProvider,
         model: String,
         messages: List<OpenRouterMessage>,
@@ -458,7 +458,9 @@ class OpenRouterClient {
             tools = tools,
             toolChoice = toolChoice,
             maxTokens = limits.maxTokens,
-            maxCompletionTokens = limits.maxCompletionTokens
+            maxCompletionTokens = limits.maxCompletionTokens,
+            // MiniMax otherwise inlines <think> reasoning into content, which streams to the UI.
+            reasoningSplit = if (provider == LlmProvider.MINIMAX) true else null
         )
     }
 
@@ -1841,6 +1843,8 @@ data class OpenRouterRequest(
     val maxTokens: Int? = null,
     @SerialName("max_completion_tokens")
     val maxCompletionTokens: Int? = null,
+    @SerialName("reasoning_split")
+    val reasoningSplit: Boolean? = null,
     val stream: Boolean = false,
     @kotlinx.serialization.Transient val thinkingBudget: Int = 0,
     @kotlinx.serialization.Transient val effort: String? = null
