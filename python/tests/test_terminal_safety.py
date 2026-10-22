@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -96,6 +98,13 @@ class TerminalSafetyTest(unittest.TestCase):
             self.fail('local command attempted a network request')
         client = OpenRouterClient(api_key='test-placeholder', requester=fail)
         self.assertEqual(client.chat('ls /ext').command.action, CommandAction.LIST_DIRECTORY)
+
+    def test_interactive_errors_retry_and_quit_during_approval(self):
+        result = subprocess.run([sys.executable, "main.py", "--data-dir", str(self.root)],
+            input='{invalid}\nretry\ncli version\nquit\n', text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("Invalid command:"), 2)
+        self.assertIn("Type YES to approve", result.stdout)
 
     def test_read_missing_directory_has_no_write_side_effect(self):
         self.agent.send_message('cat /ext/does/not/exist')

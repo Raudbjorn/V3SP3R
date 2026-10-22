@@ -88,6 +88,9 @@ def run_cli() -> None:
         if raw == "":
             continue
 
+        if raw == "quit":
+            break
+
         if pending_approval:
             if raw.lower() == "yes":
                 result = agent.executor.approve(pending_approval, agent.session_id)
@@ -102,14 +105,16 @@ def run_cli() -> None:
             print(APPROVAL_PROMPT)
             continue
 
-        if raw == "quit":
-            break
         if raw == "new":
             sid = agent.new_session()
             print(f"Started new session: {sid}")
             continue
         if raw == "retry":
-            text, pending = agent.retry_last()
+            try:
+                text, pending = agent.retry_last()
+            except (ValueError, TypeError, KeyError) as error:
+                print(f"Invalid command: {error}")
+                continue
             print(text)
             if pending:
                 pending_approval = pending
