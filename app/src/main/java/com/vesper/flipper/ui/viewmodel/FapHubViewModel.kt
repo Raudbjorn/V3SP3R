@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.vesper.flipper.ble.FlipperFileSystem
 import com.vesper.flipper.data.FlipperAppCatalog
 import com.vesper.flipper.data.installCatalogApp
+import com.vesper.flipper.data.readInstalledAppInventory
 import com.vesper.flipper.domain.model.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -15,6 +16,8 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,10 +25,10 @@ import javax.inject.Inject
 
 @HiltViewModel
 class FapHubViewModel @Inject constructor(
-    private val flipperFileSystem: FlipperFileSystem
+    private val flipperFileSystem: FlipperFileSystem,
+    private val catalog: FlipperAppCatalog
 ) : ViewModel() {
 
-    private val catalog = FlipperAppCatalog()
     private val catalogApps = MutableStateFlow<List<FapApp>>(emptyList())
 
     private val httpClient = OkHttpClient.Builder()
@@ -57,6 +60,12 @@ class FapHubViewModel @Inject constructor(
 
     private val _sortBy = MutableStateFlow(SortOption.DOWNLOADS)
     val sortBy: StateFlow<SortOption> = _sortBy.asStateFlow()
+
+    // Scans publish one complete snapshot; deletion progress cannot be overwritten mid-operation.
+    private val inventoryMutex = Mutex()
+    private var installedPaths: Map<String, List<String>> = emptyMap()
+    private val _inventoryLoaded = MutableStateFlow(false)
+    val inventoryLoaded: StateFlow<Boolean> = _inventoryLoaded.asStateFlow()
 
     private val _installedApps = MutableStateFlow<Set<String>>(emptySet())
     val installedApps: StateFlow<Set<String>> = _installedApps.asStateFlow()
@@ -160,24 +169,20 @@ class FapHubViewModel @Inject constructor(
 
     private fun loadInstalledApps() {
         viewModelScope.launch {
-            _isLoading.value = true
-            try {
-                val rootResult = flipperFileSystem.listDirectory("/ext/apps")
-                if (rootResult.isSuccess) {
-                    val rootEntries = rootResult.getOrNull() ?: emptyList()
-                    val fapEntries = rootEntries.filter { !it.isDirectory && it.name.endsWith(".fap") }
-                    val dirEntries = rootEntries.filter { it.isDirectory }
-                    val nestedFaps = mutableListOf<String>()
-                    for (dir in dirEntries) {
-                        val nestedResult = flipperFileSystem.listDirectory(dir.path)
-                        if (nestedResult.isSuccess) {
-                            nestedFaps.addAll(nestedResult.getOrNull().orEmpty().filter { !it.isDirectory && it.name.endsWith(".fap") }.map { it.name })
-                        }
-                    }
-                    _installedApps.value = (fapEntries.map { it.name } + nestedFaps).map { it.removeSuffix(".fap") }.toSet()
-                }
-            } catch (_: Exception) { }
-            finally { _isLoading.value = false }
+            inventoryMutex.withLock {
+                _isLoading.value = true
+                _inventoryLoaded.value = false
+                try {
+                    val inventory = readInstalledAppInventory { flipperFileSystem.listDirectory(it).getOrThrow() }
+                    installedPaths = inventory
+                    _installedApps.value = inventory.keys
+                    _inventoryLoaded.value = true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _error.value = "Installed apps could not be read. Connect and unlock the Flipper, then refresh."
+                } finally { _isLoading.value = false }
+            }
         }
     }
 
@@ -204,19 +209,25 @@ class FapHubViewModel @Inject constructor(
 
     fun uninstallApp(app: FapApp) {
         viewModelScope.launch {
-            try {
-                val root = flipperFileSystem.listDirectory("/ext/apps").getOrThrow()
-                val category = app.category.name.lowercase()
-                val directories = listOf("/ext/apps") + if (root.any { it.isDirectory && it.name == category }) listOf("/ext/apps/$category") else emptyList()
-                for (directory in directories) {
-                    val entries = if (directory == "/ext/apps") root else flipperFileSystem.listDirectory(directory).getOrThrow()
-                    for (entry in entries.filter { !it.isDirectory && it.name == "${app.id}.fap" }) {
-                        flipperFileSystem.deleteFile("$directory/${app.id}.fap").getOrThrow()
+            inventoryMutex.withLock {
+                try {
+                    check(_inventoryLoaded.value) { "Refresh installed apps before uninstalling" }
+                    val paths = installedPaths[app.id] ?: error("App is absent from the installed inventory")
+                    for (path in paths) {
+                        flipperFileSystem.deleteFile(path).getOrThrow()
+                        // Preserve progress so retry never starts with a successfully removed copy.
+                        val remaining = installedPaths[app.id].orEmpty() - path
+                        installedPaths = if (remaining.isEmpty()) installedPaths - app.id else installedPaths + (app.id to remaining)
+                        _installedApps.value = installedPaths.keys
                     }
+                    installedPaths = installedPaths - app.id
+                    _installedApps.value = _installedApps.value - app.id
+                    _error.value = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Exception) {
+                    _error.value = "Failed to uninstall ${app.name}: ${e.message}"
                 }
-                _installedApps.value = _installedApps.value - app.id
-            } catch (e: Exception) {
-                _error.value = "Failed to uninstall ${app.name}: ${e.message}"
             }
         }
     }
