@@ -11,9 +11,13 @@ import kotlinx.serialization.encodeToString
 import java.util.UUID
 
 /** Separate schema: no changes or destructive fallback to existing audit/chat databases. */
-class CampaignStore(context: Context) : java.io.Closeable {
-    private val helper = EncryptedDatabaseFactory.create(context, "vesper_campaigns").create(
-        SupportSQLiteOpenHelper.Configuration.builder(context).name("vesper_campaigns")
+class CampaignStore internal constructor(
+    context: Context,
+    databaseName: String = "vesper_campaigns",
+    preferencesName: String = "ralph_experimental"
+) : java.io.Closeable {
+    private val helper = EncryptedDatabaseFactory.create(context, databaseName).create(
+        SupportSQLiteOpenHelper.Configuration.builder(context).name(databaseName)
             .callback(object : SupportSQLiteOpenHelper.Callback(2) {
                 override fun onCreate(db: SupportSQLiteDatabase) = createSchema(db)
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = migrate(db, oldVersion, newVersion)
@@ -21,7 +25,7 @@ class CampaignStore(context: Context) : java.io.Closeable {
     private val writableDatabase get() = helper.writableDatabase
     private val readableDatabase get() = helper.readableDatabase
     override fun close() = helper.close()
-    private val preferences = context.getSharedPreferences("ralph_experimental", Context.MODE_PRIVATE)
+    private val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     var enabled: Boolean
         get() = preferences.getBoolean("enabled", false)
         set(value) { check(preferences.edit().putBoolean("enabled", value).commit()) }

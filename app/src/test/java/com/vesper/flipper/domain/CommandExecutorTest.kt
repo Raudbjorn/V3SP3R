@@ -43,6 +43,7 @@ class CommandExecutorTest {
     private lateinit var auditService: AuditService
     private lateinit var diffService: DiffService
     private lateinit var commandExecutor: CommandExecutor
+    private lateinit var settingsStore: SettingsStore
 
     @Before
     fun setup() {
@@ -51,7 +52,7 @@ class CommandExecutorTest {
         permissionService = mock()
         auditService = mock()
         diffService = mock()
-        val settingsStore: SettingsStore = mock()
+        settingsStore = mock()
         whenever(settingsStore.autoApproveMedium).thenReturn(flowOf(false))
         whenever(settingsStore.autoApproveHigh).thenReturn(flowOf(false))
         val appCatalog: FlipperAppCatalog = mock()
