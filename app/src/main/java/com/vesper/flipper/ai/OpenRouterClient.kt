@@ -386,7 +386,6 @@ class OpenRouterClient @Inject constructor(
         if (!rateLimiter.tryAcquire()) return@withContext null
 
         val selection = settingsStore.readLlmSelection()
-        if (selection.provider == LlmProvider.ANTHROPIC) return@withContext null
         val apiKey = selection.apiKey ?: return@withContext null
         if (!InputValidator.isValidApiKey(apiKey)) return@withContext null
 
@@ -1284,7 +1283,6 @@ class OpenRouterClient @Inject constructor(
         }
 
         val selection = settingsStore.readLlmSelection()
-        if (selection.provider == LlmProvider.ANTHROPIC) return@withContext Result.failure(IllegalStateException("Native Anthropic support requires the Anthropic provider feature."))
         val apiKey = selection.apiKey
             ?: return@withContext Result.failure(Exception("${selection.provider.displayName} API key not configured"))
         if (!InputValidator.isValidApiKey(apiKey)) {
