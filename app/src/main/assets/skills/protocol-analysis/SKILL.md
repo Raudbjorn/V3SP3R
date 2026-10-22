@@ -25,7 +25,7 @@ CRCs are almost always at the end of the packet. Try 1-byte (CRC-8), 2-byte (CRC
 
 1. Split each captured packet into `data | crc` at the tail offset.
 2. Assume a CRC family and try common parameters. If a candidate polynomial + init + xor combination produces every captured `crc` from its corresponding `data`, that's the algorithm.
-3. Verify: forge a new packet with a modified byte, compute the CRC, transmit, observe whether the target accepts it.
+3. Verify against additional captured packets offline. Active transmission of a modified packet requires explicit authorized target scope, RiskAssessor evaluation, and current-session approval for that exact action. Without all three, remain passive; do not transmit.
 
 ### Common polynomials to try first
 

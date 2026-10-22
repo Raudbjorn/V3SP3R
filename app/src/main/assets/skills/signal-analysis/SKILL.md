@@ -27,9 +27,9 @@ subghz_receive(frequency=433920000)
 2. **Trigger the target** — press the remote, trigger the sensor, open the door
 3. **Capture the signal** — Flipper records the raw signal via `subghz rx`
 4. **Capture again (same button)** — immediately trigger the target a second time and save a second capture
-5. **Static-vs-rolling determination** — byte-compare captures 1 and 2 *before* investing in protocol ID (see [Rolling Code vs Static Code Detection](#rolling-code-vs-static-code-detection)):
-   - Identical → static code, replay is viable, proceed to protocol ID and attack
-   - Different → rolling/encrypted code, replay will fail; classify the family but do not attempt transmit
+5. **Static-vs-changing hypothesis** — decode and normalize payload bits from repeated captures (exclude timing jitter, gaps, noise, and repeat counts) (see [Rolling Code vs Static Code Detection](#rolling-code-vs-static-code-detection)):
+   - Identical normalized payloads → consistent with static code; confirm the protocol. This does not authorize replay
+   - Different normalized payloads → changing payload; investigate counters, toggles, decoding errors, and encryption. This alone does not prove rolling code; do not transmit to classify
 6. **Analyze the capture** — identify protocol, extract data bits with `subghz_decode_raw`
 
 ### Modulation Types
@@ -117,7 +117,7 @@ Values below are the exact constants used by the Flipper Zero SubGHz decoders (`
 - **SECURITY+ 2.0** (current) — encrypted rolling code, longer transmission with mode/frequency hopping between 310/315/390 MHz
 - Rolling code: CANNOT be replayed
 - Frequency: 300–390 MHz range; 315 MHz and 390 MHz are the most common in US
-- Detection: if bit count ≥ 40 and captures 1/2 differ → rolling; classify only, do not replay
+- Detection: if bit count ≥ 40 and normalized payloads differ → investigate changing fields; confirm against protocol evidence and do not replay
 
 **GE / Jasco (fixed code, PT2262-family)**
 - Encoding: same PT2262 timing family (short=1u, long=3u), see Princeton match rule
@@ -151,7 +151,7 @@ Run in this order — cheaper tests first, and the static/rolling gate from the 
    - ≈25,000 μs → NICE FLO
 6. **Confirm with Flipper's protocol decoder.** `subghz_decode_raw` will name the protocol if the pulse train fits. Disagreement between step 3–5 heuristics and the decoder → trust the decoder; the heuristics assume clean captures.
 
-Do NOT attempt transmit as a classification step. The static/rolling gate in the Capture Workflow already tells you whether replay is meaningful; guessing-by-transmitting is a MEDIUM-risk active action and is not a diagnostic.
+Do NOT attempt transmit as a classification step. Passive payload comparison only informs a hypothesis about replayability; guessing-by-transmitting is a MEDIUM-risk active action and is not a diagnostic.
 
 ## Rolling Code vs Static Code Detection
 
@@ -173,9 +173,9 @@ Do NOT attempt transmit as a classification step. The static/rolling gate in the
 **Detection method:**
 1. Capture signal press 1
 2. Capture signal press 2 (same button)
-3. Compare the two captures
-4. If identical → static code (replayable)
-5. If different → rolling code (not replayable with simple replay)
+3. Decode and align normalized payload bits, excluding timing/repeat artifacts
+4. Identical payloads are consistent with static code, not proof of replayability
+5. Differences may be counters, toggles, noise, or encrypted/rolling fields; use protocol evidence to classify
 
 **Rolling code attacks (advanced, often impractical):**
 - **RollJam** — jam + capture two codes, replay the first (the second is still valid)
@@ -264,7 +264,7 @@ When the Flipper doesn't auto-detect the protocol. All thresholds below are nume
    - `repeat_count` = number of packet copies before the capture ends (typically 3–8 for fixed codes)
 6. **Test for Manchester.** If step 4 shows only two duration classes (1t and 2t) AND every 2t pulse can be split into two 1t half-bits with a mandatory mid-bit transition → Manchester. Bit 0 = low→high, Bit 1 = high→low (IEEE 802.3 convention; some protocols invert).
 7. **Look for structure across multiple captures:**
-   - Same button, 2 captures → any bit differing → rolling portion. All bits identical → fully static.
+   - Same button, multiple normalized payloads → identify changing versus stable fields; neither observation alone proves rolling code or replayability.
    - Different buttons, same remote → bits that flip identify the command field.
    - Same button, different remotes → bits that flip identify the address/serial field.
 8. **Locate the checksum.** For fixed-code protocols, the last 4–16 bits are often a checksum. Common patterns:
