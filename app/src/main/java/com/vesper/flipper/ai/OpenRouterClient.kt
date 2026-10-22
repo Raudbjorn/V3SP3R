@@ -1539,7 +1539,7 @@ class OpenRouterClient @Inject constructor(
             type = "function",
             function = OpenRouterToolFunction(
                 name = "execute_command",
-                description = "Execute a Flipper Zero action. The 'action' enum lists all supported operations. Use 'args' for action-specific parameters.",
+                description = "Execute a Flipper Zero action. The 'action' enum lists available handlers. Use 'args' for action-specific parameters. Typed hardware handlers gpio_read/gpio_set/gpio_mode/apps_list/get_system_info/nfc_detect/rfid_read/rfid_write/ir_receive require the explicitly selected USB CLI connection mode with a successful read-only handshake. RPC mode is the default; ask the user to disconnect, select USB CLI on Device, and reconnect if needed. Never switch a live session or retry a refused command automatically. Findings, audit queries and authoring validation do not require that session.",
                 parameters = JsonObject(mapOf(
                     "type" to JsonPrimitive("object"),
                     "properties" to JsonObject(mapOf(

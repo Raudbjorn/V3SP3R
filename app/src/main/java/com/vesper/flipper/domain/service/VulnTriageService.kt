@@ -115,9 +115,7 @@ class VulnTriageService @Inject constructor(
             else -> Status.INCONCLUSIVE.wire
         }
         val notes = req.notes ?: ""
-        val notesJson = if (notes == null) {
-            existing.validationNotesJson
-        } else {
+        val notesJson = run {
             val prior: List<ValidationNote> = try {
                 json.decodeFromString(
                     kotlinx.serialization.builtins.ListSerializer(ValidationNote.serializer()),

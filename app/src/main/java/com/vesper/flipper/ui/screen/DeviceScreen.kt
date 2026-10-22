@@ -176,7 +176,8 @@ fun DeviceScreen(
                         isScanning = connectionState is ConnectionState.Scanning,
                         onStartScan = { viewModel.startScan() },
                         onStopScan = { viewModel.stopScan() },
-                        onConnectUsb = { viewModel.connectUsb() }
+                        onConnectUsb = { mode -> viewModel.connectUsb(mode) },
+                        isConnecting = connectionState is ConnectionState.Connecting
                     )
                 }
 
@@ -200,8 +201,7 @@ fun DeviceScreen(
                     items(discoveredDevices) { device ->
                         DeviceListItem(
                             device = device,
-                            isConnecting = connectionState is ConnectionState.Connecting &&
-                                    (connectionState as ConnectionState.Connecting).deviceName == device.name,
+                            isConnecting = connectionState is ConnectionState.Connecting,
                             onClick = { viewModel.connectToDevice(device) }
                         )
                     }
@@ -955,14 +955,17 @@ private fun ScanSection(
     isScanning: Boolean,
     onStartScan: () -> Unit,
     onStopScan: () -> Unit,
-    onConnectUsb: () -> Unit
+    onConnectUsb: (com.vesper.flipper.ble.UsbSessionMode) -> Unit,
+    isConnecting: Boolean
 ) {
+    var cliMode by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Button(
             onClick = if (isScanning) onStopScan else onStartScan,
+            enabled = !isConnecting,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isScanning) RiskHigh else VesperOrange
@@ -983,13 +986,20 @@ private fun ScanSection(
             }
         }
 
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = cliMode, enabled = !isConnecting, onCheckedChange = { cliMode = it })
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("USB CLI mode for typed commands")
+        }
+        Text(if (cliMode) "Fresh connection only. Screen, files and other RPC tools require reconnecting in RPC mode." else "USB RPC mode (default): screen and file tools.")
         OutlinedButton(
-            onClick = onConnectUsb,
+            onClick = { onConnectUsb(if (cliMode) com.vesper.flipper.ble.UsbSessionMode.CLI else com.vesper.flipper.ble.UsbSessionMode.RPC) },
+            enabled = !isConnecting,
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.Usb, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Connect via USB")
+            Text(if (cliMode) "Connect via USB CLI" else "Connect via USB RPC")
         }
     }
 }
