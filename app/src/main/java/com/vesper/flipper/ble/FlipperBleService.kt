@@ -1445,20 +1445,11 @@ class FlipperBleService : Service() {
         timeoutReason: String,
         block: suspend () -> T
     ): T? {
-        val lockAcquired = withTimeoutOrNull(lockTimeoutMs) {
-            writeMutex.lock()
-            true
-        } ?: false
-        if (!lockAcquired) {
-            lastWriteFailureReason = timeoutReason
-            return null
-        }
-
-        return try {
-            block()
-        } finally {
-            writeMutex.unlock()
-        }
+        return writeMutex.withAcquisitionTimeout(
+            timeoutMs = lockTimeoutMs,
+            onTimeout = { lastWriteFailureReason = timeoutReason; null },
+            block = block
+        )
     }
 
     private fun failPendingWriteAck() {
@@ -1795,6 +1786,11 @@ class FlipperBleService : Service() {
     suspend fun probeCliCapability(force: Boolean = false): CliCapabilityStatus {
         return flipperProtocol.probeCliAvailability(force)
     }
+
+    fun usesBleCommandTransport(): Boolean = activeTransport == CommandTransport.BLE
+
+    /** Transports whose byte stream accepts protobuf RPC rather than text CLI. */
+    fun usesRpcOnlyCommandTransport(): Boolean = usesBleCommandTransport()
 
     fun isCommandTransportConnected(): Boolean {
         return isUsbCommandTransportConnected() || isBleCommandTransportConnected()
