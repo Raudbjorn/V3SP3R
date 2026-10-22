@@ -10,13 +10,17 @@ import okhttp3.Request
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
 /** Uses the same firmware-specific build endpoint as Flipper Lab. */
 class FlipperAppCatalog(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .callTimeout(60, TimeUnit.SECONDS).build(),
-    private val baseUrl: String = "https://catalog.flipperzero.one/api/v0"
+    private val client: OkHttpClient,
+    private val baseUrl: String
 ) {
+    @Inject constructor() : this(
+        OkHttpClient.Builder().callTimeout(60, TimeUnit.SECONDS).build(),
+        "https://catalog.flipperzero.one/api/v0"
+    )
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun apps(): List<FapApp> = withContext(Dispatchers.IO) {

@@ -38,7 +38,8 @@ class CommandExecutor @Inject constructor(
     private val auditService: AuditService,
     private val diffService: DiffService,
     private val forgeEngine: ForgeEngine,
-    private val settingsStore: SettingsStore
+    private val settingsStore: SettingsStore,
+    private val appCatalog: FlipperAppCatalog = FlipperAppCatalog()
 ) {
 
     private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
@@ -665,7 +666,7 @@ class CommandExecutor @Inject constructor(
     }
 
     private suspend fun executeFapHubSearch(query: String): CommandResultData {
-        val matches = FlipperAppCatalog().apps().filter { it.name.contains(query, true) || it.description.contains(query, true) || it.id.contains(query, true) }
+        val matches = appCatalog.apps().filter { it.name.contains(query, true) || it.description.contains(query, true) || it.id.contains(query, true) }
         if (matches.isEmpty()) {
             return CommandResultData(
                 content = "No FapHub apps found for \"$query\".",
@@ -699,8 +700,8 @@ class CommandExecutor @Inject constructor(
         require(directDownloadUrl.isNullOrBlank() || directDownloadUrl.startsWith("https://lab.flipper.net/apps/")) {
             "Catalog installations require a verified catalog build. Use download_resource for other files."
         }
-        val catalog = FlipperAppCatalog()
-        val app = catalog.apps().firstOrNull { it.id == appIdOrName || it.name.equals(appIdOrName, true) }
+        val catalog = appCatalog
+        val app = catalog.apps().firstOrNull { it.id == appIdOrName }
             ?: throw IllegalArgumentException("Use an exact app ID returned by search_faphub")
         return CommandResultData(message = installCatalogApp(fileSystem, catalog, app.id))
     }

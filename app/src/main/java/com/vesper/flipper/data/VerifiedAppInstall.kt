@@ -31,6 +31,9 @@ internal suspend fun installVerifiedApp(storage: AppInstallStorage, target: Stri
             }
             if (storage.exists(target)) throw IOException("App appeared during upload; existing app was preserved")
             storage.move(temporary, target)
+            if (!storage.exists(target) || !storage.read(target).contentEquals(bytes)) {
+                throw IOException("Activation could not be verified; inspect the destination before retrying")
+            }
             activated = true
         } finally {
             if (!activated) withContext(NonCancellable) {

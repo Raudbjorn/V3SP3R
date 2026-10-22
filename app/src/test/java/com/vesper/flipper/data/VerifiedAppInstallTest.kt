@@ -59,4 +59,31 @@ class VerifiedAppInstallTest {
         catch (_: IOException) { }
         assertTrue(storage.files.isEmpty())
     }
+    @Test fun `reported move success must produce the verified destination`() = runBlocking {
+        val storage = Storage()
+        val lyingMove = object : AppInstallStorage by storage {
+            override suspend fun move(source: String, target: String) { }
+        }
+        try {
+            installVerifiedApp(lyingMove, "/ext/apps/Tools/demo.fap", byteArrayOf(1, 2))
+            fail("A missing destination must fail")
+        } catch (_: IOException) { }
+        assertTrue(storage.files.isEmpty())
+    }
+
+    @Test fun `corrupted activation is reported without deleting the destination`() = runBlocking {
+        val storage = Storage()
+        val corruptMove = object : AppInstallStorage by storage {
+            override suspend fun move(source: String, target: String) {
+                storage.move(source, target)
+                storage.files[target] = byteArrayOf(9)
+            }
+        }
+        try {
+            installVerifiedApp(corruptMove, "/ext/apps/Tools/demo.fap", byteArrayOf(1, 2))
+            fail("A corrupted destination must fail")
+        } catch (_: IOException) { }
+        assertArrayEquals(byteArrayOf(9), storage.files.getValue("/ext/apps/Tools/demo.fap"))
+    }
+
 }
