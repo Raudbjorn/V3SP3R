@@ -21,7 +21,7 @@ suspend fun installCatalogApp(fileSystem: FlipperFileSystem, catalog: FlipperApp
         override suspend fun exists(path: String): Boolean =
             fileSystem.listDirectory(path.substringBeforeLast('/')).getOrThrow().any { it.name == path.substringAfterLast('/') }
         override suspend fun write(path: String, bytes: ByteArray) { fileSystem.writeFileBytes(path, bytes).getOrThrow() }
-        override suspend fun read(path: String): ByteArray = fileSystem.readFileBytes(path).getOrThrow()
+        override suspend fun read(path: String): ByteArray = fileSystem.readFileBytes(path, expectedSizeBytes = binary.bytes.size.toLong()).getOrThrow()
         override suspend fun move(source: String, target: String) { fileSystem.move(source, target).getOrThrow() }
         override suspend fun delete(path: String) { fileSystem.deleteFile(path).getOrThrow() }
     }, target, binary.bytes)
