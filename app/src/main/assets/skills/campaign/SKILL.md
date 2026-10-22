@@ -10,7 +10,7 @@ listed tool exists in the installed branch. Inspect its tool schema first.
 The standalone MCP server only reads reference material; it does not execute
 campaigns or device commands.
 
-A campaign is a real penetration test executed through Vesper's tools against real hardware. Every claim in a campaign traces back to a tool call recorded in `audit_entries` and a finding recorded in `vuln_findings`. If neither exists, the claim is fabrication.
+Campaign claims require actual observed evidence. When findings/audit tools are installed, reference the records they return. Otherwise keep an explicit operator-reviewed report; do not fabricate database rows or identifiers. Direct UI operations may not enter the command audit pipeline.
 
 Load this skill on any prompt matching: "start a campaign", "run an engagement", "pentest this", "assess these targets", "sweep the area", "what's around us", or when resuming prior work in this project.
 
@@ -26,7 +26,17 @@ Load this skill on any prompt matching: "start a campaign", "run an engagement",
 
 ## Session-resume protocol
 
-The database is the campaign state — chat context is not. On **every** new session, before doing anything else:
+First inspect the installed tool schema. In the standalone skills branch,
+`vuln_list`, `audit_query`, `vuln_submit` and `vuln_validate` are unavailable;
+the later findings feature supplies them. If any required persistence tool is
+absent, use an operator-provided prior report and current verified outputs,
+mark missing evidence explicitly, and save an updated report only on request
+with `write_file`. This fallback applies to all persistence gates and report
+steps below. Do not call unavailable actions or claim a database write occurred.
+Even when installed, queries are scoped to the current session; request an
+operator-provided handoff for earlier sessions rather than assuming global access.
+
+When the required persistence tools are available, resume with:
 
 1. `vuln_list()` — pull all prior findings for this project
 2. `audit_query(limit=200)` — last 200 tool calls

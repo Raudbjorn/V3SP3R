@@ -258,7 +258,7 @@ When the Flipper doesn't auto-detect the protocol. All thresholds below are nume
    - Anything > 10 units at low level → header/inter-frame gap; segment the packet here
    - If > 15% of pulses do not fit any cluster → protocol is not pure PWM; consider Manchester (step 6) or FSK (out of scope for OOK raw)
 5. **Compute derived features:**
-   - `bit_rate = 1e6 / (t_base × pulses_per_bit)` bits per second (pulses_per_bit = 2 for PWM)
+   - `bit_rate = 1e6 / (high_duration_μs + low_duration_μs)` for a PWM symbol; use the measured complete symbol duration, not the shortest pulse. Princeton 390 μs + 1170 μs gives about 641 bit/s. For variable-length symbols, use decoded data-bit count divided by data-frame duration in seconds, excluding headers and gaps.
    - `packet_length = total_pulses / pulses_per_bit`
    - `header_duration_μs` = longest low interval before the first data burst
    - `repeat_count` = number of packet copies before the capture ends (typically 3–8 for fixed codes)
