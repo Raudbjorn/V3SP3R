@@ -68,6 +68,7 @@ class RpcProductionRoutingTest {
     @Test fun `chunked write acknowledgement establishes verified readiness`() = runBlocking<Unit> {
         val service = mock<FlipperBleService>()
         val protocol = FlipperProtocol().apply { setBleService(service) }
+        whenever(service.rpcTelemetrySessionId()).thenReturn(31L)
         var chunks = 0
         whenever(service.sendData(any(), any(), any(), any())).thenAnswer { call ->
             val request = Flipper.Main.parseDelimitedFrom(call.getArgument<ByteArray>(0).inputStream())
@@ -84,6 +85,7 @@ class RpcProductionRoutingTest {
         assertTrue(result is ProtocolResponse.Success)
         assertTrue(chunks > 1)
         assertTrue(ready(protocol))
+        verify(service).recordRpcResponseReceived(31L)
     }
     @Test fun `old correlated probe cannot overwrite a newly selected confirmed USB CLI session`() = runBlocking<Unit> {
         val service = mock<FlipperBleService>()

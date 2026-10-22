@@ -12,6 +12,7 @@ import com.vesper.flipper.ble.ConnectionState
 import com.vesper.flipper.ble.FirmwareCompatibilityProfile
 import com.vesper.flipper.ble.FlipperDevice
 import com.vesper.flipper.ble.FlipperFileSystem
+import com.vesper.flipper.ble.TransportTelemetry
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.DeviceInfo
 import com.vesper.flipper.domain.model.FlipperRemoteButton
@@ -56,6 +57,8 @@ class DeviceViewModel @Inject constructor(
     val storageInfo: StateFlow<StorageInfo?> = _storageInfo.asStateFlow()
     private val _cliCapabilityStatus = MutableStateFlow(CliCapabilityStatus())
     val cliCapabilityStatus: StateFlow<CliCapabilityStatus> = _cliCapabilityStatus.asStateFlow()
+    private val _transportTelemetry = MutableStateFlow(TransportTelemetry.idle())
+    val transportTelemetry: StateFlow<TransportTelemetry> = _transportTelemetry.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -174,6 +177,11 @@ class DeviceViewModel @Inject constructor(
                 _cliCapabilityStatus.value = status
             }
         }
+        viewModelScope.launch {
+            bleServiceManager.transportTelemetry.collect { telemetry ->
+                _transportTelemetry.value = telemetry
+            }
+        }
     }
 
     private fun clearConnectionTransientState() {
@@ -181,6 +189,7 @@ class DeviceViewModel @Inject constructor(
         _isSendingRemoteInput.value = false
         _remoteInputStatus.value = null
         _connectionDiagnostics.value = ConnectionDiagnosticsReport.idle()
+        _transportTelemetry.value = TransportTelemetry.idle()
     }
 
     fun startScan() {
@@ -212,6 +221,7 @@ class DeviceViewModel @Inject constructor(
         _isRunningDiagnostics.value = false
         _isSendingRemoteInput.value = false
         _remoteInputStatus.value = null
+        _transportTelemetry.value = TransportTelemetry.idle()
     }
 
     fun refreshDeviceInfo() {

@@ -12,6 +12,9 @@ class UsbBootstrapOwnershipTest {
     }
     private fun service(port: UsbSerialPort, mode: UsbSessionMode): FlipperBleService {
         val service = mock<FlipperBleService>(defaultAnswer = org.mockito.Mockito.CALLS_REAL_METHODS)
+        val telemetry = TransportTelemetryRecorder()
+        field(service, "telemetryRecorder", telemetry)
+        field(service, "writeFailures", WriteFailureTracker(telemetry))
         field(service, "usbSessionLock", Any())
         field(service, "usbSerialPort", port)
         field(service, "usbSessionMode", mode)

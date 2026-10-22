@@ -37,6 +37,7 @@ class ScreenMirrorViewModelTest {
         whenever(manager.connectionState).thenReturn(MutableStateFlow(ConnectionState.Connected("Test device")))
         whenever(manager.connectedDevice).thenReturn(MutableStateFlow(null))
         whenever(manager.discoveredDevices).thenReturn(MutableStateFlow(emptyList()))
+        whenever(manager.transportTelemetry).thenReturn(MutableStateFlow(TransportTelemetry.idle()))
         whenever(manager.cliCapabilityStatus).thenReturn(MutableStateFlow(CliCapabilityStatus()))
         whenever(settings.glassesEnabled).thenReturn(flowOf(false))
         whenever(settings.glassesBridgeUrl).thenReturn(flowOf(null))
