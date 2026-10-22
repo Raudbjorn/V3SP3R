@@ -41,7 +41,7 @@ abstract class DeviceDatabase : RoomDatabase() {
                     DeviceDatabase::class.java,
                     "vesper_devices.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .openHelperFactory(com.vesper.flipper.security.EncryptedDatabaseFactory.create(context, "vesper_devices.db"))
                     .build()
                 INSTANCE = instance
                 instance
