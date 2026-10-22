@@ -18,12 +18,12 @@ class FindingsWorkflowTest {
         assertEquals(VulnTriageService.Severity.MEDIUM,service.classify("r",null).severity)
         assertEquals(VulnTriageService.Severity.CRITICAL,service.classify("rce",null).severity)
     }
-    @Test fun confirmedFindingCanBeMarkedFalsePositive() = runBlocking {
+    @Test fun failedReproductionIsInconclusiveNotDisproof() = runBlocking {
         val dao=mock<VulnDao>();val service=VulnTriageService(dao)
         val entity=VulnFindingEntity("full-id",1,"owned-device","info_disclosure","Observed","banner","low",1,"confirmed")
         whenever(dao.getById("full-id")).thenReturn(entity)
         val updated=service.validate(VulnTriageService.ValidateRequest("full-id",false,"Could not reproduce"))!!
-        assertEquals("false_positive",updated.status);assertEquals(1,updated.reproductionAttempts)
+        assertEquals("inconclusive",updated.status);assertEquals(1,updated.reproductionAttempts)
         assertTrue(updated.validationNotesJson.contains("Could not reproduce"))
     }
     @Test fun typedTemplatesRejectInjectedArguments() {

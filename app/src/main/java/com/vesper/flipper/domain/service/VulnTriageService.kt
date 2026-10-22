@@ -36,6 +36,7 @@ class VulnTriageService @Inject constructor(
     enum class Status(val wire: String) {
         SUBMITTED("submitted"),
         CONFIRMED("confirmed"),
+        INCONCLUSIVE("inconclusive"),
         REJECTED("rejected"),
         FALSE_POSITIVE("false_positive");
 
@@ -101,10 +102,9 @@ class VulnTriageService @Inject constructor(
     }
 
     /**
-     * Applies FlipperAgent's status-transition rule:
+     * Record reproduction evidence without treating one failed attempt as disproof:
      *   reproduced=true  → confirmed
-     *   reproduced=false, prior status=confirmed → false_positive
-     *   reproduced=false, prior status other    → rejected
+     *   reproduced=false → inconclusive (prior evidence remains in history)
      */
     suspend fun validate(req: ValidateRequest): VulnFindingEntity? = mutationMutex.withLock {
         require((req.notes?.length ?: 0) <= 8192) { "Validation notes too long" }
@@ -112,8 +112,7 @@ class VulnTriageService @Inject constructor(
         val now = System.currentTimeMillis()
         val newStatus = when {
             req.reproduced -> Status.CONFIRMED.wire
-            existing.status == Status.CONFIRMED.wire -> Status.FALSE_POSITIVE.wire
-            else -> Status.REJECTED.wire
+            else -> Status.INCONCLUSIVE.wire
         }
         val notes = req.notes ?: ""
         val notesJson = if (notes == null) {
