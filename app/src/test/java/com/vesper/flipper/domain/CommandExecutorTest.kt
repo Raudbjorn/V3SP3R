@@ -44,6 +44,9 @@ class CommandExecutorTest {
         permissionService = mock()
         auditService = mock()
         diffService = mock()
+        val settingsStore: com.vesper.flipper.data.SettingsStore = mock()
+        whenever(settingsStore.autoApproveMedium).thenReturn(kotlinx.coroutines.flow.flowOf(false))
+        whenever(settingsStore.autoApproveHigh).thenReturn(kotlinx.coroutines.flow.flowOf(false))
         commandExecutor = CommandExecutor(
             fileSystem = fileSystem,
             riskAssessor = riskAssessor,
@@ -51,7 +54,7 @@ class CommandExecutorTest {
             auditService = auditService,
             diffService = diffService,
             forgeEngine = mock(),
-            settingsStore = mock()
+            settingsStore = settingsStore
         )
     }
 
