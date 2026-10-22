@@ -26,7 +26,7 @@ class ScreenStreamLifecycleTest {
         protocol.setBleService(service)
         ready(protocol)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
-        whenever(service.sendData(any(), any(), any())).thenAnswer { call ->
+        whenever(service.sendData(any(), any(), any(), any())).thenAnswer { call ->
             val bytes = call.getArgument<ByteArray>(0)
             if (bytes.toString(Charsets.UTF_8).startsWith("version")) {
                 protocol.processIncomingData("Firmware version: test\r\n".toByteArray())
@@ -58,7 +58,7 @@ class ScreenStreamLifecycleTest {
         protocol.setBleService(service)
         ready(protocol)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
-        whenever(service.sendData(any(), any(), any())).thenAnswer { call ->
+        whenever(service.sendData(any(), any(), any(), any())).thenAnswer { call ->
             val request = Flipper.Main.parseDelimitedFrom(ByteArrayInputStream(call.getArgument(0)))
             val status = if (request.hasGuiStopScreenStreamRequest()) Flipper.CommandStatus.ERROR else Flipper.CommandStatus.OK
             protocol.processIncomingData(RpcFrameRouter.encode(Flipper.Main.newBuilder()
@@ -71,7 +71,7 @@ class ScreenStreamLifecycleTest {
         val cli = protocol.sendRawCliCommand("version")
         assertTrue(cli is ProtocolResponse.Error)
         assertTrue((cli as ProtocolResponse.Error).message.contains("Pause the screen mirror"))
-        verify(service, never()).sendData(any(), any(), any())
+        verify(service, never()).sendData(any(), any(), any(), any())
         protocol.onConnectionReset()
     }
 }

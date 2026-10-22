@@ -16,10 +16,10 @@ class RpcReadCompletionTest {
     private suspend fun collect(protocol: FlipperProtocol, timeoutMs: Long): Any? {
         val method = FlipperProtocol::class.java.getDeclaredMethod(
             "collectRpcMainResponsesOnce", ByteArray::class.java, Int::class.javaPrimitiveType,
-            Long::class.javaPrimitiveType, Continuation::class.java
+            Long::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Continuation::class.java
         ).apply { isAccessible = true }
         return suspendCoroutineUninterceptedOrReturn { continuation ->
-            method.invoke(protocol, byteArrayOf(1), 7, timeoutMs, continuation)
+            method.invoke(protocol, byteArrayOf(1), 7, timeoutMs, true, continuation)
         }
     }
 
@@ -27,7 +27,7 @@ class RpcReadCompletionTest {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
-        whenever(service.sendData(any(), any(), any())).thenAnswer {
+        whenever(service.sendData(any(), any(), any(), any())).thenAnswer {
             protocol.processIncomingData(RpcFrameRouter.encode(Flipper.Main.newBuilder().setCommandId(7).setHasNext(true).build()))
             true
         }
@@ -51,7 +51,7 @@ class RpcReadCompletionTest {
         protocol.setBleService(service)
         ready(protocol)
         val bytes = ByteArray(64 * 1024) { (it % 251).toByte() }
-        whenever(service.sendData(any(), any(), any())).thenAnswer { invocation ->
+        whenever(service.sendData(any(), any(), any(), any())).thenAnswer { invocation ->
             val request = Flipper.Main.parseDelimitedFrom(ByteArrayInputStream(invocation.getArgument(0)))
             val response = RpcFrameRouter.encode(Flipper.Main.newBuilder().setCommandId(request.commandId)
                 .setStorageReadResponse(Storage.ReadResponse.newBuilder().setFile(
@@ -68,7 +68,7 @@ class RpcReadCompletionTest {
         val result = withTimeout(10_000) { protocol.readFileBinary("/ext/test.fap", bytes.size.toLong()) }
         assertTrue("Expected full binary, got $result", result is ProtocolResponse.BinaryContent)
         assertArrayEquals(bytes, (result as ProtocolResponse.BinaryContent).data)
-        verify(service, times(1)).sendData(any(), any(), any())
+        verify(service, times(1)).sendData(any(), any(), any(), any())
     }
 
     @Test fun `sized read rejects a terminal but truncated file and invalid size hints`() = runBlocking<Unit> {
@@ -76,7 +76,7 @@ class RpcReadCompletionTest {
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         ready(protocol)
-        whenever(service.sendData(any(), any(), any())).thenAnswer { invocation ->
+        whenever(service.sendData(any(), any(), any(), any())).thenAnswer { invocation ->
             val request = Flipper.Main.parseDelimitedFrom(ByteArrayInputStream(invocation.getArgument(0)))
             val file = Storage.File.newBuilder().setData(ByteString.copyFrom(byteArrayOf(1)))
             val response = Flipper.Main.newBuilder().setCommandId(request.commandId)
@@ -88,7 +88,7 @@ class RpcReadCompletionTest {
         assertTrue(result is ProtocolResponse.Error)
         assertTrue((result as ProtocolResponse.Error).message.contains("size mismatch"))
         assertTrue(protocol.readFileBinary("/ext/test.fap", Long.MAX_VALUE) is ProtocolResponse.Error)
-        verify(service, times(1)).sendData(any(), any(), any())
+        verify(service, times(1)).sendData(any(), any(), any(), any())
     }
 
 }

@@ -12,13 +12,13 @@ class DesktopBridgeRpcPolicyTest {
         whenever(service.usesRpcOnlyCommandTransport()).thenReturn(true)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.awaitCommandTransportReady(any())).thenReturn(true)
-        whenever(service.sendData(any(), any(), any())).thenReturn(false)
+        whenever(service.sendData(any(), any(), any(), any())).thenReturn(false)
         val protocol = FlipperProtocol()
         protocol.setBleService(service)
         val result = protocol.probeCliAvailability(force = true)
         assertFalse(result.supportsCli)
         val packets = argumentCaptor<ByteArray>()
-        verify(service, atLeastOnce()).sendData(packets.capture(), any(), any())
+        verify(service, atLeastOnce()).sendData(packets.capture(), any(), any(), any())
         assertTrue(packets.allValues.isNotEmpty())
         for (packet in packets.allValues) {
             val message = Flipper.Main.parseDelimitedFrom(packet.inputStream())
@@ -34,7 +34,7 @@ class DesktopBridgeRpcPolicyTest {
         whenever(service.awaitCommandTransportReady(any())).thenReturn(true)
         val protocol = FlipperProtocol().apply { setBleService(service) }
         assertFalse(protocol.sendRawCli("version"))
-        verify(service, never()).sendData(any(), any(), any())
+        verify(service, never()).sendData(any(), any(), any(), any())
         Unit
     }
 
@@ -43,11 +43,11 @@ class DesktopBridgeRpcPolicyTest {
         whenever(service.usesRpcOnlyCommandTransport()).thenReturn(false)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.awaitCommandTransportReady(any())).thenReturn(true)
-        whenever(service.sendData(any(), any(), any())).thenReturn(true)
+        whenever(service.sendData(any(), any(), any(), any())).thenReturn(true)
         val protocol = FlipperProtocol().apply { setBleService(service) }
         assertTrue(protocol.sendRawCli("version"))
         val bytes = argumentCaptor<ByteArray>()
-        verify(service).sendData(bytes.capture(), any(), any())
+        verify(service).sendData(bytes.capture(), any(), any(), any())
         assertArrayEquals("version\r\n".toByteArray(), bytes.firstValue)
         Unit
     }
@@ -56,11 +56,11 @@ class DesktopBridgeRpcPolicyTest {
         whenever(service.usesRpcOnlyCommandTransport()).thenReturn(true)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.awaitCommandTransportReady(any())).thenReturn(true)
-        whenever(service.sendData(any(), any(), any())).thenReturn(false)
+        whenever(service.sendData(any(), any(), any(), any())).thenReturn(false)
         val protocol = FlipperProtocol().apply { setBleService(service) }
         assertTrue(protocol.listDirectory("/ext") is ProtocolResponse.Error)
         val packets = argumentCaptor<ByteArray>()
-        verify(service, atLeastOnce()).sendData(packets.capture(), any(), any())
+        verify(service, atLeastOnce()).sendData(packets.capture(), any(), any(), any())
         for (packet in packets.allValues) {
             val message = Flipper.Main.parseDelimitedFrom(packet.inputStream())
             assertTrue(message.hasSystemPingRequest() || message.hasStorageListRequest())
