@@ -561,9 +561,10 @@ class FlipperBleService : Service() {
         _connectionState.value = ConnectionState.Connecting("Desktop Bridge")
         updateNotification()
 
+        var connectingSocket: Socket? = null
         return try {
             val socket = withContext(Dispatchers.IO) {
-                Socket().apply {
+                Socket().also { connectingSocket = it }.apply {
                     tcpNoDelay = true
                     try {
                         connect(InetSocketAddress(host, port), DESKTOP_BRIDGE_CONNECT_TIMEOUT_MS)
@@ -605,6 +606,11 @@ class FlipperBleService : Service() {
                 expectedGeneration = generation
             )
             false
+        } finally {
+            // withContext can throw cancellation after its blocking operation succeeds.
+            // Keep the candidate reachable until ownership has been transferred.
+            val candidate = connectingSocket
+            if (candidate !== desktopBridgeSocket) runCatching { candidate?.close() }
         }
     }
 
