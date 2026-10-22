@@ -250,9 +250,16 @@ class FapHubViewModel @Inject constructor(
             try {
                 check(_inventoryLoaded.value) { "Refresh installed apps before uninstalling" }
                 val paths = installedPaths[app.id] ?: error("App is absent from the installed inventory")
-                for (path in paths) flipperFileSystem.deleteFile(path).getOrThrow()
+                for (path in paths) {
+                    flipperFileSystem.deleteFile(path).getOrThrow()
+                    // Preserve progress so retry never starts with a successfully removed copy.
+                    val remaining = installedPaths[app.id].orEmpty() - path
+                    installedPaths = if (remaining.isEmpty()) installedPaths - app.id else installedPaths + (app.id to remaining)
+                    _installedApps.value = installedPaths.keys
+                }
                 installedPaths = installedPaths - app.id
                 _installedApps.value = _installedApps.value - app.id
+                _error.value = null
             } catch (e: Exception) {
                 _error.value = "Failed to uninstall ${app.name}: ${e.message}"
             }
