@@ -6,3 +6,10 @@ Depends on the RPC frame router feature. The Device screen adds an opt-in live m
 Turning live screen off freezes the presented frame immediately and requests that firmware stop streaming. Leaving Device requests stop too. Disconnect clears the frame. A missing stop acknowledgement is reported as uncertain, and the router continues separating any late frames from command replies. A failed start can be retried by toggling off/on.
 
 Verification: decoder tests cover page bits, dimensions, malformed lengths and orientation corners. Build and JVM tests do not establish real-device performance. Hardware acceptance requires BLE and USB start/pause/resume, disconnect/reconnect, navigation away, orientation changes, and remote buttons during streaming. Compare portrait and landscape Android layouts and TalkBack labels on device.
+
+Raw CLI commands are rejected while streaming or while a stop remains unacknowledged,
+so textual output cannot be lost in the RPC stream parser. An acknowledged pause
+restores CLI collection; an uncertain stop requires retrying pause or reconnecting.
+RPC commands continue to use the demultiplexed command path while streaming.
+ViewModel teardown makes a separate five-second stop attempt so navigation cannot
+cancel the only firmware cleanup request with `viewModelScope`.

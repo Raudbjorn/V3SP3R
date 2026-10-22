@@ -19,6 +19,8 @@ import com.vesper.flipper.domain.model.StorageInfo
 import com.vesper.flipper.glasses.BridgeState
 import com.vesper.flipper.glasses.GlassesIntegration
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,6 +98,16 @@ class DeviceViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        screenPresentation.setEnabled(false)
+        // Navigation cancels viewModelScope, including an in-flight onDispose stop.
+        // Give the firmware one bounded teardown attempt independent of that scope.
+        CoroutineScope(Dispatchers.IO).launch {
+            withTimeoutOrNull(5_000L) { fileSystem.stopScreenStream() }
+        }
+        super.onCleared()
     }
 
     private val refreshMutex = Mutex()

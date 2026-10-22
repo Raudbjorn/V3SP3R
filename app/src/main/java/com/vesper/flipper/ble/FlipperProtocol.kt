@@ -73,8 +73,12 @@ class FlipperProtocol @Inject constructor() {
             setGuiStopScreenStreamRequest(Gui.StopScreenStreamRequest.getDefaultInstance())
         }
         screenStreamActive = false
-        // Retain the last image and keep demultiplexing any late notifications.
-        if (response?.commandStatus == Flipper.CommandStatus.OK) ProtocolResponse.Success("Screen stream paused")
+        // An acknowledged stop restores raw CLI collection; uncertain stops keep routing
+        // enabled because firmware may still be producing screen notifications.
+        if (response?.commandStatus == Flipper.CommandStatus.OK) {
+            setScreenFrameRouting(false)
+            ProtocolResponse.Success("Screen stream paused")
+        }
         else ProtocolResponse.Error("Screen stream stop was not acknowledged")
     }
 
@@ -1381,6 +1385,9 @@ class FlipperProtocol @Inject constructor() {
     companion object {
         const val COMMAND_TIMEOUT_MS = 5_000L
         private const val MAX_FRAME_SIZE = 256 * 1024
+        // Storage reads contain many bounded frames; allow a complete catalog app
+        // (up to 10 MiB) plus protobuf framing without an unbounded collector.
+        private const val MAX_RPC_RESPONSE_BYTES = 16 * 1024 * 1024
         private const val RAW_CLI_TIMEOUT_MS = 3_000L
         private const val RAW_CLI_PROBE_TIMEOUT_MS = 900L
         private const val RAW_CLI_QUIET_PERIOD_MS = 220L
@@ -3189,6 +3196,12 @@ class FlipperProtocol @Inject constructor() {
             ProtocolResponse.Error("Command pipeline busy; CLI command timed out waiting for lock: $command")
         }
     ) {
+        if (screenFrameRouting) {
+            return@withCommandLock ProtocolResponse.Error(
+                "Pause the screen mirror before sending raw CLI commands. " +
+                    "If stopping was not acknowledged, reconnect first."
+            )
+        }
         val service = bleService
             ?: return@withCommandLock ProtocolResponse.Error("Flipper device service unavailable").also {
                 markCliUnavailable("Device service unavailable")
@@ -3263,6 +3276,8 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long): String {
+        // Firmware probes must also avoid mixing textual CLI and active RPC streaming.
+        if (screenFrameRouting) return ""
         val collector = RawCliCollector()
         rawCliCollector = collector
         return try {
@@ -3828,7 +3843,7 @@ class FlipperProtocol @Inject constructor() {
 
         fun append(data: ByteArray) {
             synchronized(buffer) {
-                if (buffer.size() + data.size > MAX_FRAME_SIZE) {
+                if (buffer.size() + data.size > MAX_RPC_RESPONSE_BYTES) {
                     overflow = true
                     return
                 }
