@@ -144,10 +144,10 @@ class BleServiceManager @Inject constructor(
         }
     }
 
-    fun connectDesktopBridge() {
+    fun connectDesktopBridge(pairingCode: String) {
         managerScope.launch {
             val service = awaitService() ?: return@launch
-            service.connectDesktopBridgeIfAvailable()
+            service.connectDesktopBridgeIfAvailable(pairingCode)
         }
     }
 

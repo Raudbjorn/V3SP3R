@@ -178,7 +178,7 @@ fun DeviceScreen(
                         onStartScan = { viewModel.startScan() },
                         onStopScan = { viewModel.stopScan() },
                         onConnectUsb = { viewModel.connectUsb() },
-                        onConnectDesktopBridge = { viewModel.connectDesktopBridge() }
+                        onConnectDesktopBridge = { viewModel.connectDesktopBridge(it) }
                     )
                 }
 
@@ -958,7 +958,7 @@ private fun ScanSection(
     onStartScan: () -> Unit,
     onStopScan: () -> Unit,
     onConnectUsb: () -> Unit,
-    onConnectDesktopBridge: () -> Unit
+    onConnectDesktopBridge: (String) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -996,8 +996,22 @@ private fun ScanSection(
         }
 
         if (BuildConfig.DEBUG) {
+            var pairingDialog by remember { mutableStateOf(false) }
+            var pairingCode by remember { mutableStateOf("") }
+            if (pairingDialog) AlertDialog(
+                onDismissRequest = { pairingDialog = false; pairingCode = "" },
+                title = { Text("Pair with desktop bridge") },
+                text = { OutlinedTextField(value = pairingCode,
+                    onValueChange = { pairingCode = it.trim().take(64) },
+                    label = { Text("Pairing code from host terminal") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()) },
+                confirmButton = { TextButton(enabled = pairingCode.matches(Regex("[0-9a-fA-F]{64}")),
+                    onClick = { onConnectDesktopBridge(pairingCode); pairingCode = ""; pairingDialog = false }) { Text("Connect") } },
+                dismissButton = { TextButton(onClick = { pairingCode = ""; pairingDialog = false }) { Text("Cancel") } }
+            )
             OutlinedButton(
-                onClick = onConnectDesktopBridge,
+                onClick = { pairingDialog = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.DesktopWindows, contentDescription = null)

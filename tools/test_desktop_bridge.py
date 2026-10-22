@@ -4,7 +4,8 @@ import socket
 import struct
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from types import SimpleNamespace
 
 import flipper_desktop_bridge as bridge
 
@@ -23,7 +24,7 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bridge.pop_frames(bytearray(struct.pack('>I', bridge.MAX_FRAME + 1)))
         with self.assertRaises(ValueError):
-            bridge.run_bridge('/unused', '0.0.0.0', 8765, (230400,))
+            bridge.run_bridge('/unused', '0.0.0.0', 8765, 230400)
 
     def test_serial_closed_when_configuration_fails(self):
         with patch.object(bridge.os, 'open', return_value=99), patch.object(bridge.os, 'close') as close:
@@ -31,6 +32,58 @@ class BridgeTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     bridge.open_serial('/unused', 230400)
             close.assert_called_once_with(99)
+
+    def test_partial_deadline_resets_for_each_completed_frame(self):
+        frame = bridge.encode_frame(b"data")
+        client = MagicMock()
+        client.recv.side_effect = [frame[:2]] + [frame[2:] + frame[:2]] * 7 + [b""]
+        clock = [0]
+        selector = MagicMock()
+        def ready(**kwargs):
+            clock[0] += 1
+            return [(SimpleNamespace(data="client"), None)]
+        selector.select.side_effect = ready
+        with patch.object(bridge.selectors, 'DefaultSelector') as factory, patch.object(bridge.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(bridge, 'write_all_fd') as write:
+            factory.return_value.__enter__.return_value = selector
+            bridge.pump(99, client)
+            self.assertEqual(write.call_count, 7)
+
+    def test_stalled_partial_frame_still_times_out(self):
+        client = MagicMock()
+        client.recv.return_value = b"\x00"
+        clock = [0]
+        selector = MagicMock()
+        def ready(**kwargs):
+            clock[0] += 6
+            return [(SimpleNamespace(data="client"), None)] if clock[0] == 6 else []
+        selector.select.side_effect = ready
+        with patch.object(bridge.selectors, 'DefaultSelector') as factory, patch.object(bridge.time, 'monotonic', side_effect=lambda: clock[0]):
+            factory.return_value.__enter__.return_value = selector
+            with self.assertRaises(TimeoutError):
+                bridge.pump(99, client)
+
+    def test_authentication_precedes_serial_open_and_session_closes_fd(self):
+        token = b'x' * 32
+        client = MagicMock()
+        client.recv.return_value = b'y' * 32
+        with patch.object(bridge, 'open_serial') as opened:
+            with self.assertRaises(PermissionError):
+                bridge.serve_client(client, '/unused', 230400, token)
+            opened.assert_not_called()
+        client.recv.side_effect = [token[:5], token[5:]]
+        with patch.object(bridge, 'open_serial', return_value=99), patch.object(bridge, 'pump'), patch.object(bridge.os, 'close') as close:
+            bridge.serve_client(client, '/unused', 230400, token)
+            client.sendall.assert_called_once_with(b'\x01')
+            close.assert_called_once_with(99)
+        client.recv.side_effect = [token]
+        with patch.object(bridge, 'open_serial', return_value=99), patch.object(bridge, 'pump', side_effect=OSError('disconnect')), patch.object(bridge.os, 'close') as close:
+            with self.assertRaises(OSError):
+                bridge.serve_client(client, '/unused', 230400, token)
+            close.assert_called_once_with(99)
+
+    def test_default_baud_is_explicit(self):
+        self.assertEqual(bridge.parse_args([]).baud, 230400)
+        self.assertEqual(bridge.parse_args(['--baud', '115200']).baud, 115200)
 
     def test_pty_socket_round_trip_and_disconnect(self):
         master, slave = pty.openpty()

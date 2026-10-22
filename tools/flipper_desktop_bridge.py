@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import os
+import secrets
+import hmac
 import selectors
 import socket
 import struct
@@ -18,8 +20,9 @@ from pathlib import Path
 DEFAULT_SERIAL = Path("/dev/ttyACM0")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-BAUD_CANDIDATES = (230400, 115200, 460800, 921600)
-RPC_PRIME_COMMANDS = (b"start_rpc_session\r", b"start_rpc_session\r\n", b"\n")
+SUPPORTED_BAUDS = (230400, 115200, 460800, 921600)
+DEFAULT_BAUD = 230400
+RPC_PRIME_COMMAND = b"start_rpc_session\r"
 MAX_FRAME = 1024 * 1024
 
 
@@ -73,7 +76,7 @@ def open_serial(path: Path, baud: int) -> int:
     try:
         configure_serial(fd, baud)
         # Enter RPC once; sending further CLI commands would corrupt that stream.
-        write_all_fd(fd, RPC_PRIME_COMMANDS[0])
+        write_all_fd(fd, RPC_PRIME_COMMAND)
         time.sleep(0.1)
         termios.tcflush(fd, termios.TCIFLUSH)
         return fd
@@ -98,9 +101,30 @@ def write_all_fd(fd: int, data: bytes) -> None:
         view = view[written:]
 
 
-def run_bridge(serial_path: Path, host: str, port: int, baud_candidates: tuple[int, ...]) -> None:
+def serve_client(client: socket.socket, serial_path: Path, baud: int, token: bytes) -> None:
+    # Authenticate before opening the serial device. Token is never a command-line arg.
+    client.settimeout(5)
+    received = bytearray()
+    while len(received) < 32:
+        chunk = client.recv(32 - len(received))
+        if not chunk:
+            raise PermissionError("Incomplete bridge authentication")
+        received.extend(chunk)
+    if not hmac.compare_digest(received, token):
+        raise PermissionError("Invalid bridge pairing code")
+    serial_fd = open_serial(serial_path, baud)
+    try:
+        client.sendall(b"\x01")
+        pump(serial_fd, client)
+    finally:
+        os.close(serial_fd)
+
+
+def run_bridge(serial_path: Path, host: str, port: int, baud: int) -> None:
     if not ipaddress.ip_address(host).is_loopback:
         raise ValueError("Development bridge only binds a loopback IP")
+    token = secrets.token_bytes(32)
+    print(f"Pairing code (this session only): {token.hex()}", flush=True)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((host, port))
@@ -109,17 +133,10 @@ def run_bridge(serial_path: Path, host: str, port: int, baud_candidates: tuple[i
         while True:
             client, addr = server.accept()
             with client:
-                # Re-open/re-prime for each connection; do not reuse stale RPC bytes.
-                serial_fd = None
                 try:
-                    serial_fd = open_serial(serial_path, baud_candidates[0])
-                    client.settimeout(5)
-                    pump(serial_fd, client)
+                    serve_client(client, serial_path, baud, token)
                 except (OSError, ValueError) as exc:
                     print(f"bridge session failed: {exc}", file=sys.stderr)
-                finally:
-                    if serial_fd is not None:
-                        os.close(serial_fd)
 
 
 def pump(serial_fd: int, client: socket.socket) -> None:
@@ -137,11 +154,12 @@ def pump(serial_fd: int, client: socket.socket) -> None:
                     if not chunk:
                         return
                     client_buffer.extend(chunk)
-                    for frame in pop_frames(client_buffer):
+                    frames = pop_frames(client_buffer)
+                    for frame in frames:
                         if frame:
                             write_all_fd(serial_fd, frame)
                     if client_buffer:
-                        if partial_since is None:
+                        if frames or partial_since is None:
                             partial_since = time.monotonic()
                     else:
                         partial_since = None
@@ -185,7 +203,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--serial", help="serial device path")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--baud", type=int, choices=BAUD_CANDIDATES, help="single baud rate to try")
+    parser.add_argument("--baud", type=int, choices=SUPPORTED_BAUDS, default=DEFAULT_BAUD, help="serial baud rate (default: 230400; no automatic fallback)")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args(argv)
     if args.host != "127.0.0.1":
@@ -200,8 +218,7 @@ def main(argv: list[str]) -> int:
     if args.self_test:
         self_test()
         return 0
-    baud_candidates = (args.baud,) if args.baud else BAUD_CANDIDATES
-    run_bridge(resolve_serial_path(args.serial), args.host, args.port, baud_candidates)
+    run_bridge(resolve_serial_path(args.serial), args.host, args.port, args.baud)
     return 0
 
 
