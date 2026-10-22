@@ -56,20 +56,19 @@ Block 1: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 Block 2: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 Block 3: FF FF FF FF FF FF FF 07 80 69 FF FF FF FF FF FF
 # ... continue through all sectors
-Key A sector 0: FF FF FF FF FF FF
-Key B sector 0: FF FF FF FF FF FF
-Key A sector 1: A0 A1 A2 A3 A4 A5
-Key B sector 1: B0 B1 B2 B3 B4 B5
 # ...
 ```
 
 - **`Mifare Classic type`** — `Mini` / `1K` / `4K`.
 - **`Block N: ...`** — 16-byte block content, hex-space-separated.
-  Blocks 0–3 are sector 0, 4–7 are sector 1, etc. Sector trailer
-  blocks (3, 7, 11, ...) hold Key A + access bits + Key B.
-- **`Key A sector N` / `Key B sector N`** — the sector keys, 6 bytes
-  each. Redundant with the sector-trailer block, but the Flipper
-  stores them separately for convenience.
+  Sectors 0–31 have four blocks each; their trailer is `Block (4 × sector + 3)`.
+  On 4K tags, sectors 32–39 have sixteen blocks each; their trailers are
+  blocks 143, 159, …, 255.
+- **Sector-trailer bytes** — Key A is bytes **0–5**, access conditions and
+  the general-purpose byte occupy **6–9**, and Key B is bytes **10–15**
+  (zero-based). The firmware stores and loads keys from these `Block N`
+  bytes. There are no separate `Key A sector N` or `Key B sector N` fields.
+  Unknown bytes may be `??`; those are missing data, not usable keys.
 
 ### MIFARE Ultralight / NTAG body
 
@@ -144,10 +143,6 @@ Block 5: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 Block 6: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 Block 7: A0 A1 A2 A3 A4 A5 FF 07 80 69 B0 B1 B2 B3 B4 B5
 # ... blocks 8-63 continue similarly
-Key A sector 0: FF FF FF FF FF FF
-Key B sector 0: FF FF FF FF FF FF
-Key A sector 1: A0 A1 A2 A3 A4 A5
-Key B sector 1: B0 B1 B2 B3 B4 B5
 # ...
 ```
 
@@ -160,9 +155,11 @@ Key B sector 1: B0 B1 B2 B3 B4 B5
 - **Hand-author a UID emulator:** create a minimal `.nfc` with only
   header + `UID:` / `ATQA:` / `SAK:`. Great for testing what a reader
   accepts.
-- **Extract keys from a saved dump:** the `Key A sector N` /
-  `Key B sector N` lines *are* the keys. Add them to
-  `mf_classic_dict_user.nfc` for future dictionary attacks.
+- **Extract keys from a saved dump:** locate each sector's trailer `Block N`.
+  Read Key A from bytes 0–5 and Key B from bytes 10–15. For example,
+  `Block 7` above contains `A0 A1 A2 A3 A4 A5` and `B0 B1 B2 B3 B4 B5`.
+  Skip keys containing `??`. For an authorized tag, fully known keys can
+  be added as twelve hex digits per line to `mf_classic_dict_user.nfc`.
 - **Convert between v3 and v4:** use firmware that can load the source
   format, then save through its NFC app. Preserve a backup. Changing only
   the header does not convert protocol data or required fields; verify
@@ -174,17 +171,14 @@ Key B sector 1: B0 B1 B2 B3 B4 B5
   MIFARE Ultralight. `SAK: 20` = ISO14443-4 (DESFire etc.). Getting
   this wrong makes emulation fail with confusing "reader rejected"
   behavior.
-- **Sector-trailer keys are canonical.** If the sector trailer block
-  and the separate `Key A/B sector N` lines disagree, most firmware
-  trusts the separate keys — but this is undefined behavior. Keep
-  them in sync.
+- **Sector-trailer keys are canonical.** Change the appropriate six bytes
+  in the trailer block when editing a saved key. Adding separate key
+  fields does not update the keys loaded by the firmware. Preserve the
+  access-condition bytes; malformed access bits can make a card unusable.
 - **UID uniqueness bit** — for 7-byte UIDs on MIFARE Ultralight,
   byte 0 must be `04` (NXP manufacturer prefix). Emulating with
   another prefix produces cards some readers accept but others
   reject.
-- **`Data format version: 3` (older)** doesn't include separate `Key A
-  sector N` lines — keys are in the trailer blocks only. Newer parsers
-  handle both.
 - **Magic-card writes require the `.nfc` file's byte 0 of Block 0** to
   equal the desired UID. Some Gen2 magic cards lock this after first
   write.
@@ -206,3 +200,5 @@ capture into it is where the tripwires live. See
 *Attribution:* Flipper-Devices NFC file format
 (<https://docs.flipper.net/file-formats/nfc>), Momentum
 `applications/main/nfc/` sources. Retrieved 2025-Q3.
+
+Serializer reference: [official MIFARE Classic loader and saver](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/lib/nfc/protocols/mf_classic/mf_classic.c).

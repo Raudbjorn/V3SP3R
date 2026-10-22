@@ -17,7 +17,9 @@ reachable via:
 - the `vesper://index` resource — a human-readable TOC.
 
 Add files freely. The server picks them up on next startup — no code
-change needed. Topic id = directory name; name = filename stem.
+change needed. For subdirectory files, topic id = directory name and
+name = filename stem. Root-level files use topic `_root`; for example,
+`read_doc("_root", "MANIFEST")` reads this file.
 
 ## Topics
 

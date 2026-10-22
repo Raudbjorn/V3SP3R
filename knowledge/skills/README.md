@@ -1,22 +1,22 @@
 # Skill playbooks
 
-> These are the seven methodology playbooks the Vesper Android app's
-> `SkillRegistry` loads on demand. Copies live here so the MCP corpus
+> These are seven shared methodology playbooks. Android on-demand
+> loading is a separate feature; copies live here so the MCP corpus
 > can expose them via `list_topics()` / `read_doc("skills", name)`.
 
 ## What this directory is
 
 The files in this directory are **generated copies** of the canonical
 `SKILL.md` playbooks under `app/src/main/assets/skills/<name>/SKILL.md`.
-The Android app loads the originals directly; the MCP knowledge server
-loads these copies as topic `skills` (see
+The Android skill-registry feature loads the originals when installed;
+the MCP knowledge server loads these copies as topic `skills` (see
 `mcp-server/src/vesper_mcp/tools/knowledge.py`).
 
 Do not edit these files directly. Edit the source under
 `app/src/main/assets/skills/<name>/SKILL.md` and re-run
-`mcp-server/scripts/sync_skills.py`. CI enforces this: the
-`mcp-python.yml` workflow runs the sync in `--check` mode and fails
-the build if it detects drift.
+`mcp-server/scripts/sync_skills.py`, then run it with `--check` before
+submitting changes. This branch does not include a `mcp-python.yml`
+workflow; CI integration must explicitly invoke that check.
 
 ## The seven skills
 

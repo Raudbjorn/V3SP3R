@@ -115,7 +115,8 @@ Limits worth naming up front:
 
 - The **CC1101 has a hard limit** at 928 MHz and can *tune* down to
   ~280 MHz, but TX below 300 MHz or above 348/464/928 MHz is
-  extra-legal in most jurisdictions and disabled on stock firmware.
+  illegal without the required authorization in many jurisdictions and
+  disabled on stock firmware.
 - The **NFC antenna is small**; expect a few centimeters of range at
   best. Larger targets (transit gates, industrial readers) may not
   couple at all — this is not a Flipper defect.

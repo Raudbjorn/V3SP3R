@@ -75,17 +75,17 @@ Underscores and hyphens are interchangeable; `read_doc("firmware",
 
 The seven files under `knowledge/skills/*.md` are **generated copies**
 of the canonical `SKILL.md` playbooks under
-`app/src/main/assets/skills/<name>/SKILL.md`. The Android app's
-`SkillRegistry` loads the originals directly; the MCP server exposes
-the copies. Regenerate with:
+`app/src/main/assets/skills/<name>/SKILL.md`, shipped in this checkout.
+The separate Android skill-registry feature loads the originals when
+installed; the MCP server exposes the copies. Regenerate with:
 
 ```bash
 python scripts/sync_skills.py           # write
 python scripts/sync_skills.py --check   # verify (used by CI)
 ```
 
-CI (`.github/workflows/mcp-python.yml`) runs the `--check` mode before
-lint and fails the build on drift.
+Run `--check` before submitting changes. This branch does not ship a
+`mcp-python.yml` workflow; projects can add that command to their CI.
 
 ## Test
 

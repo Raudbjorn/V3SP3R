@@ -199,7 +199,7 @@ If performing MITM via evil twin:
 
 For each WiFi finding, `vuln_submit` with:
 - `target` = target network SSID or BSSID
-- `vuln_type` = one of `open_wifi`, `weak_wpa2`, `krack_vuln`, `captive_portal_creds`, etc.
+- `vuln_type` must be a value accepted by the installed branch schema. Use `vuln_classify` when the mapping is uncertain and that tool is available; do not invent values. If the findings tools are absent, retain the evidence for manual review instead of submitting an unsupported command.
 - `evidence` = redacted tool output or a reference to an access-controlled artifact
 - Attack duration and number of clients affected in `description`
 - Redact credentials before persistence in both `evidence` and `description`; retain raw secrets only in an explicitly authorized, access-controlled artifact, referenced without embedding its secret contents

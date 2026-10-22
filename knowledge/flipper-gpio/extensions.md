@@ -18,14 +18,14 @@ where they exist.
 
 ### Wi-Fi devboard (⭐ M0MA priority)
 
-Adds a **Cortex-M4-class MCU with 802.11 radio**, wired to the Flipper
+Adds an **ESP32-class MCU with an 802.11 radio**, wired to the Flipper
 over UART. The Flipper Zero has no on-board Wi-Fi; this is how it
 gets 802.11 capabilities.
 
 Two main variants in the wild:
 
-- **Official Flipper Wi-Fi Devboard** (screaming pink, screw-terminals
-  on some revs, ESP32-WROOM-32 module). Sold by Flipper-Devices. Ships
+- **Official Flipper Wi-Fi Devboard** (ESP32-S2 module with an Xtensa
+  LX7 core). Sold by Flipper-Devices. Ships
   with Blackmagic firmware by default; users typically reflash to
   Marauder.
 - **Third-party carriers** — bare ESP32 devboards on custom PCBs,
@@ -57,22 +57,14 @@ useful for logitech / rf24 keyboards, generic 2.4 GHz IoT devices, and
   dedicated NRF24 apps (sniffer, jammer, Mousejack).
 - **OTG:** not required — NRF24 runs off 3V3.
 
-### VGM external antenna
+### External SubGHz radio boards
 
-The **Video Game Module** ships with an SMA connector for an external
-SubGHz antenna. Aftermarket "VGM antenna" boards do the same in
-standalone form:
-
-- **Pins consumed:** typically none (the antenna is a passive RF
-  extension off the CC1101 trace via a coaxial jump).
-- **Firmware support:** any firmware; it's a hardware-only
-  modification.
-- **Use case:** dramatically improved SubGHz RX/TX range and
-  sensitivity, at the cost of the built-in antenna.
-
-Note: attaching an external antenna requires opening the case in some
-form; official Flipper support is best-effort. See
-`subghz-overview.md`.
+Dedicated external **CC1101** boards can provide a connector for a
+frequency-matched SubGHz antenna. These are separate radio accessories,
+not the Video Game Module. They use GPIO/SPI and require firmware that
+supports the particular external module and wiring. Check the board's
+pinout and supply requirements before connecting it; an SMA connector
+alone does not identify its radio or frequency band.
 
 ### DAP-Link JTAG adapter
 
@@ -88,14 +80,16 @@ Pins consumed: SWC (10), SWDIO (12), GND (11). Nothing else.
 
 ### Video Game Module (VGM)
 
-Third-party expansion board from Flipper-Devices containing an
-**STM32H7** MCU, extra SubGHz antenna connector, and a small OLED. Not
-strictly a "Flipper add-on" in the same sense — the VGM runs its own
-firmware and uses the Flipper as a controller. Wide pin consumption
-(SPI + several control lines).
+The official Flipper Zero Video Game Module uses a **Raspberry Pi RP2040**
+(dual-core Arm Cortex-M0+) and an **ICM-42688-P** six-axis motion sensor.
+It provides DVI-D video over an HDMI-shaped connector and a USB-C port
+for module firmware/programming. It connects to the Flipper's GPIO header
+for video output and motion-controlled applications.
 
-Firmware for the VGM is separate from Flipper firmware; see the
-Flipper-Devices VGM documentation.
+It has no SubGHz radio, SMA antenna connector, STM32H7, or built-in OLED.
+It does not extend CC1101 reception or transmission range. See the
+[manufacturer's technical overview](https://blog.flipper.net/introducing-video-game-module-powered-by-raspberry-pi/)
+for compatible displays, firmware, and wiring.
 
 ### GPIO breakout / generic
 

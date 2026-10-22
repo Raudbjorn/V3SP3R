@@ -10,7 +10,7 @@ Two modes:
 - `--write` (default): write the destination files, creating
   knowledge/skills/ if needed. Idempotent.
 - `--check`: exit non-zero if the destination is out of sync with the
-  source. Used by CI (mcp-python.yml) to prevent drift.
+  source. Run before submitting changes, or wire into a CI job.
 
 Mirrors the pattern used by VerifyExecuteCommandSchemaTask
 (buildSrc/src/main/kotlin/schema/SchemaTasks.kt).

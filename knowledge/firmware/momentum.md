@@ -180,9 +180,10 @@ and can assume every legal SubGHz preset works.
   permanent axis.
 - **Web installer requires WebUSB.** Chromium-family browsers only;
   Firefox will silently do nothing.
-- **Momentum's `.tgz` cannot install on Official's Updater.** Rollback
-  requires flashing Official's `.tgz` separately. See
-  `firmware-updating.md`.
+- **Cross-family installation can use the staged Updater.** Follow
+  Momentum's supported package or extracted-folder instructions; a family
+  difference alone does not require DFU. Back up data before switching
+  or returning to Official. See `firmware-updating.md`.
 - **`momentum_firmware_commit` is not present on Xtreme.** Old Xtreme
   builds set `xtreme_firmware_commit` instead. Both map to
   `FirmwareFamily.MOMENTUM` (with `XTREME` as the enum branch) in

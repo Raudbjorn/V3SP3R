@@ -106,8 +106,8 @@ firmwares (currently Momentum, Unleashed, RogueMaster):
 - `subghz tx_from_file `
 - `ir tx `
 - `infrared tx `
-- BLE-spam variants (`bt spam `, etc. — see the source for the exact
-  list)
+- BLE-spam variants (`ble_spam`, `blespam`, and `ble spam`), each
+  either alone or followed by a space and arguments.
 - `nfc emulate `
 - `nfc emu `
 - `rfid emulate `

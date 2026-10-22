@@ -38,7 +38,7 @@ browser that installs directly to `/ext/apps/`.
 - **Symbol table:** references to firmware-exported APIs.
 - **Header:** app name, category, version, min-firmware-version.
 
-The firmware's loader (see `loader` CLI verb in `flipper-cli.md`)
+The firmware's loader (see `loader` CLI verb in [flipper-cli.md](../flipper-cli/README.md))
 mmaps the `.fap`, resolves symbols against the firmware's ABI table,
 and jumps to `app_main()`.
 
@@ -84,7 +84,7 @@ ufbt launch # installs and runs on connected Flipper
 
 `fbt` (full FBT) is the same tool but embedded in the firmware repo;
 use it when developing patches to firmware itself or apps in-tree. See
-`flipper-firmware-build.md`.
+[flipper-firmware-build.md](firmware-build.md).
 
 ### Install paths
 
@@ -94,7 +94,7 @@ use it when developing patches to firmware itself or apps in-tree. See
 - **Assets:** if the app ships extra data, it goes to
   `/ext/apps_assets/<name>/`.
 - **User writable data:** `/ext/apps_data/<name>/` (see
-  `flipper-storage.md`).
+  [flipper-storage.md](../flipper-storage/README.md)).
 
 ### FURI vs the firmware ABI
 
@@ -146,7 +146,7 @@ Discord attachments.
   category → Install.
 - **Uninstall:** delete the `.fap` from `/ext/apps/`.
 - **Launch from CLI:** `loader open <appname>` (see
-  `flipper-cli.md`).
+  [flipper-cli.md](../flipper-cli/README.md)).
 - **Build your own:** `ufbt bootstrap`, `ufbt`, `ufbt launch`.
 - **Debug crashes:** logs at `log` level; hard-fault info via SWD
   (see `flipper-gpio-pinout.md`).
@@ -166,7 +166,7 @@ Discord attachments.
 - **Momentum's FapHub catalog** is larger than Official's; apps built
   for Momentum-specific APIs won't appear when browsing on Official.
 - **Legacy JavaScript apps** (Momentum) are separate from `.fap` — see
-  `flipper-js-runner.md`. Don't put `.js` files in `/ext/apps/`.
+  [flipper-js-runner.md](js-runner.md). Don't put `.js` files in `/ext/apps/`.
 
 ## Legal & safety notes
 
@@ -178,13 +178,13 @@ See `legal-and-safety.md`.
 
 ## See also
 
-- `flipper-firmware-build.md` — building firmware; also builds core
+- [flipper-firmware-build.md](firmware-build.md) — building firmware; also builds core
   apps.
-- `flipper-js-runner.md` — the alternative to `.fap` for scripting.
-- `flipper-storage.md` — `/ext/apps/`, `/ext/apps_assets/`,
+- [flipper-js-runner.md](js-runner.md) — the alternative to `.fap` for scripting.
+- [flipper-storage.md](../flipper-storage/README.md) — `/ext/apps/`, `/ext/apps_assets/`,
   `/ext/apps_data/` layout.
-- `flipper-cli.md` — `loader open`, `loader list`.
-- `firmware-families.md` — ABI compatibility per family.
+- [flipper-cli.md](../flipper-cli/README.md) — `loader open`, `loader list`.
+- [firmware-families.md](../firmware/families.md) — ABI compatibility per family.
 
 ---
 *Attribution:* Flipper-Devices application build docs

@@ -37,9 +37,9 @@ Both labs write files to the Flipper, and Alchemy Lab can transmit / execute wha
 Two settings under **Settings** can loosen the interactive flow if you trust the workflow you're running:
 
 - **Auto-approve MEDIUM** — MEDIUM actions run without the tap. Diffs are still shown; you just don't have to confirm.
-- **Auto-approve HIGH** — HIGH actions run without the double-tap. (Campaigns ignore this — see [`campaigns.md`](campaigns.md).)
+- **Auto-approve HIGH** — HIGH actions run without the double-tap. (Autonomous campaigns are planned separately; see [`campaigns.md`](campaigns.md).)
 
-**What the AI can't do:** it can *author* a HIGH-risk payload in the labs, but a human still has to release it to fire. The labs never bypass the approval gate.
+**Approval boundary:** the AI can author a HIGH-risk payload in the labs. This reference does not guarantee a prompt or human release for every Labs action. `autoApproveHigh` governs actions handled by `CommandExecutor`; direct Labs dispatch is outside that guarantee.
 
 Every action, every approval decision, every result is written to the audit log (**Chat → Audit log**) and is filterable by risk level.
 
@@ -111,7 +111,7 @@ Each stage has its own AI prompt and shows its own progress indicator, so you ca
 - **Platforms:** Windows, macOS, Linux, Cross-platform
 - **Built-in templates** you can start from: Hello World (Notepad), Rickroll, WiFi Password Grabber (Win), System Info Grabber (Win), Reverse Shell (Win), Disable Defender (Win), Mac Terminal, Linux Recon
 - Writes to `/ext/badusb/` on the Flipper
-- **Executing a BadUSB payload is always HIGH-risk.** Even raw CLI use of the BadUSB action requires the same double-tap — the risk model deliberately doesn't let this slip to MEDIUM.
+- **BadUSB execution can affect the connected host.** Actions routed through `CommandExecutor` use its risk policy and approval settings. Direct Labs dispatch does not carry a universal double-tap guarantee; review the installed execution path before running a payload.
 
 ### Evil Portal
 
@@ -122,7 +122,14 @@ Each stage has its own AI prompt and shows its own progress indicator, so you ca
 
 ### Photo attachment
 
-Both tabs let you attach a photo — a picture of the target device, a key fob, a captive-portal you're trying to clone, etc. Vesper preprocesses the image through a vision model on-device before sending anything to the main LLM, so the primary model only ever sees a text description of what's in the image, not the raw pixels.
+Attached photos are uploaded to remote models; processing is not on-device.
+In the Evil Portal flow, `PayloadEngine.step1GeneratePortal()` passes the
+base64 screenshot as an `ImageAttachment` to `sendMessagesWithoutTools()`.
+That request sends the image through OpenRouter to the selected primary
+model. Chat's separate image-description path also uploads images to a
+remote vision model before passing the resulting description onward.
+Do not attach confidential screenshots, credentials, or personal images
+unless you are authorized to share them with those cloud providers.
 
 ### Notifications and errors
 

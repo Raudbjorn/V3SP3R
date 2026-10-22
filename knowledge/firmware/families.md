@@ -84,10 +84,10 @@ route policy for potentially-dangerous commands. See
 
 ## Capabilities and limits
 
-- All families accept the same `.tgz` update format. A Momentum `.tgz`
-  cannot be flashed on top of Official (it will be rejected as
-  signature-mismatched on Official's Updater); DFU-flashing is the
-  cross-family path.
+- Supported custom update bundles targeting the same hardware can use
+  the staged on-device Updater across firmware families. Check the
+  target release's package format and installation instructions; a
+  family change by itself does not require DFU.
 - No family can add hardware. Wi-Fi still requires a devboard on the
   GPIO header regardless of firmware.
 - Region unlocks are jurisdictionally illegal to *use* in most
@@ -132,9 +132,10 @@ route policy for potentially-dangerous commands. See
   868 MHz and TX. Whether that's *legal* depends on where you are.
 - **Fap ABI drift** — a `.fap` built for one family may crash on
   another. FapHub versions apps per-family.
-- **Official's Updater refuses fork bundles.** If you tried to install
-  a Momentum `.tgz` on Official and it silently did nothing, that's
-  why. Use the web installer or DFU.
+- **A rejected package needs diagnosis.** Check hardware target, archive
+  integrity, extracted folder layout, and the release's install procedure.
+  Do not infer that all fork bundles are rejected by Official's Updater;
+  DFU is a recovery option when normal staging is unavailable.
 
 ## Legal & safety notes
 

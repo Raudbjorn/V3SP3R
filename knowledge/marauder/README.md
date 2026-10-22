@@ -102,7 +102,7 @@ firmware over UART.
 - **Scan APs:** `scanap` from Marauder CLI. Or via Vesper's Marauder
   bridge (see `architecture.md`).
 - **Scan clients:** `scansta`.
-- **Deauth a target BSSID:** `select -a <BSSID>` then `attack -t deauth`
+- **Deauth a target BSSID:** `select -a <index-of-target-from-scanap>` then `attack -t deauth`
   (or similar; see `marauder-commands.md` for the exact syntax).
 - **Beacon spam a Rickroll list:** `attack -t beacon -l 5` (list-mode).
 - **Set up an evil twin:** `attack -t rogueap -s <ssid>`.

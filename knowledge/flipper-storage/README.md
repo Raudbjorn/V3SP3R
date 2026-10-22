@@ -41,20 +41,20 @@ Canonical directories under `/ext/` (on Momentum; official is a subset):
 | `/ext/subghz/assets/`         | Protocol maps, brute-force dictionaries (Momentum).                         |
 | `/ext/nfc/`                   | `.nfc` savefiles across MIFARE / ISO14443A / ISO15693.                      |
 | `/ext/nfc/assets/`            | MIFARE key dictionaries (`mf_classic_dict.nfc`, `mf_classic_dict_user.nfc`).|
-| `/ext/rfid/`                  | LF RFID `.rfid` files (EM4100, HID, T5577 configs).                         |
+| `/ext/rfid/`                  | May occur in imported/custom layouts; not Momentum's default LF RFID browser directory. |
 | `/ext/ibutton/`               | `.ibtn` files (Dallas DS1990A, CYFRAL, Metakom).                            |
 | `/ext/infrared/`              | `.ir` files, custom remotes.                                                |
 | `/ext/badusb/`                | `.txt` DuckyScript / BadUSB payloads. See `flipper-fap-apps.md`.            |
 | `/ext/apps/`                  | Installed `.fap` applications.                                              |
 | `/ext/apps_assets/`           | Read-only asset packs shipped with `.fap` apps.                             |
 | `/ext/apps_data/`             | Per-app writable state (settings, cached data).                             |
-| `/ext/update/`                | Firmware update `.tgz` bundles (staging for on-device Updater).             |
+| `/ext/update/`                | Extracted firmware update folders with manifest and sibling files.             |
 | `/ext/dolphin/`               | Animation packs / mood state / "dolphin" progression data.                  |
 | `/ext/nfc_magic/`             | Magic-card cloning workspace (some firmwares).                              |
 | `/ext/wav_player/`            | `.wav` files for the WAV player app.                                        |
 | `/ext/music_player/`          | `.fmf` / `.rtttl` for the music player.                                     |
 | `/ext/gpio/`                  | GPIO usb-uart-bridge settings, saved pin states.                            |
-| `/ext/lfrfid/`                | (Legacy path; Momentum uses `/ext/rfid/`.)                                  |
+| `/ext/lfrfid/`                | LF RFID `.rfid` savefiles; Momentum's RFID browser uses this directory. |
 
 Some firmwares add more (Xtreme lineage: `/ext/xtreme/`, RogueMaster:
 `/ext/rogue/`). Momentum uses `/ext/momentum/` for its per-firmware

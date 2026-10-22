@@ -29,8 +29,9 @@ account for the majority of cheap remotes in the wild as of 2025.
 - **Modulation:** OOK/ASK.
 - **Frequency:** typically 315 or 433.92 MHz.
 - **Bit rate:** 1.5–4 kbps (depends on remote's timing resistor).
-- **Frame:** 24 bits, tri-state (0/1/floating) → 8 tri-state trits ×
-  3 bits each. Sync gap follows.
+- **Frame:** PT2262-style tri-state (0/1/floating) coding represents
+  12 trits as 24 encoded binary symbols (two per trit), followed by a
+  sync gap. Exact address/data allocation depends on the encoder variant.
 - **Rolling?** No. Same code every time.
 - **Replay-attack posture:** trivial. Capture once, replay forever.
 - **Typical use:** cheap wireless doorbells, generic remote outlets,
@@ -172,8 +173,10 @@ value directly.
 - **Get a weather-station reading:** SubGHz Read on 433.92 MHz →
   ambient temp devices broadcast every ~30 s; decoder prints value.
 - **Brute-force a Princeton 24-bit code:** SubBrute app on Momentum,
-  or a custom script. Only viable because Princeton is 12-bit
-  addressable in tri-state (~half a million combinations, tractable).
+  or a custom script. A 12-trit code has at most `3^12 = 531,441`
+  combinations; an eight-trit address has `3^8 = 6,561`. Fixed button/data
+  positions reduce the address search space. Confirm the actual encoding
+  and authorization rather than treating every 24-bit capture alike.
 
 ## Gotchas
 

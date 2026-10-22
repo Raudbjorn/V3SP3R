@@ -33,7 +33,7 @@ NFC cards.
 | **Paradox**          | 44+     | Vendor-specific                                |                                            |
 | **PAC / Stanley**    | 26      |                                                |                                            |
 | **Nedap**            | 64      |                                                |                                            |
-| **T5577**            | **writable blank** — reprogrammable to emulate any of the above | See below. |
+| **T5577**            | Depends on emulated format | **Writable blank** — configurable LF tag | See below. |
 
 Beyond this list, the Flipper's raw reader mode can capture Manchester
 or biphase LF signals that don't fit a named format; you can save them

@@ -43,11 +43,18 @@ USB is the escape hatch.
 
 **3. Manual `/ext/update/` drop:**
 
-1. Copy the `.tgz` to `/ext/update/` via any file transfer method
-   (qFlipper's storage tab, or SD card in a laptop).
-2. From the Flipper GUI: Settings → Storage → Install from FUF
-   (or the family-specific menu path).
-3. On-device Updater takes over.
+1. Download the firmware archive for your device and **extract it on the
+   computer**. Keep the extracted update folder intact, including its
+   `update.fuf` manifest and all sibling firmware/resource files.
+2. Copy that folder into `SD/update` (`/ext/update/`) with qFlipper's
+   storage tab or an SD-card reader. An unopened `.tgz` alone is not an
+   on-device update directory; qFlipper's package-install route handles
+   archives separately.
+3. On the Flipper, open the file browser, enter the copied update folder,
+   select its **Update** file (`update.fuf`), and confirm installation.
+4. The on-device Updater takes over. Follow the selected firmware's
+   [installation instructions](https://github.com/Next-Flip/Momentum-Firmware#install)
+   if its release layout differs.
 
 ### DFU recovery (STM32 bootloader)
 
@@ -74,19 +81,17 @@ of the DFU'd firmware will reflash the radio.
 
 ### Cross-family flashing
 
-- **Same family, forward:** always works via the Updater. Standard
-  path.
-- **Same family, rollback:** works via the Updater. Some `/ext/`
-  state may become orphaned (e.g. old settings JSON schema).
-- **Cross-family via Updater:** **fails.** Each fork's Updater
-  refuses `.tgz` bundles it doesn't recognize as its own. Official
-  particularly strict.
-- **Cross-family via DFU:** **works.** DFU bypasses the family check;
-  it just flashes bytes. This is the escape hatch when swapping
-  Official → Momentum or vice versa.
-- **Cross-family via qFlipper:** qFlipper installs whatever `.tgz` you
-  point it at. It uses DFU internally when the on-device Updater
-  refuses.
+- **Same-family updates and rollbacks:** use a supported bundle and follow
+  that release's compatibility guidance; back up settings and SD data.
+- **Cross-family via Updater:** supported custom bundles for the same
+  hardware can use the staged on-device Updater flow. A family difference
+  alone does not require DFU or imply a signature rejection.
+- **qFlipper/custom package or web installer:** use the selected firmware's
+  documented installation route and package format. Do not assume an
+  automatic DFU fallback when a package fails.
+- **DFU:** reserve it for recovery or when the documented staged install
+  is unavailable. Use a correct image for the hardware; DFU is not a
+  compatibility check and an arbitrary image can break the device.
 
 ### Radio stack updates
 
@@ -132,11 +137,12 @@ Each fork's tradeoff:
 
 - **Update to latest of current family:** qFlipper Update tab, one
   click.
-- **Switch Official → Momentum:** back up `/ext/` (copy SD contents
-  to laptop), then use Momentum's web installer *or* DFU-flash the
-  Momentum `.dfu` directly.
-- **Roll back Momentum → Official:** same as above with Official's
-  `.tgz`.
+- **Switch Official → Momentum:** back up `/ext/`, then use Momentum's
+  supported custom-package, web-installer, or extracted-folder Updater
+  route. Changing families alone does not require DFU.
+- **Return Momentum → Official:** back up data and use a supported
+  official update package through the documented updater/install route.
+  Use recovery/DFU only if normal installation is unavailable.
 - **Recover a soft-brick:** hold LEFT+BACK on power-on → DFU mode →
   `dfu-util` a known-good `firmware.dfu`.
 - **Recover a hard-brick:** SWD via a DAP-Link on GPIO pins 10/11/12;

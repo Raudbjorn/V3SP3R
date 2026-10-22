@@ -45,7 +45,7 @@ You need at least 2, preferably 3+, packets that share structure but differ in t
 
 ### CRC at the head, not the tail
 
-Some protocols (NFC-A tag responses, older RF pagers) put a header CRC at the start. If tail-CRC hunting fails on structurally-similar packets, try `crc | data` splits at offsets 1, 2, 4.
+NFC-A `CRC_A`, when present, is appended to the frame: keep it in the tail-CRC path. Only try `crc | data` header splits at offsets 1, 2, 4 for a protocol whose documented frame layout supports a leading checksum (for example, a specific older RF pager response). Failed tail-CRC matching alone does not establish a header CRC.
 
 ## CRC calculation once known
 

@@ -16,7 +16,7 @@ That collapses to three layers with a one-way pipe between them:
 ┌────────────────────────────────────────────────────────┐
 │  CLOUD (OpenRouter → some LLM)                         │
 │  Sees: system prompt, chat history, tool schema,       │
-│         text descriptions of images, JSON tool results │
+│         image uploads/descriptions, JSON tool results │
 └──────────────▲──────────────────────────┬──────────────┘
    HTTPS to openrouter.ai/api/v1/…        │ tool call:
    Bearer <user's OpenRouter key>         │ execute_command({action, args,
@@ -46,18 +46,36 @@ The AI has no BLE stack, no filesystem handle, no CLI. It only knows how to emit
 4. **Confirm only when necessary** — Reads and safe writes happen silently. Destructive operations require confirmation (medium: diff review; high: double-tap to confirm).
 5. **Everything is logged** — All agent actions are auditable and replayable via the Room-backed audit log.
 
-## What Stays Local — Never Leaves the Phone
+## Local execution and storage are not a cloud privacy boundary
 
-- **BLE / GATT traffic.** `FlipperBleService` (a foreground `Service`) owns the `BluetoothGatt`, discovers Flipper's serial TX/RX characteristics, and frames traffic through `FlipperProtocol`. The model has no awareness this exists.
-- **Raw Flipper responses.** CLI stdout, raw `.sub`/`.ir`/`.nfc` bytes, RAW_Data samples — none of it is streamed to OpenRouter. Only a `CommandResult` is echoed back, and even that is trimmed (e.g. `FlipperToolExecutor.executeFlipperCommand` takes only the first non-blank line, capped at 160 chars, for the "message" preview, though full output is included in the `data` map).
-- **Risk classification.** `RiskAssessor` runs on-device. The model can *suggest* an action, but the tier (LOW/MEDIUM/HIGH/BLOCKED) is decided locally and cannot be overridden by prompt.
-- **Path locks & sensitive extensions.** `RiskAssessor`, using the `ProtectedPaths` table in `RiskLevel.kt`, gates `/int/`, firmware paths, and sensitive extensions (`.key`, `.priv`, `.secret`). `PermissionService` is a separate layer that tracks scoped, time-limited grants issued by the user. The model can request them; the phone refuses.
-- **Approval decisions.** Medium-risk shows a diff (`DiffService`); high-risk requires a double-tap to confirm. The model never sees the approval UI state directly — it just gets a tool result saying "approved and executed" or "rejected."
-- **The user's OpenRouter API key.** Held in an encrypted DataStore (`SettingsStore`) and only used to set the `Authorization: Bearer …` header.
-- **Audit log & chat history.** `Room` database (`VesperDatabase`, `ChatDao`, `AuditService`). Sessions can be replayed offline.
-- **Voice.** `SpeechRecognitionHelper` uses on-device Android speech recognition — the audio itself doesn't hit OpenRouter, only the transcribed text does. (TTS output does upload text for speech synthesis, but that's a separate flow.)
-- **Image bytes past preprocessing.** The user's photo is first sent to a fast vision model (Gemini Flash 2.0 by default) for a text description; the primary tool-calling model then receives *only that description string* — see the multimodal boundary section below.
-- **The Flipper's `raw_data` in signals.** Even though `.sub` files are readable, RAW_Data payloads are handled by `ForgeEngine` / signal-processing code locally when possible.
+BLE/GATT connections, risk classification, path-permission checks, and
+approval UI execute on Android. The remote model receives structured
+results rather than a direct Bluetooth or filesystem handle. That does
+**not** mean the contents of those results stay on the phone.
+
+- **File reads and CLI output can be uploaded in full.** `CommandExecutor`
+  puts file contents and stdout in `CommandResultData.content`.
+  `OpenRouterClient.formatResult()` serializes the complete result, and
+  `VesperAgent` includes it in the next model request. A short UI/message
+  preview does not redact the result's data fields. This can include
+  captured signals, NFC dumps, credentials, and other sensitive material.
+- **Chat history and audit records are stored locally**, but the messages
+  and tool results selected for model context are sent to OpenRouter.
+  Local storage does not imply local-only processing.
+- **Images are uploaded to cloud models**, either for a remote vision
+  description or directly to the selected multimodal model, depending
+  on the calling feature. See the multimodal section below.
+- **The API key is sent to OpenRouter in the Authorization header.**
+  The Android baseline stores it in preferences DataStore; the separate
+  credential-migration feature moves it to Keystore-backed encrypted
+  preferences. DataStore itself does not supply encryption.
+- **Voice text** is included in chat or sent to speech synthesis as
+  applicable. Android speech-recognition privacy depends on the selected
+  recognizer and device support; do not assume every recognizer is local.
+
+Do not ask the agent to read or execute against confidential data unless
+you are authorized to share the resulting content with the configured
+cloud providers. There is no general automatic redaction guarantee here.
 
 ## What Gets Sent to the AI (OpenRouter → the LLM)
 
@@ -66,22 +84,27 @@ Every request goes to `https://openrouter.ai/api/v1/chat/completions` with a bod
 1. **System prompt** — `VesperPrompts.SYSTEM_PROMPT` (~300 lines) describing the Flipper path structure, risk tiers, file-format templates (SubGHz, IR, BadUSB), safety boundaries, and the required JSON envelope. Appends `SMARTGLASSES_ADDENDUM` when glasses are enabled.
 2. **Trimmed conversation history** — last **24 messages only** (`MAX_CONTEXT_MESSAGES = 24` at `OpenRouterClient.kt:1399`). Older turns are dropped from the wire; they stay in the local Room DB.
 3. **One tool schema** — `EXECUTE_COMMAND_TOOL` (`OpenRouterClient.kt:1473`). A single function with an enum of ~30 allowed actions (`list_directory`, `read_file`, `subghz_transmit`, `forge_payload`, `request_photo`, etc.). No provider-side tool proliferation — one funnel.
-4. **Tool results from prior turns** — the JSON-serialized `CommandResult` from `formatResult()` (`OpenRouterClient.kt:1241`). This is where the model learns what happened: file listings, decoded file contents, device info, CLI output snippets, error messages. **This is the leakiest part of the pipe.**
-5. **Image descriptions, not images** — see the multimodal boundary section below.
+4. **Tool results from prior turns** — the JSON-serialized `CommandResult` from `formatResult()` (`OpenRouterClient.kt:1241`). This is where the model learns what happened: file listings, complete file contents and CLI stdout, device info, and error messages. **This is the leakiest part of the pipe.**
+5. **Image uploads and descriptions** — the exact payload depends on the feature; see below.
 6. **HTTP headers** — `Authorization: Bearer <user key>`, plus `HTTP-Referer: https://vesper.flipper.app` and `X-Title: Vesper Flipper Control` (OpenRouter attribution).
 
 Rate-limited to 30 req/min locally (`RateLimiter`) and capped at 1 tool call per response (`MAX_TOOL_CALLS_PER_RESPONSE = 1`) — so the AI can't fan out actions in a single turn.
 
 ## The Multimodal Boundary
 
-`OpenRouterClient.preprocessImagesAsText` at line 191 is the key trick and worth copying for other hardware:
+Chat's `OpenRouterClient.preprocessImagesAsText()` uploads an attached
+image and a vision prompt through OpenRouter to a remote vision model.
+The returned description then replaces the image in the tool-calling
+conversation. Fallbacks can try another vision provider, so this is not
+on-device processing or a guarantee that only one provider receives it.
+Smart-glasses image description uses a similar remote path.
 
-- User attaches a photo of, e.g., a car remote.
-- The phone sends **just that image + a fixed vision prompt** to a cheap vision model (`google/gemini-2.0-flash-001`, falling back to `gemini-2.5-flash` or `gpt-4o-mini`).
-- The returned text description ("Black plastic key fob, model XYZ, 4 buttons, FCC ID …") replaces the image attachment in the conversation.
-- The primary tool-calling model (Hermes 4, Claude Sonnet, etc.) sees only text.
-
-This means (a) the primary model doesn't need vision, (b) sensitive image content only touches one specific provider, and (c) the primary model gets a normalized, task-scoped view. Smart glasses `request_photo` uses the same pipeline via `describeImageForAgent`.
+Payload Lab's Evil Portal generation uses a different path:
+`PayloadEngine.step1GeneratePortal()` passes the screenshot as an
+`ImageAttachment` to `sendMessagesWithoutTools()`. That request preserves
+multimodal content and sends the image to the selected primary model
+through OpenRouter. Do not generalize chat's text-description behavior
+to every image-enabled feature.
 
 ## The Command Envelope
 
@@ -277,14 +300,14 @@ The README lists each user-facing surface. This section is the mapping from thos
 
 ## Security Considerations
 
-- API keys stored in encrypted DataStore (`SettingsStore`)
+- API-key storage depends on the installed credential-migration feature; DataStore itself is not encrypted
 - Permissions are scoped and time-limited via `PermissionService`
 - Protected paths (`/int/`, firmware) and sensitive extensions (`.key`, `.priv`, `.secret`) are BLOCKED by `RiskAssessor` until explicitly unlocked in Settings
 - All operations are logged to the Room audit table via `AuditService`
 - Double-tap confirm prevents accidental destructive actions
 - No raw BLE access from the AI model — every action funnels through `execute_command` → `CommandExecutor`
 - Rate limiter: 30 req/min to OpenRouter; 1 tool call per model response
-- Multimodal input is text-normalized before reaching the primary reasoning model
+- Image inputs leave the phone; chat and Payload Lab use different remote multimodal paths
 
 ## Applying This Pattern to Other Hardware
 
@@ -294,7 +317,7 @@ Transferable pieces if you're porting this to a different device:
 2. **A `RiskAssessor` on-device** — the classification is data (`RiskLevel` per action + path rules), not model judgment. Never let the model self-classify.
 3. **A `CommandExecutor` chokepoint** — one function every action passes through, so audit/permission/diff/approval logic isn't duplicated.
 4. **Result formatting is intentional** — `formatResult` decides what goes back into context. Don't just echo raw device output; shape it into a compact JSON structure with `success`, `message`, and a small `data` map.
-5. **Multimodal → text bridge** — if the hardware has any sensor/camera surface, add a preprocessing step so the primary reasoning model only sees text. Cheaper, safer, model-portable.
+5. **Multimodal → text bridge** — a remote vision description can support a text-only reasoning model, but it still uploads the source image. Disclose each recipient and path; it is not a local privacy control.
 6. **`justification` + `expected_effect` fields** — cheap to add, hugely valuable for audit logs and user trust.
 7. **Model fallback list** — `buildToolModelCandidates` walks a list of tool-capable models and caches which ones don't support tool-use for 5 minutes. Nice pattern for OpenRouter-mediated setups.
 
@@ -305,7 +328,7 @@ The one thing to be aware of when copying: **tool results are where sensitive de
 - **Jetpack Compose** — Declarative UI
 - **Hilt** — Dependency injection
 - **Room** — Local database (audit + chat history)
-- **DataStore** — Encrypted preferences storage
+- **DataStore** — Preferences storage; encryption requires a separate encrypted-storage layer
 - **OkHttp** — Network requests
 - **Kotlinx Serialization** — JSON parsing
 - **java-diff-utils** — Diff computation
@@ -316,7 +339,7 @@ The one thing to be aware of when copying: **tool results are where sensitive de
 - `flipper-hardware.md` — the physical device this architecture drives.
 - `firmware-compatibility-profile.md` — how the transport layer picks a routing profile.
 - `firmware-families.md` — the four firmwares the profile table covers.
-- `campaigns.md` — Ralph autonomous-campaign UX layered on top.
+- `campaigns.md` — proposed campaign functionality and its implementation limits.
 - `labs.md` — Alchemy / Payload Lab UX.
 - `mcp.md` — the MCP server that reads this corpus.
 - `legal-and-safety.md` — the enforcement backdrop for `RiskAssessor`.

@@ -70,8 +70,11 @@ retransmit with the wrong preset and the target ignores it.
 
 The on-board antenna is a compromise across all three windows. For
 serious work — long range, weak signals — an external antenna helps.
-Some VGM (Video Game Module) and dedicated SubGHz antenna add-ons
-route through the GPIO expansion. See `flipper-gpio-extensions.md`.
+Dedicated external CC1101 radio boards can connect through GPIO/SPI
+when supported by the selected firmware. The Video Game Module is an
+RP2040 video/motion accessory, not a SubGHz radio or antenna extension.
+See `flipper-gpio-extensions.md` for the distinction and check the
+external radio board's wiring and supported frequency band.
 
 ## Why some captures RX but don't decode
 

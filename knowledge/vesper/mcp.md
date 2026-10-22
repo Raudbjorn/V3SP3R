@@ -29,10 +29,13 @@ below assume that exact path.
 
 ## Claude Desktop / opencode / Cursor — via `.mcp.json`
 
-The repo already ships a `.mcp.json` at the repo root. Any MCP client
-that autodetects it (Claude Desktop, opencode, Cursor) picks up a
-`vesper` server on stdio automatically, provided the client starts with
-the repo root as its working directory.
+This checkout does not ship a `.mcp.json`; installing the server does not
+register it with a client. Save the example below into your client's MCP
+configuration and restart/reload the client. For clients that explicitly
+support repository `.mcp.json` files, create that file at the checkout
+root. Other clients use their own settings path or JSON schema; follow
+their configuration documentation instead of assuming autodetection.
+The example assumes the client launches the server from this repo root.
 
 ```json
 {
@@ -146,9 +149,10 @@ Underscore and hyphen are interchangeable in `read_doc`
 
 The seven `knowledge/skills/*.md` files are auto-generated from
 `app/src/main/assets/skills/<name>/SKILL.md`. The Android
-`SkillRegistry` loads the originals; the MCP server serves the
+skill-registry feature loads the originals when installed; the MCP server serves the
 copies. Regenerate with `python mcp-server/scripts/sync_skills.py`;
-CI runs `--check` to catch drift.
+Run the script with `--check` to catch drift; this branch does not
+include an automatic `mcp-python.yml` workflow.
 
 ## Troubleshooting
 
