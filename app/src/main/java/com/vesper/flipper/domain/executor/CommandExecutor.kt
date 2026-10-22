@@ -1,6 +1,8 @@
 package com.vesper.flipper.domain.executor
 
 import com.vesper.flipper.ble.FlipperFileSystem
+import com.vesper.flipper.data.FlipperAppCatalog
+import com.vesper.flipper.data.installCatalogApp
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.*
 import com.vesper.flipper.domain.service.AuditService
@@ -36,7 +38,8 @@ class CommandExecutor @Inject constructor(
     private val auditService: AuditService,
     private val diffService: DiffService,
     private val forgeEngine: ForgeEngine,
-    private val settingsStore: SettingsStore
+    private val settingsStore: SettingsStore,
+    private val appCatalog: FlipperAppCatalog = FlipperAppCatalog()
 ) {
 
     private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
@@ -662,8 +665,8 @@ class CommandExecutor @Inject constructor(
         }
     }
 
-    private fun executeFapHubSearch(query: String): CommandResultData {
-        val matches = FapHubCatalog.searchApps(query)
+    private suspend fun executeFapHubSearch(query: String): CommandResultData {
+        val matches = appCatalog.apps().filter { it.name.contains(query, true) || it.description.contains(query, true) || it.id.contains(query, true) }
         if (matches.isEmpty()) {
             return CommandResultData(
                 content = "No FapHub apps found for \"$query\".",
@@ -694,48 +697,10 @@ class CommandExecutor @Inject constructor(
         appIdOrName: String,
         directDownloadUrl: String?
     ): CommandResultData {
-        val app = resolveCatalogFapApp(appIdOrName)
-        if (app == null && directDownloadUrl.isNullOrBlank()) {
-            throw IllegalArgumentException(
-                "FapHub app \"$appIdOrName\" was not found in catalog. " +
-                        "Run search_faphub first or provide args.download_url with a direct .fap URL."
-            )
+        require(directDownloadUrl.isNullOrBlank()) {
+            "Catalog installation accepts only an exact app ID; download_url is unsupported."
         }
-
-        val installId = sanitizeAppIdentifier(app?.id ?: appIdOrName)
-        val installName = app?.name ?: appIdOrName
-        val category = app?.category ?: FapCategory.MISC
-        val sourceUrl = directDownloadUrl ?: app?.downloadUrl
-            ?: throw IllegalArgumentException("Missing source URL for FapHub app install")
-
-        val resolvedBinaryUrl = resolveFapBinaryUrl(
-            sourceUrl = sourceUrl,
-            appIdHint = installId
-        )
-        val download = downloadBinary(resolvedBinaryUrl)
-        if (looksLikeHtml(download.contentType, download.bytes)) {
-            throw IOException(
-                "Resolved URL returned HTML/non-binary content instead of a .fap file. " +
-                        "Provide a direct .fap URL in args.download_url."
-            )
-        }
-        if (download.bytes.isEmpty()) {
-            throw IOException("Downloaded file is empty")
-        }
-        if (download.bytes.size > MAX_FAP_BYTES) {
-            throw IOException("Downloaded file too large (${download.bytes.size} bytes)")
-        }
-
-        val installDir = "/ext/apps/${category.name.lowercase()}"
-        ensureDirectoryExists(installDir)
-        val targetPath = "$installDir/$installId.fap"
-        val bytesWritten = fileSystem.writeFileBytes(targetPath, download.bytes).getOrThrow()
-
-        return CommandResultData(
-            bytesWritten = bytesWritten,
-            content = "installed_app=$installName\napp_id=$installId\nsource_url=$resolvedBinaryUrl\ntarget_path=$targetPath",
-            message = "Installed $installName to $targetPath"
-        )
+        return CommandResultData(message = installCatalogApp(fileSystem, appCatalog, appIdOrName))
     }
 
     private fun resolveCatalogFapApp(appIdOrName: String): FapApp? {
