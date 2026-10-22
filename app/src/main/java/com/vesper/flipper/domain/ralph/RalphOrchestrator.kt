@@ -37,6 +37,8 @@ class RalphOrchestrator(private val context: Context) {
             check(store.transition(row,"approving")) { "Approval already consumed" }
             val result = executor(context).approve(requireNotNull(row.approval), "campaign-$id")
             val claimed = store.get(id) ?: return
+            // A kill/reject during the in-flight approval must never resurrect the campaign.
+            if (!store.enabled || claimed.state != "approving") return
             if (result.success) {
                 store.transition(claimed,"queued",step = row.step + 1)
                 enqueue(id)
