@@ -116,7 +116,39 @@ enum class CommandAction {
     // ── Smartglasses camera ───────────────────────────────────
 
     @SerialName("request_photo")
-    REQUEST_PHOTO
+    REQUEST_PHOTO,
+    @SerialName("vuln_submit")
+    VULN_SUBMIT,
+    @SerialName("vuln_validate")
+    VULN_VALIDATE,
+    @SerialName("vuln_list")
+    VULN_LIST,
+    @SerialName("vuln_classify")
+    VULN_CLASSIFY,
+    @SerialName("audit_query")
+    AUDIT_QUERY,
+    @SerialName("gpio_read")
+    GPIO_READ,
+    @SerialName("gpio_set")
+    GPIO_SET,
+    @SerialName("gpio_mode")
+    GPIO_MODE,
+    @SerialName("apps_list")
+    APPS_LIST,
+    @SerialName("get_system_info")
+    GET_SYSTEM_INFO,
+    @SerialName("nfc_detect")
+    NFC_DETECT,
+    @SerialName("rfid_read")
+    RFID_READ,
+    @SerialName("rfid_write")
+    RFID_WRITE,
+    @SerialName("ir_receive")
+    IR_RECEIVE,
+    @SerialName("badusb_validate")
+    BADUSB_VALIDATE,
+    @SerialName("badusb_diff")
+    BADUSB_DIFF,
 }
 
 @Serializable
@@ -165,7 +197,24 @@ data class CommandArgs(
     @SerialName("search_scope")
     val searchScope: String? = null,
     @SerialName("photo_prompt")
-    val photoPrompt: String? = null
+    val photoPrompt: String? = null,
+    val target: String? = null,
+    @SerialName("vuln_type") val vulnType: String? = null,
+    val description: String? = null,
+    val evidence: String? = null,
+    val severity: String? = null,
+    val complexity: Int? = null,
+    @SerialName("vuln_id") val vulnId: String? = null,
+    val reproduced: Boolean? = null,
+    val notes: String? = null,
+    val status: String? = null,
+    val limit: Int? = null,
+    @SerialName("risk_level") val riskLevel: String? = null,
+    val pin: String? = null,
+    val value: Int? = null,
+    val mode: Int? = null,
+    @SerialName("key_type") val keyType: String? = null,
+    @SerialName("key_data") val keyData: String? = null
 )
 
 /**

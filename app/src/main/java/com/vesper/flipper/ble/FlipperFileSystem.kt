@@ -260,6 +260,17 @@ class FlipperFileSystem @Inject constructor(
         }
     }
 
+    suspend fun executeTypedUsbCommand(command: String): Result<String> {
+        val response = protocol.sendTypedUsbCommand(validateCliCommand(command))
+        return when (response) {
+            is ProtocolResponse.Success -> Result.success(response.message)
+            is ProtocolResponse.FileContent -> Result.success(response.content)
+            is ProtocolResponse.BinaryContent -> Result.success(response.data.toString(Charsets.UTF_8))
+            is ProtocolResponse.Error -> Result.failure(FlipperException(response.message, response.code))
+            else -> Result.failure(FlipperException("Unexpected typed command response"))
+        }
+    }
+
     suspend fun executeCli(command: String): Result<String> {
         val startedAt = System.currentTimeMillis()
         fun finish(

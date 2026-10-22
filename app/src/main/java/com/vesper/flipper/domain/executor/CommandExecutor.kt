@@ -3,6 +3,7 @@ package com.vesper.flipper.domain.executor
 import com.vesper.flipper.ble.FlipperFileSystem
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.*
+import com.vesper.flipper.domain.service.VulnTriageService
 import com.vesper.flipper.domain.service.AuditService
 import com.vesper.flipper.domain.service.DiffService
 import com.vesper.flipper.domain.service.PermissionService
@@ -38,6 +39,8 @@ class CommandExecutor @Inject constructor(
     private val forgeEngine: ForgeEngine,
     private val settingsStore: SettingsStore
 ) {
+
+    @Inject lateinit var vulnTriage: com.vesper.flipper.domain.service.VulnTriageService
 
     private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
 
@@ -374,8 +377,110 @@ class CommandExecutor @Inject constructor(
         )
     }
 
+    private fun requireNonBlank(value: String?, name: String): String = value?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("$name required")
+
     private suspend fun executeAction(command: ExecuteCommand): CommandResultData? {
         return when (command.action) {
+            CommandAction.VULN_SUBMIT -> {
+                val severity = VulnTriageService.Severity.from(command.args.severity)
+                    ?: throw IllegalArgumentException("severity must be one of critical/high/medium/low")
+                val complexity = command.args.complexity
+                    ?: throw IllegalArgumentException("complexity (1-10) required")
+                val finding = vulnTriage.submit(
+                    VulnTriageService.SubmitRequest(
+                        target = requireNonBlank(command.args.target, "target"),
+                        vulnType = requireNonBlank(command.args.vulnType, "vuln_type"),
+                        description = requireNonBlank(command.args.description, "description"),
+                        evidence = requireNonBlank(command.args.evidence, "evidence"),
+                        severity = severity,
+                        complexity = complexity,
+                    )
+                )
+                CommandResultData(
+                    content = vulnTriage.renderFinding(finding, prefix = "Submitted"),
+                    message = "Submitted vulnerability ${finding.id} (${finding.severity.uppercase()})"
+                )
+            }
+
+            CommandAction.VULN_VALIDATE -> {
+                val vulnId = requireNonBlank(command.args.vulnId, "vuln_id")
+                val reproduced = command.args.reproduced
+                    ?: throw IllegalArgumentException("reproduced (boolean) required")
+                val updated = vulnTriage.validate(
+                    VulnTriageService.ValidateRequest(
+                        vulnId = vulnId,
+                        reproduced = reproduced,
+                        notes = command.args.notes,
+                    )
+                ) ?: throw IllegalArgumentException("Vulnerability $vulnId not found")
+                CommandResultData(
+                    content = vulnTriage.renderFinding(updated, prefix = "Validated"),
+                    message = "Validated ${updated.id}: ${updated.status.uppercase()} (attempts=${updated.reproductionAttempts})"
+                )
+            }
+
+            CommandAction.VULN_LIST -> {
+                val filters = VulnTriageService.ListFilters(
+                    target = command.args.target?.takeIf { it.isNotBlank() },
+                    severity = command.args.severity?.let { VulnTriageService.Severity.from(it) ?: throw IllegalArgumentException("Invalid severity filter") },
+                    status = command.args.status?.let { VulnTriageService.Status.from(it) ?: throw IllegalArgumentException("Invalid status filter") },
+                )
+                val findings = vulnTriage.list(filters)
+                CommandResultData(
+                    content = vulnTriage.renderList(findings),
+                    message = "Listed ${findings.size} vulnerability finding(s)"
+                )
+            }
+
+            CommandAction.VULN_CLASSIFY -> {
+                val vulnType = requireNonBlank(command.args.vulnType, "vuln_type")
+                val result = vulnTriage.classify(vulnType, command.args.vulnId)
+                CommandResultData(
+                    content = vulnTriage.renderClassification(result),
+                    message = "Classified $vulnType → ${result.severity.wire.uppercase()}"
+                )
+            }
+
+            // ── Audit query ───────────────────────────────────────────
+            CommandAction.AUDIT_QUERY -> {
+                val limit = command.args.limit ?: 20
+                val actionFilter = command.args.command?.trim()?.takeIf { it.isNotEmpty() }
+                val riskFilter = command.args.riskLevel?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
+                    ?.let { raw ->
+                        try {
+                            RiskLevel.valueOf(raw)
+                        } catch (e: IllegalArgumentException) {
+                            throw IllegalArgumentException(
+                                "risk_level must be one of LOW/MEDIUM/HIGH/BLOCKED, got '$raw'"
+                            )
+                        }
+                    }
+                val entries = auditService.queryRecent(limit, actionFilter, riskFilter)
+                CommandResultData(
+                    content = entries.joinToString("\n") { "${it.timestamp} ${it.actionType} ${it.riskLevel} ${it.sessionId}" },
+                    message = "Audit query: ${entries.size} entr(y|ies)"
+                )
+            }
+
+            CommandAction.GPIO_READ, CommandAction.GPIO_SET, CommandAction.GPIO_MODE,
+            CommandAction.APPS_LIST, CommandAction.GET_SYSTEM_INFO, CommandAction.NFC_DETECT,
+            CommandAction.RFID_READ, CommandAction.RFID_WRITE, CommandAction.IR_RECEIVE ->
+                CommandResultData(content = fileSystem.executeTypedUsbCommand(TypedDeviceCommands.render(command.action, command.args)).getOrThrow())
+            CommandAction.BADUSB_VALIDATE -> {
+                val text = requireNonBlank(command.args.content, "content")
+                require(text.length <= 65536) { "Script too large" }
+                val invalid = text.lineSequence().withIndex().filter { (_, line) ->
+                    val op = line.trim().substringBefore(' ')
+                    op.isNotEmpty() && op !in setOf("REM", "STRING", "STRINGLN", "DELAY", "DEFAULT_DELAY", "ENTER", "GUI", "CTRL", "ALT", "SHIFT", "TAB", "ESC", "BACKSPACE", "UP", "DOWN", "LEFT", "RIGHT")
+                }.map { it.index + 1 }.toList()
+                CommandResultData(content = if (invalid.isEmpty()) "Syntax subset accepted; review target behavior before execution" else "Unsupported instructions on lines $invalid")
+            }
+            CommandAction.BADUSB_DIFF -> {
+                val existing = fileSystem.readFile(requireNonBlank(command.args.path, "path")).getOrThrow()
+                val diff = diffService.computeDiff(existing, requireNonBlank(command.args.content, "content"))
+                CommandResultData(content = diff.unifiedDiff, diff = diff)
+            }
+
             CommandAction.LIST_DIRECTORY -> {
                 val path = command.args.path ?: "/ext"
                 val entries = fileSystem.listDirectory(path).getOrThrow()

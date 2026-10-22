@@ -50,6 +50,9 @@ data class AuditEntryEntity(
 
 @Dao
 interface AuditDao {
+    @Query("SELECT * FROM audit_entries WHERE (:action IS NULL OR actionType = :action) AND (:risk IS NULL OR riskLevel = :risk) ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun queryFiltered(limit: Int, action: String?, risk: String?): List<AuditEntryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: AuditEntryEntity)
 

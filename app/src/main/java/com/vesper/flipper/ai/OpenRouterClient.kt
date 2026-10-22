@@ -875,7 +875,24 @@ class OpenRouterClient @Inject constructor(
                 downloadUrl = stringArg("download_url", "downloadUrl", "url"),
                 searchScope = stringArg("search_scope", "searchScope", "scope"),
                 // Smartglasses camera
-                photoPrompt = stringArg("photo_prompt", "photoPrompt")
+                photoPrompt = stringArg("photo_prompt", "photoPrompt"),
+                target = stringArg("target"),
+                vulnType = stringArg("vuln_type"),
+                description = stringArg("description"),
+                evidence = stringArg("evidence"),
+                severity = stringArg("severity"),
+                complexity = intArg("complexity"),
+                vulnId = stringArg("vuln_id"),
+                reproduced = booleanArg("reproduced"),
+                notes = stringArg("notes"),
+                status = stringArg("status"),
+                limit = intArg("limit"),
+                riskLevel = stringArg("risk_level"),
+                pin = stringArg("pin"),
+                value = intArg("value"),
+                mode = intArg("mode"),
+                keyType = stringArg("key_type"),
+                keyData = stringArg("key_data")
             )
 
             val missingArgs = missingRequiredArgs(action, args)
@@ -947,6 +964,22 @@ class OpenRouterClient @Inject constructor(
             "ble_spam", "blespam", "ble_advertisement_spam" -> CommandAction.BLE_SPAM
             "led_control", "set_led", "led" -> CommandAction.LED_CONTROL
             "vibro_control", "vibro", "vibration" -> CommandAction.VIBRO_CONTROL
+            "vuln_submit" -> CommandAction.VULN_SUBMIT
+            "vuln_validate" -> CommandAction.VULN_VALIDATE
+            "vuln_list" -> CommandAction.VULN_LIST
+            "vuln_classify" -> CommandAction.VULN_CLASSIFY
+            "audit_query" -> CommandAction.AUDIT_QUERY
+            "gpio_read" -> CommandAction.GPIO_READ
+            "gpio_set" -> CommandAction.GPIO_SET
+            "gpio_mode" -> CommandAction.GPIO_MODE
+            "apps_list" -> CommandAction.APPS_LIST
+            "get_system_info" -> CommandAction.GET_SYSTEM_INFO
+            "nfc_detect" -> CommandAction.NFC_DETECT
+            "rfid_read" -> CommandAction.RFID_READ
+            "rfid_write" -> CommandAction.RFID_WRITE
+            "ir_receive" -> CommandAction.IR_RECEIVE
+            "badusb_validate" -> CommandAction.BADUSB_VALIDATE
+            "badusb_diff" -> CommandAction.BADUSB_DIFF
             "request_photo", "take_photo", "capture_photo", "photo", "snap_photo" -> CommandAction.REQUEST_PHOTO
             else -> null
         }
@@ -1166,6 +1199,22 @@ class OpenRouterClient @Inject constructor(
             CommandAction.BLE_SPAM -> emptyList()  // no required args
             CommandAction.LED_CONTROL -> emptyList()  // defaults to 0,0,0
             CommandAction.VIBRO_CONTROL -> emptyList()  // defaults to on
+            CommandAction.VULN_SUBMIT -> emptyList()
+            CommandAction.VULN_VALIDATE -> emptyList()
+            CommandAction.VULN_LIST -> emptyList()
+            CommandAction.VULN_CLASSIFY -> emptyList()
+            CommandAction.AUDIT_QUERY -> emptyList()
+            CommandAction.GPIO_READ -> emptyList()
+            CommandAction.GPIO_SET -> emptyList()
+            CommandAction.GPIO_MODE -> emptyList()
+            CommandAction.APPS_LIST -> emptyList()
+            CommandAction.GET_SYSTEM_INFO -> emptyList()
+            CommandAction.NFC_DETECT -> emptyList()
+            CommandAction.RFID_READ -> emptyList()
+            CommandAction.RFID_WRITE -> emptyList()
+            CommandAction.IR_RECEIVE -> emptyList()
+            CommandAction.BADUSB_VALIDATE -> emptyList()
+            CommandAction.BADUSB_DIFF -> emptyList()
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1230,6 +1279,22 @@ class OpenRouterClient @Inject constructor(
                 """{"action":"download_resource","args":{"download_url":"https://raw.githubusercontent.com/...","path":"/ext/infrared/remote.ir"}}"""
             CommandAction.GITHUB_SEARCH ->
                 """{"action":"github_search","args":{"command":"Samsung TV remote extension:ir","search_scope":"code"}}"""
+            CommandAction.VULN_SUBMIT -> """{"action":"vuln_submit","args":{}}"""
+            CommandAction.VULN_VALIDATE -> """{"action":"vuln_validate","args":{}}"""
+            CommandAction.VULN_LIST -> """{"action":"vuln_list","args":{}}"""
+            CommandAction.VULN_CLASSIFY -> """{"action":"vuln_classify","args":{}}"""
+            CommandAction.AUDIT_QUERY -> """{"action":"audit_query","args":{}}"""
+            CommandAction.GPIO_READ -> """{"action":"gpio_read","args":{}}"""
+            CommandAction.GPIO_SET -> """{"action":"gpio_set","args":{}}"""
+            CommandAction.GPIO_MODE -> """{"action":"gpio_mode","args":{}}"""
+            CommandAction.APPS_LIST -> """{"action":"apps_list","args":{}}"""
+            CommandAction.GET_SYSTEM_INFO -> """{"action":"get_system_info","args":{}}"""
+            CommandAction.NFC_DETECT -> """{"action":"nfc_detect","args":{}}"""
+            CommandAction.RFID_READ -> """{"action":"rfid_read","args":{}}"""
+            CommandAction.RFID_WRITE -> """{"action":"rfid_write","args":{}}"""
+            CommandAction.IR_RECEIVE -> """{"action":"ir_receive","args":{}}"""
+            CommandAction.BADUSB_VALIDATE -> """{"action":"badusb_validate","args":{}}"""
+            CommandAction.BADUSB_DIFF -> """{"action":"badusb_diff","args":{}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }
@@ -1512,6 +1577,7 @@ class OpenRouterClient @Inject constructor(
                                 JsonPrimitive("browse_repo"),
                                 JsonPrimitive("download_resource"),
                                 JsonPrimitive("github_search"),
+                                JsonPrimitive("vuln_submit"),JsonPrimitive("vuln_validate"),JsonPrimitive("vuln_list"),JsonPrimitive("vuln_classify"),JsonPrimitive("audit_query"),JsonPrimitive("gpio_read"),JsonPrimitive("gpio_set"),JsonPrimitive("gpio_mode"),JsonPrimitive("apps_list"),JsonPrimitive("get_system_info"),JsonPrimitive("nfc_detect"),JsonPrimitive("rfid_read"),JsonPrimitive("rfid_write"),JsonPrimitive("ir_receive"),JsonPrimitive("badusb_validate"),JsonPrimitive("badusb_diff"),
                                 JsonPrimitive("request_photo")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero (request_photo requires smart glasses)")
@@ -1637,6 +1703,23 @@ class OpenRouterClient @Inject constructor(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Scope for github_search: 'repositories' (find repos) or 'code' (find files). Default: 'code'. Use 'code' with file extensions like 'extension:ir' or 'extension:sub'.")
                                 )),
+                                "target" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("target for feature-specific actions"))),
+                                "vuln_type" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("vuln_type for feature-specific actions"))),
+                                "description" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("description for feature-specific actions"))),
+                                "evidence" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("evidence for feature-specific actions"))),
+                                "severity" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("severity for feature-specific actions"))),
+                                "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("complexity for feature-specific actions"))),
+                                "vuln_id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("vuln_id for feature-specific actions"))),
+                                "reproduced" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("reproduced for feature-specific actions"))),
+                                "notes" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("notes for feature-specific actions"))),
+                                "status" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("status for feature-specific actions"))),
+                                "limit" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("limit for feature-specific actions"))),
+                                "risk_level" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("risk_level for feature-specific actions"))),
+                                "pin" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("pin for feature-specific actions"))),
+                                "value" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("value for feature-specific actions"))),
+                                "mode" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("mode for feature-specific actions"))),
+                                "key_type" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("key_type for feature-specific actions"))),
+                                "key_data" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("key_data for feature-specific actions"))),
                                 "photo_prompt" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Vision analysis prompt for request_photo. Describe what you want to identify (e.g. 'Identify the TV brand and model', 'What device is this?'). Falls back to 'prompt' if not set.")

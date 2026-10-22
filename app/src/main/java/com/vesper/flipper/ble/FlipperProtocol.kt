@@ -1409,6 +1409,11 @@ class FlipperProtocol @Inject constructor() {
      * This sends commands in a format the Flipper CLI understands.
      * Note: Requires Flipper firmware that supports CLI on the active transport.
      */
+    suspend fun sendTypedUsbCommand(command: String): ProtocolResponse {
+        if (bleService?.usesUsbCommandTransport() != true) return ProtocolResponse.Error("Typed CLI operation requires a connected USB transport; raw CLI over BLE is unsupported")
+        return sendCliCommand(command)
+    }
+
     suspend fun sendCliCommand(command: String): ProtocolResponse {
         val normalizedCommand = normalizeCliCommand(command)
         val commandVariants = buildCliCommandVariants(normalizedCommand)
