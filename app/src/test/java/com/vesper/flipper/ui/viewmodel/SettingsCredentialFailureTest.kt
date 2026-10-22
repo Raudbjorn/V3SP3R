@@ -41,6 +41,8 @@ class SettingsCredentialFailureTest {
             LlmSelection(provider.value, savedKey.value, provider.value.defaultModel)
         }
         whenever(store.setProvider(any())).thenAnswer { provider.value = it.getArgument(0); Unit }
+        whenever(store.extendedThinking).thenReturn(flowOf(false))
+        whenever(store.reasoningEffort).thenReturn(flowOf("medium"))
         whenever(store.selectedModel).thenReturn(flowOf(SettingsStore.DEFAULT_MODEL))
         whenever(store.aiMaxIterations).thenReturn(flowOf(8))
         whenever(store.autoConnect).thenReturn(flowOf(true))
