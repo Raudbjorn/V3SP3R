@@ -1327,6 +1327,9 @@ class FlipperProtocol @Inject constructor() {
     companion object {
         const val COMMAND_TIMEOUT_MS = 5_000L
         private const val MAX_FRAME_SIZE = 256 * 1024
+        // Storage reads contain many bounded frames; allow a complete catalog app
+        // (up to 10 MiB) plus protobuf framing without an unbounded collector.
+        private const val MAX_RPC_RESPONSE_BYTES = 16 * 1024 * 1024
         private const val RAW_CLI_TIMEOUT_MS = 3_000L
         private const val RAW_CLI_PROBE_TIMEOUT_MS = 900L
         private const val RAW_CLI_QUIET_PERIOD_MS = 220L
@@ -3774,7 +3777,7 @@ class FlipperProtocol @Inject constructor() {
 
         fun append(data: ByteArray) {
             synchronized(buffer) {
-                if (buffer.size() + data.size > MAX_FRAME_SIZE) {
+                if (buffer.size() + data.size > MAX_RPC_RESPONSE_BYTES) {
                     overflow = true
                     return
                 }
