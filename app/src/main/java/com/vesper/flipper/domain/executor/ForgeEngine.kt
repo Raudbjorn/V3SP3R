@@ -2,6 +2,7 @@ package com.vesper.flipper.domain.executor
 
 import com.vesper.flipper.ai.OpenRouterClient
 import com.vesper.flipper.domain.model.*
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,19 +15,27 @@ class ForgeEngine @Inject constructor(
     private val openRouterClient: OpenRouterClient
 ) {
 
+    internal fun resolvePayloadTypeHint(hint: String?): PayloadType? = when (val normalized = hint?.trim()?.uppercase()) {
+        "BADUSB" -> PayloadType.BAD_USB
+        "SUBGHZ" -> PayloadType.SUB_GHZ
+        "IR" -> PayloadType.INFRARED
+        null -> null
+        else -> runCatching { PayloadType.valueOf(normalized) }.getOrNull()
+    }
+
     /**
      * Generate a fully-formed ForgeBlueprint from a user prompt.
      * Uses AI to create real payload content, then validates it.
      */
     suspend fun forge(prompt: String, payloadTypeHint: String? = null): ForgeResult {
-        val resolvedType = payloadTypeHint?.uppercase()?.let {
-            runCatching { PayloadType.valueOf(it) }.getOrNull()
-        } ?: LootClassifier.detectPayloadType(prompt, "")
+        val resolvedType = resolvePayloadTypeHint(payloadTypeHint) ?: LootClassifier.detectPayloadType(prompt, "")
 
         val forgePrompt = buildForgePrompt(prompt, resolvedType)
 
         val aiResponse = try {
             openRouterClient.chatSimple(forgePrompt)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             return ForgeResult(
                 blueprint = generateFallbackBlueprint(prompt, resolvedType),
@@ -63,9 +72,7 @@ class ForgeEngine @Inject constructor(
      * Generate a fallback blueprint without AI (offline / error case).
      */
     fun fallback(prompt: String, payloadTypeHint: String? = null): ForgeResult {
-        val resolvedType = payloadTypeHint?.uppercase()?.let {
-            runCatching { PayloadType.valueOf(it) }.getOrNull()
-        } ?: LootClassifier.detectPayloadType(prompt, "")
+        val resolvedType = resolvePayloadTypeHint(payloadTypeHint) ?: LootClassifier.detectPayloadType(prompt, "")
 
         val blueprint = generateFallbackBlueprint(prompt, resolvedType)
         val validation = ForgeValidator.validate(blueprint.generatedCode, blueprint.payloadType)
@@ -357,7 +364,7 @@ Include proper Flipper Zero file headers."""
                 line.trim() == "---PAYLOAD---" -> inPayload = true
                 line.startsWith("TYPE:") -> {
                     val typeStr = line.substringAfter(":").trim()
-                    type = try { PayloadType.valueOf(typeStr) } catch (_: Exception) { fallbackType }
+                    type = resolvePayloadTypeHint(typeStr) ?: fallbackType
                 }
                 line.startsWith("TITLE:") -> title = line.substringAfter(":").trim()
                 line.startsWith("FILENAME:") -> filename = line.substringAfter(":").trim()

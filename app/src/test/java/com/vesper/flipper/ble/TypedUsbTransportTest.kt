@@ -5,6 +5,42 @@ import org.junit.Test
 import org.mockito.kotlin.*
 
 class TypedUsbTransportTest {
+    @Test fun rejectedRpcToolsPreserveCliAndNextTypedCommandCanRun() = runBlocking<Unit> {
+        val service = mock<FlipperBleService>()
+        whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+        whenever(service.isCommandTransportConnected()).thenReturn(true)
+        val protocol = FlipperProtocol().apply { setBleService(service) }
+        protocol.confirmExplicitUsbCliSession("hardware_model: 1\nfirmware_version: 1.4.3")
+        assertTrue(protocol.getDeviceInfo() is ProtocolResponse.Error)
+        assertTrue(protocol.getStorageInfo() is ProtocolResponse.Error)
+        assertTrue(protocol.listDirectory("/ext") is ProtocolResponse.Error)
+        assertTrue(protocol.sendCliCommand("device_info") is ProtocolResponse.Error)
+        assertTrue(protocol.sendRawCliCommand("start_rpc_session") is ProtocolResponse.Error)
+        org.junit.Assert.assertFalse(protocol.sendRawCli("start_rpc_session"))
+        assertTrue(protocol.isConfirmedUsbCliSession())
+        verify(service, never()).sendData(any(), any(), any(), any())
+        whenever(service.sendUsbDataOnly(any())).thenAnswer {
+            protocol.processIncomingData("1\r\n>: ".toByteArray()); true
+        }
+        val reply = protocol.sendTypedUsbCommand("gpio read PA7")
+        org.junit.Assert.assertEquals("1", (reply as ProtocolResponse.FileContent).content)
+        verify(service, times(1)).sendUsbDataOnly(any())
+    }
+
+    @Test fun explicitCliReadinessRequiresPublishedConnection() {
+        val service = mock<FlipperBleService>()
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+        whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        val protocol = FlipperProtocol().apply { setBleService(service) }
+        val identity = "hardware_model: 1\nfirmware_version: 1.4.3"
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) { protocol.confirmExplicitUsbCliSession(identity) }
+        whenever(service.isCommandTransportConnected()).thenReturn(true)
+        protocol.confirmExplicitUsbCliSession(identity)
+        assertTrue(protocol.isConfirmedUsbCliSession())
+        assertTrue(protocol.firmwareCompatibility.value.supportsCli)
+    }
+
     @Test fun observedCliWithoutExplicitSelectionCannotWriteEitherSink() = runBlocking<Unit> {
         val service = mock<FlipperBleService>()
         whenever(service.isRawCliTransportConnected()).thenReturn(true)

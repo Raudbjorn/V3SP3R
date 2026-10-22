@@ -69,3 +69,32 @@ class BleOperationPolicyTest {
         assertTrue(restored)
     }
 }
+
+class BleOwnedTimeoutTest {
+    @Test fun ownedTimeoutBecomesFailureAndRunsCleanup() = runTest {
+        var cleaned = false
+        try {
+            withBleOperationTimeout(10) { try { awaitCancellation() } finally { cleaned = true } }
+            fail("Expected operation timeout")
+        } catch (failure: BleOperationTimeoutException) { assertTrue(failure.message!!.contains("outcome may be unknown")) }
+        assertTrue(cleaned)
+        assertTrue(currentCoroutineContext().isActive)
+        assertNull(withBleOperationTimeout<String?>(10) { null })
+    }
+    @Test fun parentDeadlineAndExplicitCancellationRemainCancellation() = runTest {
+        try {
+            withTimeout(10) { withBleOperationTimeout(100) { awaitCancellation() } }
+            fail("Parent timeout must propagate")
+        } catch (_: TimeoutCancellationException) { }
+        var cleaned = false
+        val started = CompletableDeferred<Unit>()
+        val job = launch {
+            withBleOperationTimeout(1000) {
+                try { started.complete(Unit); awaitCancellation() } finally { cleaned = true }
+            }
+        }
+        started.await(); job.cancelAndJoin()
+        assertTrue(job.isCancelled)
+        assertTrue(cleaned)
+    }
+}

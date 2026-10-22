@@ -123,7 +123,7 @@ object ExecuteCommandSchemaGenerator {
         ArgSpec("resource_type", "string", "Resource type filter for search_resources"),
         ArgSpec("runbook_id", "string", "Runbook identifier (for run_runbook action)"),
         ArgSpec("payload_type", "string", "Type of payload to generate (for forge_payload action)",
-            enum = listOf("subghz", "ir", "badusb", "nfc")),
+            enum = listOf("sub_ghz", "infrared", "nfc", "rfid", "bad_usb", "ibutton")),
         ArgSpec("filter", "string", "Filter string for list_vault"),
         ArgSpec("app_name", "string", "Application name (for launch_app action)"),
         ArgSpec("app_args", "string", "Arguments passed to the launched app; also used as the ble_spam mode string"),
@@ -233,7 +233,7 @@ object ExecuteCommandSchemaGenerator {
             "User wants to install the selected FapHub app",
             "Install the WiFi Marauder .fap onto the Flipper"),
         Example("forge_payload", mapOf(
-            "payload_type" to s("badusb"),
+            "payload_type" to s("bad_usb"),
             "prompt" to s("Open a browser to example.com"),
         ),
             "User wants a generated BadUSB payload",

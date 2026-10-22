@@ -74,6 +74,7 @@ class FlipperBleService : Service() {
     private var usbDeviceConnection: UsbDeviceConnection? = null
     private var connectedUsbDevice: UsbDevice? = null
     private var usbReadJob: Job? = null
+    private var usbBootstrapJob: Job? = null
     private val desktopBridgeConnectMutex = Mutex()
     private val desktopBridgeSession = DesktopBridgeSession()
     private val desktopBridgeSocket: Socket? get() = desktopBridgeSession.current()
@@ -792,7 +793,9 @@ class FlipperBleService : Service() {
                 val cliIdentity = if (ticket.mode == UsbSessionMode.CLI) {
                     UsbCliHandshake.confirm(port) { transportLifecycle.active && usbPermissionRequests.isCurrent(ticket) }
                 } else {
-                    primeUsbRpcSession(port)
+                    primeUsbRpcSession(port) { action ->
+                        usbPermissionRequests.startIfCurrent(ticket) { action(); true }
+                    }
                     null
                 }
                 currentCoroutineContext().ensureActive()
@@ -809,7 +812,6 @@ class FlipperBleService : Service() {
                         connectedUsbDevice = device
                         activeTransport = CommandTransport.USB
                         flipperProtocol.onConnectionReset()
-                        if (cliIdentity != null) flipperProtocol.confirmExplicitUsbCliSession(cliIdentity)
                         startUsbReadLoop(port)
 
                         val deviceName = resolveUsbDeviceName(device)
@@ -820,12 +822,17 @@ class FlipperBleService : Service() {
                             isConfirmedFlipper = true
                         )
                         _connectionState.value = ConnectionState.Connected("$deviceName (USB)")
+                        if (cliIdentity != null) flipperProtocol.confirmExplicitUsbCliSession(cliIdentity)
                         updateNotification()
 
-                        if (ticket.mode == UsbSessionMode.RPC) serviceScope.launch {
-                            if (usbSerialPort !== port || !isUsbCommandTransportConnected()) return@launch
-                            validateUsbBaudWithRpcProbe(port)
-                            flipperProtocol.probeCliAvailability(force = true)
+                        if (ticket.mode == UsbSessionMode.RPC) {
+                            usbBootstrapJob?.cancel()
+                            usbBootstrapJob = serviceScope.launch {
+                                ensureCurrentUsbRpcPort(port)
+                                validateUsbBaudWithRpcProbe(port)
+                                ensureCurrentUsbRpcPort(port)
+                                flipperProtocol.probeCliAvailability(force = true)
+                            }
                         }
                         true
                       }
@@ -859,59 +866,56 @@ class FlipperBleService : Service() {
         }
     }
 
-    private suspend fun primeUsbRpcSession(port: UsbSerialPort) {
-        flipperProtocol.onRpcDispatch()
+    /** All published-port bootstrap state changes are serialized with USB replacement. */
+    internal fun withCurrentUsbRpcPort(port: UsbSerialPort, action: () -> Unit): Boolean =
+        synchronized(usbSessionLock) {
+            if (activeTransport != CommandTransport.USB || usbSerialPort !== port || usbSessionMode != UsbSessionMode.RPC) false
+            else { action(); true }
+        }
+
+    private suspend fun ensureCurrentUsbRpcPort(port: UsbSerialPort) {
+        currentCoroutineContext().ensureActive()
+        if (!withCurrentUsbRpcPort(port) {}) throw CancellationException("USB RPC bootstrap superseded")
+    }
+
+    private suspend fun primeUsbRpcSession(
+        port: UsbSerialPort,
+        withOwner: (() -> Unit) -> Boolean
+    ) {
+        currentCoroutineContext().ensureActive()
+        if (!withOwner { flipperProtocol.onRpcDispatch() }) throw CancellationException("USB prime superseded")
         drainUsbInput(port, USB_RPC_PRIME_DRAIN_WINDOW_MS)
         USB_RPC_PRIME_COMMANDS.forEach { command ->
             currentCoroutineContext().ensureActive()
-            runCatching {
-                port.write(command.toByteArray(Charsets.UTF_8), USB_WRITE_TIMEOUT_MS.toInt())
-            }
+            if (!withOwner {}) throw CancellationException("USB prime superseded")
+            runCatching { port.write(command.toByteArray(Charsets.UTF_8), USB_WRITE_TIMEOUT_MS.toInt()) }
             delay(USB_RPC_PRIME_COMMAND_DELAY_MS)
         }
     }
 
     private suspend fun validateUsbBaudWithRpcProbe(port: UsbSerialPort) {
+        ensureCurrentUsbRpcPort(port)
         val currentBaud = currentUsbBaudRate
-        val initialProbe = flipperProtocol.probeRpcAvailability(
-            detail = if (currentBaud != null) {
-                "RPC ping responded after USB connect bootstrap (baud=$currentBaud)"
-            } else {
-                "RPC ping responded after USB connect bootstrap"
-            }
-        )
-        if (initialProbe.supportsRpc) {
-            return
-        }
-
-        val fallbackBauds = USB_BAUD_RATE_CANDIDATES.filter { it != currentBaud }
-        for (baud in fallbackBauds) {
-            if (activeTransport != CommandTransport.USB || usbSerialPort !== port) {
-                return
-            }
-
+        val initialProbe = flipperProtocol.probeRpcAvailability(detail = "RPC ping after USB bootstrap (baud=$currentBaud)")
+        ensureCurrentUsbRpcPort(port)
+        if (initialProbe.supportsRpc) return
+        for (baud in USB_BAUD_RATE_CANDIDATES.filter { it != currentBaud }) {
+            ensureCurrentUsbRpcPort(port)
             val reconfigured = runCatching {
-                port.setParameters(
-                    baud,
-                    USB_DATA_BITS,
-                    UsbSerialPort.STOPBITS_1,
-                    UsbSerialPort.PARITY_NONE
-                )
+                port.setParameters(baud, USB_DATA_BITS, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
             }.isSuccess
             if (!reconfigured) continue
-
-            currentUsbBaudRate = baud
+            ensureCurrentUsbRpcPort(port)
+            if (!withCurrentUsbRpcPort(port) { currentUsbBaudRate = baud }) throw CancellationException("USB baud update superseded")
             drainUsbInput(port, USB_RPC_BAUD_RETRY_DRAIN_WINDOW_MS)
-            primeUsbRpcSession(port)
-            flipperProtocol.onConnectionReset()
-
-            val probe = flipperProtocol.probeRpcAvailability(
-                detail = "RPC ping responded after USB baud fallback (baud=$baud)"
-            )
-            if (probe.supportsRpc) {
-                Log.i(TAG, "USB RPC probe recovered after baud fallback to $baud")
-                return
-            }
+            ensureCurrentUsbRpcPort(port)
+            primeUsbRpcSession(port) { action -> withCurrentUsbRpcPort(port, action) }
+            ensureCurrentUsbRpcPort(port)
+            if (!withCurrentUsbRpcPort(port) { flipperProtocol.onConnectionReset() }) throw CancellationException("USB reset superseded")
+            ensureCurrentUsbRpcPort(port)
+            val probe = flipperProtocol.probeRpcAvailability(detail = "RPC ping after USB baud fallback (baud=$baud)")
+            ensureCurrentUsbRpcPort(port)
+            if (probe.supportsRpc) return
         }
     }
 
@@ -1267,6 +1271,8 @@ class FlipperBleService : Service() {
     ) {
         if (!preserveRequest) usbPermissionRequests.cancel()
         synchronized(usbSessionLock) {
+        usbBootstrapJob?.cancel()
+        usbBootstrapJob = null
         usbReadJob?.cancel()
         usbReadJob = null
         runCatching { usbSerialPort?.close() }

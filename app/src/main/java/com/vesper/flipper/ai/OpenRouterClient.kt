@@ -1296,7 +1296,7 @@ class OpenRouterClient {
             CommandAction.EXECUTE_CLI ->
                 """{"action":"execute_cli","args":{"command":"storage list /ext"}}"""
             CommandAction.FORGE_PAYLOAD ->
-                """{"action":"forge_payload","args":{"prompt":"Create a BadUSB script that opens notepad","payload_type":"BAD_USB"}}"""
+                """{"action":"forge_payload","args":{"prompt":"Create a BadUSB script that opens notepad","payload_type":"bad_usb"}}"""
             CommandAction.SEARCH_RESOURCES ->
                 """{"action":"search_resources","args":{"command":"infrared remotes","resource_type":"IR_REMOTE"}}"""
             CommandAction.LIST_VAULT ->
@@ -1648,7 +1648,8 @@ class OpenRouterClient {
                                 )),
                                 "payload_type" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Payload type for forge_payload: SUB_GHZ, INFRARED, NFC, RFID, BAD_USB, IBUTTON")
+                                    "enum" to JsonArray(listOf("sub_ghz", "infrared", "nfc", "rfid", "bad_usb", "ibutton").map(::JsonPrimitive)),
+                                    "description" to JsonPrimitive("Canonical forge format: sub_ghz/infrared/nfc/rfid/bad_usb/ibutton. Historical subghz/ir/badusb aliases remain accepted.")
                                 )),
                                 "resource_type" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),

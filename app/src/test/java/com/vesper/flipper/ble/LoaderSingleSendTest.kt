@@ -7,6 +7,9 @@ import org.junit.Test
 import org.mockito.kotlin.*
 
 class LoaderSingleSendTest {
+    private fun observedCli(protocol: FlipperProtocol): Boolean = FlipperProtocol::class.java
+        .getDeclaredField("observedCommandSessionMode").apply { isAccessible = true }.get(protocol).toString() == "CLI"
+
     @Suppress("UNCHECKED_CAST")
     private fun status(protocol: FlipperProtocol, supportsRpc: Boolean = false, confirmed: Boolean = true) {
         val flow = FlipperProtocol::class.java.getDeclaredField("_cliStatus").apply { isAccessible = true }
@@ -94,7 +97,7 @@ class LoaderSingleSendTest {
         verify(service, times(1)).sendUsbDataOnly(any())
     }
 
-    @Test fun `RPC dispatch invalidates CLI even when the write fails`() = runBlocking<Unit> {
+    @Test fun `selected CLI rejects binary dispatch without changing confirmation`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
@@ -108,12 +111,11 @@ class LoaderSingleSendTest {
                 Long::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, kotlin.coroutines.Continuation::class.java)
                 .apply { isAccessible = true }.invoke(protocol, byteArrayOf(1), 10L, true, continuation)
         }
-        assertFalse(protocol.isConfirmedUsbCliSession())
-        assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
+        assertTrue(protocol.isConfirmedUsbCliSession())
         verify(service, never()).sendUsbDataOnly(any())
     }
 
-    @Test fun `single RPC collector revokes observed CLI and refuses selected CLI mode`() = runBlocking<Unit> {
+    @Test fun `single RPC collector refuses selected CLI mode without changing confirmation`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
@@ -133,8 +135,7 @@ class LoaderSingleSendTest {
                 .invoke(protocol, byteArrayOf(1), 7, 10L, false, continuation)
         }
         assertTrue(confirmedAtWrite) // No write occurred in explicitly selected CLI mode.
-        assertFalse(protocol.isConfirmedUsbCliSession())
-        assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
+        assertTrue(protocol.isConfirmedUsbCliSession())
         verify(service, never()).sendData(any(), any(), any(), any())
         verify(service, never()).sendUsbDataOnly(any())
     }
@@ -185,14 +186,14 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
-        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(false)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.sendData(any(), any(), any(), any())).thenAnswer {
             protocol.processIncomingData("Starting RPC session\r\n".toByteArray())
             true
         }
         assertTrue(protocol.sendRawCliCommand("start_rpc_session") is ProtocolResponse.FileContent)
-        assertFalse(protocol.isConfirmedUsbCliSession())
+        assertFalse(observedCli(protocol))
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
         verify(service, never()).sendUsbDataOnly(any())
     }
@@ -203,41 +204,16 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
-        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(false)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.sendData(any(), any(), any(), any())).thenReturn(true)
-        assertTrue(protocol.isConfirmedUsbCliSession())
+        assertTrue(observedCli(protocol))
         val text = "version\r\n  start_rpc_session\nhelp"
         assertTrue(protocol.sendRawCli(text))
         verify(service).sendData(check { assertArrayEquals("$text\r\n".toByteArray(), it) }, eq(false), eq(false), eq(true))
-        assertFalse(protocol.isConfirmedUsbCliSession())
+        assertFalse(observedCli(protocol))
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
         verify(service, never()).sendUsbDataOnly(any())
-    }
-
-    @Test fun `USB bootstrap revokes CLI before writing a session start command`() = runBlocking<Unit> {
-        val protocol = FlipperProtocol()
-        val service = mock<FlipperBleService>(defaultAnswer = org.mockito.Mockito.CALLS_REAL_METHODS)
-        service.flipperProtocol = protocol
-        protocol.setBleService(service)
-        doReturn(true).whenever(service).isRawCliTransportConnected()
-        doReturn(true).whenever(service).isUsbCliSessionSelected()
-        status(protocol)
-        assertTrue(protocol.isConfirmedUsbCliSession())
-        val port = mock<com.hoho.android.usbserial.driver.UsbSerialPort>()
-        var wroteWhileCliConfirmed = false
-        doAnswer {
-            wroteWhileCliConfirmed = wroteWhileCliConfirmed || protocol.isConfirmedUsbCliSession()
-            null
-        }.whenever(port).write(any(), any())
-        kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
-            FlipperBleService::class.java.getDeclaredMethod("primeUsbRpcSession",
-                com.hoho.android.usbserial.driver.UsbSerialPort::class.java, kotlin.coroutines.Continuation::class.java)
-                .apply { isAccessible = true }.invoke(service, port, continuation)
-        }
-        verify(port, atLeastOnce()).write(any(), any())
-        assertFalse("Bootstrap must revoke CLI before any port write", wroteWhileCliConfirmed)
-        assertFalse(protocol.isConfirmedUsbCliSession())
     }
 
 }
