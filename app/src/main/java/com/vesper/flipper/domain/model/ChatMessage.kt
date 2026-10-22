@@ -100,7 +100,8 @@ data class MessageMetadata(
     @SerialName("latency_ms")
     val latencyMs: Long? = null,
     @SerialName("pending_approval_id")
-    val pendingApprovalId: String? = null
+    val pendingApprovalId: String? = null,
+    val providerContentJson: String? = null
 )
 
 /**

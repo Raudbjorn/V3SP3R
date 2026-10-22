@@ -218,6 +218,16 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    if (state.provider == LlmProvider.ANTHROPIC) {
+                        SettingsSwitch(title = "Extended thinking", subtitle = "Use a 2,048-token reasoning budget", checked = state.extendedThinking, onCheckedChange = viewModel::setExtendedThinking)
+                    }
+                    if (state.provider == LlmProvider.ANTHROPIC && state.selectedModel.contains("opus-4-5")) {
+                        Row { listOf("low", "medium", "high").forEach { effort ->
+                            TextButton(onClick = { viewModel.setReasoningEffort(effort) }) {
+                                Text(if (effort == state.reasoningEffort) "✓ $effort effort" else "$effort effort")
+                            }
+                        } }
+                    }
                     Text(
                         text = "Range: ${SettingsStore.MIN_AI_MAX_ITERATIONS}-${SettingsStore.MAX_AI_MAX_ITERATIONS}",
                         style = MaterialTheme.typography.bodySmall,

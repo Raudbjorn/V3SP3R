@@ -24,6 +24,7 @@ import com.vesper.flipper.glasses.MessageType
 import com.vesper.flipper.voice.SpeechRecognitionHelper
 import com.vesper.flipper.voice.SpeechState
 import com.vesper.flipper.voice.TtsState
+import com.vesper.flipper.voice.CompletedSpeechTracker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -100,26 +101,16 @@ class ChatViewModel @Inject constructor(
 
         // Auto-speak: watch for new completed assistant messages
         viewModelScope.launch {
-            var lastMessageCount = 0
+            val completedSpeech = CompletedSpeechTracker()
             conversationState.collect { state ->
-                val messages = state.messages
-                if (messages.size > lastMessageCount && !state.isLoading) {
-                    val lastMsg = messages.lastOrNull()
-                    if (lastMsg != null &&
-                        lastMsg.role == MessageRole.ASSISTANT &&
-                        lastMsg.status == MessageStatus.COMPLETE &&
-                        lastMsg.content.isNotBlank() &&
-                        lastMsg.toolCalls.isNullOrEmpty()
-                    ) {
-                        val autoSpeak = settingsStore.ttsAutoSpeak.first()
-                        val ttsEnabled = settingsStore.ttsEnabled.first()
-                        val glassesActive = glassesIntegration.isConnected()
-                        if (autoSpeak && ttsEnabled && !glassesActive && ttsService.isAvailable()) {
-                            speakText(lastMsg.content)
-                        }
+                completedSpeech.completed(state)?.let { message ->
+                    val autoSpeak = settingsStore.ttsAutoSpeak.first()
+                    val ttsEnabled = settingsStore.ttsEnabled.first()
+                    val glassesActive = glassesIntegration.isConnected()
+                    if (autoSpeak && ttsEnabled && !glassesActive && ttsService.isAvailable()) {
+                        speakText(message.content)
                     }
                 }
-                lastMessageCount = messages.size
             }
         }
 

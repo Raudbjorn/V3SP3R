@@ -21,13 +21,25 @@ object AnthropicChatProtocol : ChatProtocol {
 
     internal fun encodeRequest(request: OpenRouterRequest): JsonObject = buildJsonObject {
         put("model", request.model)
-        put("max_tokens", request.maxTokens ?: request.maxCompletionTokens ?: 4096)
+        put("max_tokens", maxOf(request.maxTokens ?: request.maxCompletionTokens ?: 4096, if (request.thinkingBudget > 0) request.thinkingBudget + 4096 else 1))
+        put("stream", request.stream)
+        if (request.thinkingBudget > 0) put("thinking", buildJsonObject {
+            put("type", "enabled"); put("budget_tokens", request.thinkingBudget)
+        })
+        if (request.effort != null && request.model.contains("opus-4-5")) put("output_config", buildJsonObject {
+            require(request.effort in listOf("low", "medium", "high"))
+            put("effort", request.effort)
+        })
         val system = request.messages.filter { it.role == "system" }
-        if (system.isNotEmpty()) put("system", JsonArray(system.flatMap { contentBlocks(it.content) }))
+        if (system.isNotEmpty()) put("system", JsonArray(system.flatMap { contentBlocks(it.content) }.mapIndexed { index, block ->
+            if (index == 0) cached(block.jsonObject) else block
+        }))
         val turns = mutableListOf<Pair<String, MutableList<JsonElement>>>()
         for (message in request.messages.filter { it.role != "system" }) {
             val role = if (message.role == "assistant") "assistant" else "user"
-            val blocks = if (message.role == "tool") {
+            val preserved = message.providerContentJson?.let { json.parseToJsonElement(it).jsonArray }
+            val blocks = if (message.role == "assistant" && preserved != null) preserved.toList()
+            else if (message.role == "tool") {
                 require(!message.toolCallId.isNullOrBlank()) { "Tool result is missing its tool call ID" }
                 listOf(buildJsonObject {
                     put("type", "tool_result"); put("tool_use_id", message.toolCallId)
@@ -48,14 +60,16 @@ object AnthropicChatProtocol : ChatProtocol {
             put("role", role); put("content", JsonArray(blocks))
         } }))
         request.tools?.takeIf { it.isNotEmpty() }?.let { tools ->
-            put("tools", JsonArray(tools.map { tool -> buildJsonObject {
+            put("tools", JsonArray(tools.mapIndexed { index, tool -> buildJsonObject {
                 put("name", tool.function.name); put("description", tool.function.description)
                 put("input_schema", tool.function.parameters)
+                if (index == tools.lastIndex) put("cache_control", buildJsonObject { put("type", "ephemeral") })
             } }))
             put("tool_choice", buildJsonObject { put("type", "auto"); put("disable_parallel_tool_use", true) })
         }
     }
 
+    private fun cached(block: JsonObject) = JsonObject(block + ("cache_control" to buildJsonObject { put("type", "ephemeral") }))
     /** History may contain calls repaired or rejected by the command parser; never execute this data. */
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     internal fun historicalToolInput(arguments: String): JsonObject {

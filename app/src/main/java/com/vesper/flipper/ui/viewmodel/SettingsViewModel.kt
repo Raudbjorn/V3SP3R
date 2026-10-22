@@ -18,6 +18,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsState(
+    val extendedThinking: Boolean = false,
+    val reasoningEffort: String = "medium",
     val provider: LlmProvider = LlmProvider.OPENROUTER,
     val apiKey: String = "",
     val selectedModel: String = SettingsStore.DEFAULT_MODEL,
@@ -96,6 +98,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch { settingsStore.extendedThinking.collect { value -> _state.update { it.copy(extendedThinking = value) } } }
+        viewModelScope.launch { settingsStore.reasoningEffort.collect { value -> _state.update { it.copy(reasoningEffort = value) } } }
         loadSettings()
         observePermissions()
         refreshAvailableModels()
@@ -218,6 +222,10 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+
+    fun setReasoningEffort(value: String) { viewModelScope.launch { settingsStore.setReasoningEffort(value) } }
+
+    fun setExtendedThinking(enabled: Boolean) { viewModelScope.launch { settingsStore.setExtendedThinking(enabled) } }
 
     fun setProvider(provider: LlmProvider) {
         viewModelScope.launch {

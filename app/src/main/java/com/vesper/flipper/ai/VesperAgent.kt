@@ -116,7 +116,13 @@ class VesperAgent @Inject constructor(
         return try {
             processAIResponse(messages)
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is kotlinx.coroutines.CancellationException) {
+                _conversationState.value = _conversationState.value.copy(
+                    messages = _conversationState.value.messages.filterNot { it.status == MessageStatus.STREAMING },
+                    isLoading = false, progress = null
+                )
+                throw e
+            }
             _conversationState.value = _conversationState.value.copy(
                 messages = messages,
                 isLoading = false,
@@ -183,7 +189,13 @@ class VesperAgent @Inject constructor(
         return try {
             processAIResponse(messages)
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is kotlinx.coroutines.CancellationException) {
+                _conversationState.value = _conversationState.value.copy(
+                    messages = _conversationState.value.messages.filterNot { it.status == MessageStatus.STREAMING },
+                    isLoading = false, progress = null
+                )
+                throw e
+            }
             _conversationState.value = _conversationState.value.copy(
                 messages = messages,
                 isLoading = false,
@@ -338,9 +350,27 @@ class VesperAgent @Inject constructor(
             )
 
             // Send API messages (images replaced with text descriptions) to the model
-            val result = openRouterClient.chat(apiMessages, currentSessionId)
+            var result: ChatCompletionResult = ChatCompletionResult.Error("Stream did not complete")
+            val partial = StringBuilder()
+            val streamingId = java.util.UUID.randomUUID().toString()
+            openRouterClient.chatStream(apiMessages, currentSessionId).collect { event ->
+                when (event) {
+                    is ChatStreamEvent.TextDelta -> {
+                        partial.append(event.text)
+                        _conversationState.value = _conversationState.value.copy(messages = currentMessages + ChatMessage(
+                            id = streamingId, role = MessageRole.ASSISTANT, content = partial.toString(), status = MessageStatus.STREAMING
+                        ))
+                    }
+                    is ChatStreamEvent.Thinking -> _conversationState.value = _conversationState.value.copy(
+                        progress = AgentProgress(AgentProgressStage.MODEL_REQUEST, "Thinking...")
+                    )
+                    is ChatStreamEvent.ToolDelta -> Unit
+                    is ChatStreamEvent.Complete -> result = event.result
+                }
+            }
+            val completedResult = result
 
-            when (result) {
+            when (val result = completedResult) {
                 is ChatCompletionResult.Error -> {
                     _conversationState.value = _conversationState.value.copy(
                         messages = currentMessages,
@@ -352,6 +382,14 @@ class VesperAgent @Inject constructor(
                 }
 
                 is ChatCompletionResult.Success -> {
+                    // Keep the single-command contract even if a future client bypasses wire validation.
+                    if (result.toolCalls.orEmpty().size > 1) {
+                        _conversationState.value = _conversationState.value.copy(
+                            messages = currentMessages, isLoading = false, pendingApproval = null,
+                            progress = null, error = "Model returned multiple tool calls; one command per turn is required."
+                        )
+                        return _conversationState.value
+                    }
                     // Log AI response
                     auditService.log(
                         AuditEntry(
@@ -371,7 +409,8 @@ class VesperAgent @Inject constructor(
                             content = result.content,
                             metadata = MessageMetadata(
                                 modelUsed = result.model,
-                                tokensUsed = result.tokensUsed
+                                tokensUsed = result.tokensUsed,
+                                providerContentJson = result.providerContentJson
                             )
                         )
                         currentMessages.add(assistantMessage)
@@ -392,7 +431,8 @@ class VesperAgent @Inject constructor(
                         toolCalls = result.toolCalls,
                         metadata = MessageMetadata(
                             modelUsed = result.model,
-                            tokensUsed = result.tokensUsed
+                            tokensUsed = result.tokensUsed,
+                                providerContentJson = result.providerContentJson
                         )
                     )
                     currentMessages.add(assistantMessage)
@@ -611,7 +651,7 @@ class VesperAgent @Inject constructor(
             .map { state ->
                 PersistedConversationSnapshot(
                     sessionId = state.sessionId,
-                    messages = state.messages.takeLast(MAX_PERSISTED_MESSAGES)
+                    messages = ChatContextWindow.trim(state.messages.filterNot { it.status == MessageStatus.STREAMING }, MAX_PERSISTED_MESSAGES, preserveCompaction = true)
                 )
             }
             .distinctUntilChanged()

@@ -253,6 +253,19 @@ class SettingsStore @Inject constructor(
         }
     }
 
+    private val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
+    val reasoningEffort: Flow<String> = context.dataStore.data.map { it[REASONING_EFFORT] ?: "medium" }
+    suspend fun setReasoningEffort(value: String) {
+        require(value in listOf("low", "medium", "high"))
+        context.dataStore.edit { it[REASONING_EFFORT] = value }
+    }
+
+    private val EXTENDED_THINKING = booleanPreferencesKey("extended_thinking")
+    val extendedThinking: Flow<Boolean> = context.dataStore.data.map { it[EXTENDED_THINKING] ?: false }
+    suspend fun setExtendedThinking(enabled: Boolean) {
+        context.dataStore.edit { it[EXTENDED_THINKING] = enabled }
+    }
+
     // AI agent max model/tool loop iterations
     private val AI_MAX_ITERATIONS = intPreferencesKey("ai_max_iterations")
 
