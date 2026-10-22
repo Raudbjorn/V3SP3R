@@ -37,6 +37,9 @@ object CampaignPolicy {
                     val path = requireNotNull(command.args.path)
                     require(inScope(path, plan.scope)) { "Command is outside campaign scope" }
                 }
+                if (command.action == CommandAction.WRITE_FILE) {
+                    requireNotNull(command.args.content) { "Write command requires content (empty content is allowed)" }
+                }
                 require((command.args.content?.length ?: 0) <= 16_384)
                 require(command.justification.isNotBlank() && command.expectedEffect.isNotBlank())
             }

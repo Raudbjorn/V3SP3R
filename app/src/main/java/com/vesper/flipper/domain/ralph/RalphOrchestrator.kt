@@ -10,6 +10,8 @@ import dagger.hilt.components.SingletonComponent
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 @EntryPoint @InstallIn(SingletonComponent::class)
@@ -18,8 +20,26 @@ internal fun executor(context: Context): CommandExecutor = EntryPointAccessors.f
 
 class RalphOrchestrator(private val context: Context) {
     private val work get() = WorkManager.getInstance(context)
-    fun start(plan: CampaignPlan): String {
-        val id = CampaignStore(context).use { it.create(plan) }; enqueue(id); return id
+    suspend fun start(plan: CampaignPlan): String = withContext(Dispatchers.IO) {
+        val id = CampaignStore(context).use { it.create(plan) }; enqueue(id); id
+    }
+    suspend fun enable() = withContext(Dispatchers.IO) { CampaignStore(context).use { it.enabled = true } }
+    data class Inbox(val enabled: Boolean, val rows: List<CampaignStore.Row>)
+    suspend fun inbox(): Inbox = withContext(Dispatchers.IO) {
+        CampaignStore(context).use { store ->
+            // Approval payloads live in the executor process. Never recreate or replay one after restart.
+            store.rows().filter { it.state == "approval" }.forEach { row ->
+                if (!available(row)) store.transition(row, "failed", "Approval unavailable or expired; create a new campaign")
+            }
+            Inbox(store.enabled, store.rows())
+        }
+    }
+    private fun available(row: CampaignStore.Row): Boolean {
+        val command = row.plan.phases.getOrNull(row.phase)?.commands?.getOrNull(row.step) ?: return false
+        val pending = row.approval?.let { executor(context).getPendingApproval(it) }
+        val now = System.currentTimeMillis()
+        return now < row.approvalExpires && now < row.plan.expiresAt &&
+            approvalAvailable(pending, row.approval, command, now)
     }
     fun enqueue(id: String) {
         val request = OneTimeWorkRequestBuilder<PhaseWorker>().setInputData(workDataOf("id" to id)).addTag(TAG).build()
@@ -30,30 +50,41 @@ class RalphOrchestrator(private val context: Context) {
             .setInitialDelay((expires-System.currentTimeMillis()).coerceAtLeast(0),TimeUnit.MILLISECONDS).addTag(TAG).build()
         work.enqueue(request)
     }
-    suspend fun approve(id: String) {
+    suspend fun approve(id: String, displayedApprovalId: String) = withContext(Dispatchers.IO) {
         CampaignStore(context).use { store ->
-            val row = store.get(id) ?: return
-            check(CampaignTransitions.canApprove(store.enabled,row.state,System.currentTimeMillis(),row.approvalExpires,row.plan.expiresAt)) { "Approval expired or campaigns disabled" }
-            check(store.transition(row,"approving")) { "Approval already consumed" }
-            val deadline = minOf(row.plan.expiresAt, row.phaseStarted + row.plan.phases[row.phase].timeoutMs)
-            val result = withTimeout((deadline-System.currentTimeMillis()).coerceAtLeast(1)) {
-                executor(context).approve(requireNotNull(row.approval), "campaign-$id")
+            val row = store.get(id) ?: return@use
+            check(row.state == "approval" && row.approval == displayedApprovalId) { "Displayed approval is no longer current" }
+            if (!available(row)) {
+                store.transition(row, "failed", "Approval unavailable or expired; create a new campaign")
+                error("Approval unavailable or expired")
             }
-            val claimed = store.get(id) ?: return
-            // A kill/reject during the in-flight approval must never resurrect the campaign.
-            if (!store.enabled || claimed.state != "approving") return
+            check(store.claimApproval(row, displayedApprovalId, System.currentTimeMillis())) { "Approval already consumed, expired, or disabled" }
+            val deadline = minOf(row.approvalExpires, row.plan.expiresAt, row.phaseStarted + row.plan.phases[row.phase].timeoutMs)
+            val result = executeCampaignApproval(deadline - System.currentTimeMillis(), onInterrupted = {
+                store.get(id)?.let { current ->
+                    if (current.state == "approving" && current.approval == displayedApprovalId) {
+                        store.transition(current, "failed", "Approval interrupted or timed out; verify device outcome before creating a new campaign")
+                    }
+                }
+                executor(context).reject(displayedApprovalId, "campaign-$id")
+            }) {
+                check(store.enabled && store.get(id)?.let { it.state == "approving" && it.approval == displayedApprovalId } == true) { "Campaign stopped before approval execution" }
+                executor(context).approve(displayedApprovalId, "campaign-$id")
+            }
+            val claimed = store.get(id) ?: return@use
+            // A kill, expiry, or rejection during execution must never resurrect the campaign.
+            if (!store.enabled || claimed.state != "approving" || claimed.approval != displayedApprovalId) return@use
             if (result.success) {
-                store.transition(claimed,"queued",step = row.step + 1)
-                enqueue(id)
-            } else store.transition(claimed,"failed", result.error ?: "Approval failed; explicit new campaign required")
+                if (store.transition(claimed, "queued", step = row.step + 1)) enqueue(id)
+            } else store.transition(claimed, "failed", result.error ?: "Approval failed; explicit new campaign required")
         }
     }
-    suspend fun reject(id: String) {
+    suspend fun reject(id: String) = withContext(Dispatchers.IO) {
         CampaignStore(context).use { store ->
             store.cancel(id)?.let { executor(context).reject(it,"campaign-$id") }
         }
     }
-    suspend fun kill() {
+    suspend fun kill() = withContext(Dispatchers.IO) {
         CampaignStore(context).use { store ->
             val pending = store.killAll()
             work.cancelAllWorkByTag(TAG)
@@ -130,9 +161,9 @@ class ApprovalExpiryWorker(context: Context, params: WorkerParameters): Coroutin
     override suspend fun doWork(): Result {
         CampaignStore(applicationContext).use { store ->
             val row = store.get(inputData.getString("id") ?: return Result.failure()) ?: return Result.success()
-            if (row.state == "approval" && System.currentTimeMillis() >= row.approvalExpires) {
+            if (row.state in setOf("approval", "approving") && System.currentTimeMillis() >= row.approvalExpires) {
                 row.approval?.let { executor(applicationContext).reject(it,"campaign-${row.id}") }
-                store.transition(row,"failed","Approval expired")
+                store.transition(row,"failed", if (row.state == "approving") "Approval execution expired; verify device outcome" else "Approval expired")
                 CampaignNotifications.pending(applicationContext,row.id,"Campaign approval expired")
             }
         }

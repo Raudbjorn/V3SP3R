@@ -57,9 +57,14 @@ class CampaignStore(context: Context) : java.io.Closeable {
         approval: String? = null, approvalExpires: Long = 0, phaseStarted: Long = row.phaseStarted): Boolean = CampaignTransitions.allows(row.state,state) && writableDatabase.update("campaigns", SQLiteDatabase.CONFLICT_ABORT, ContentValues().apply {
         put("state", state); put("message", message.take(4096)); put("phase", phase); put("step", step)
         put("phaseStarted",phaseStarted); put("approval", approval); put("approvalExpires", approvalExpires); put("updated", System.currentTimeMillis())
-    }, "id=? AND state=? AND phase=? AND step=?", arrayOf(row.id,row.state,row.phase.toString(),row.step.toString())) == 1
+    }, "id=? AND state=? AND phase=? AND step=? AND approval IS ?", arrayOf(row.id,row.state,row.phase.toString(),row.step.toString(),row.approval)) == 1
+    fun claimApproval(row: Row, displayedApprovalId: String, now: Long): Boolean =
+        row.approval == displayedApprovalId &&
+            CampaignTransitions.canApprove(enabled, row.state, now, row.approvalExpires, row.plan.expiresAt) &&
+            transition(row, "approving", approval = row.approval, approvalExpires = row.approvalExpires)
+
     fun pendingApprovals(): List<Pair<String,String>> = readableDatabase.query(
-        "SELECT id,approval FROM campaigns WHERE state='approval' AND approval IS NOT NULL"
+        "SELECT id,approval FROM campaigns WHERE state IN ('approval','approving') AND approval IS NOT NULL"
     ).use { cursor -> buildList { while(cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1)) } }
     fun cancel(id: String): String? {
         val db=writableDatabase

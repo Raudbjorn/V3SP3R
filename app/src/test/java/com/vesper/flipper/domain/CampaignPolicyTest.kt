@@ -5,6 +5,15 @@ import org.junit.Assert.*
 import org.junit.Test
 class CampaignPolicyTest {
     private fun plan(action:CommandAction=CommandAction.READ_FILE,path:String="/ext/nfc/test.nfc") = CampaignPlan("Owned inventory","/ext/nfc",100_000,listOf(CampaignPhase("Read",listOf(ExecuteCommand(action,CommandArgs(path=path),"Requested","Read inventory")))))
+    @Test fun writeRequiresContentButAllowsEmptyFile() {
+        val missing = plan(CommandAction.WRITE_FILE)
+        assertThrows(IllegalArgumentException::class.java) { CampaignPolicy.validate(missing, 1) }
+        val phase = missing.phases.single()
+        val command = phase.commands.single()
+        CampaignPolicy.validate(missing.copy(phases = listOf(phase.copy(commands = listOf(
+            command.copy(args = command.args.copy(content = ""))
+        )))), 1)
+    }
     @Test fun boundedScopedReadIsAccepted() { CampaignPolicy.validate(plan(),1) }
     @Test fun siblingPrefixAndTraversalAreRejected() {
         assertFalse(CampaignPolicy.inScope("/ext/nfc-other/a","/ext/nfc"))
