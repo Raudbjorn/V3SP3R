@@ -18,7 +18,7 @@ Load this skill whenever the user says "make me a BadUSB script", "write an evil
 | `badusb_diff` | Show a unified diff between an existing script on the Flipper and a proposed replacement | LOW | Reads the target path via the Flipper file system, then diffs |
 | `badusb_write` | Save a script to `/ext/badusb/<name>.txt`, re-validating first | MEDIUM | Refuses to write if validation returns errors |
 | `badusb_execute` | Run a script already on the Flipper via `badusb run <path>` | HIGH | Actual keystroke injection — user confirmation required |
-| `forge_payload` | The fork's original general-purpose payload generator (supports `payload_type` = `subghz` / `ir` / `badusb` / `nfc`) | MEDIUM | Useful for the non-BadUSB payload types (Sub-GHz, IR, NFC) |
+| `forge_payload` | The fork's original general-purpose payload generator (supports `payload_type` = `SUB_GHZ` / `INFRARED` / `BAD_USB` / `NFC` / `RFID` / `IBUTTON`) | MEDIUM | Useful for the non-BadUSB payload types (Sub-GHz, IR, NFC) |
 
 ## Decision: direct vs Payload Lab
 
@@ -60,10 +60,10 @@ Match the user's request against these rules to pick the right tool and output p
 | Payload type | Trigger phrases | Tool | Output path | Risk | Match rule |
 |--------------|-----------------|------|-------------|------|------------|
 | BadUSB DuckyScript | "keystroke", "type", "run a command", "HID", "USB Rubber Ducky" | `badusb_generate` | `/ext/badusb/*.txt` | MEDIUM | user names a target app OR keystroke sequence AND platform ∈ {windows, macos, linux} |
-| Sub-GHz replay | "replay", "capture", "garage", "remote", "433 MHz", "sub-ghz" | `forge_payload(subghz)` | `/ext/subghz/*.sub` | MEDIUM | prior Sub-GHz capture exists in session AND static code confirmed (two identical captures of the same button press) |
-| IR replay | "TV remote", "IR blast", "38 kHz", "infrared" | `forge_payload(ir)` | `/ext/infrared/*.ir` | MEDIUM | protocol identified ∈ {NEC, RC5, RC6, SIRC, Samsung32} (see IR protocol reference below) |
-| NFC clone | "clone card", "MIFARE", "NTAG", "NFC tag" | `forge_payload(nfc)` | `/ext/nfc/*.nfc` | MEDIUM | UID captured AND (sector reads captured OR tag is NTAG21x) |
-| Evil Portal | "captive portal", "phishing page", "SSO clone", "fake login" | `forge_payload(html)` | `/ext/evilportal/*.html` | HIGH | WiFi Marauder companion available — **currently NO; deployment path not yet wired**, authoring works but the "deploy" step is pending |
+| Sub-GHz replay | "replay", "capture", "garage", "remote", "433 MHz", "sub-ghz" | `forge_payload(SUB_GHZ)` | `/ext/subghz/*.sub` | MEDIUM | prior Sub-GHz capture exists in session AND static code confirmed (two identical captures of the same button press) |
+| IR replay | "TV remote", "IR blast", "38 kHz", "infrared" | `forge_payload(INFRARED)` | `/ext/infrared/*.ir` | MEDIUM | protocol identified ∈ {NEC, RC5, RC6, SIRC, Samsung32} (see IR protocol reference below) |
+| NFC clone | "clone card", "MIFARE", "NTAG", "NFC tag" | `forge_payload(NFC)` | `/ext/nfc/*.nfc` | MEDIUM | UID captured AND (sector reads captured OR tag is NTAG21x) |
+| Evil Portal | "captive portal", "phishing page", "SSO clone", "fake login" | Payload Lab's Evil Portal generator | `/ext/evilportal/*.html` | HIGH | WiFi Marauder companion available — **currently NO; deployment path not yet wired**, authoring works but the "deploy" step is pending |
 
 **IR protocol quick reference** (for the IR match rule):
 
@@ -76,7 +76,7 @@ Match the user's request against these rules to pick the right tool and output p
 | SIRC (Sony) | 40 kHz | 2.4 ms | 600 μs | 12 / 15 / 20 |
 
 **Evil Portal note:** authoring works via `PayloadEngine` today; deployment via ESP32 Marauder is not yet implemented. When the user requests an Evil Portal:
-- Generate HTML via `forge_payload(payload_type="html", prompt="Corporate SSO clone…")` or the Payload Lab's Evil Portal tab.
+- Generate HTML through the Payload Lab's Evil Portal tab (`PayloadEngine.step1GeneratePortal`). `forge_payload` does not support an HTML payload type in this branch; do not submit `payload_type="html"` or assume its type-detection fallback produces a portal.
 - Save with `write_file(path="/ext/evilportal/…", content=<html>)`.
 - Explicitly tell the user the deployment step is pending.
 

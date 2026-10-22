@@ -5,6 +5,11 @@ description: "Run a sustained security assessment campaign against Flipper-reach
 
 # Campaign
 
+This is a methodology playbook, not proof that campaign execution or every
+listed tool exists in the installed branch. Inspect its tool schema first.
+The standalone MCP server only reads reference material; it does not execute
+campaigns or device commands.
+
 A campaign is a real penetration test executed through Vesper's tools against real hardware. Every claim in a campaign traces back to a tool call recorded in `audit_entries` and a finding recorded in `vuln_findings`. If neither exists, the claim is fabrication.
 
 Load this skill on any prompt matching: "start a campaign", "run an engagement", "pentest this", "assess these targets", "sweep the area", "what's around us", or when resuming prior work in this project.
@@ -261,7 +266,11 @@ Vesper's `RiskAssessor` is authoritative. This table is a hint for what to expec
 
 ## Related skills
 
-Load with `execute_command(action="load_skill", args={"command": "<id>"})`:
+When the installed Android skill-registry feature exposes `load_skill`,
+use `execute_command(action="load_skill", args={"command": "<id>"})`.
+With the standalone MCP server, read the same playbook using
+`read_doc("skills", "<id>")`; it has no `execute_command` tool. If neither
+interface is available, do not invent a tool call.
 
 | Skill | Load when |
 |-------|-----------|
