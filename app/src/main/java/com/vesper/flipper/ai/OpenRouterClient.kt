@@ -5,6 +5,7 @@ import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.*
 import com.vesper.flipper.security.InputValidator
 import com.vesper.flipper.security.RateLimiter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -28,9 +29,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * OpenRouter API client for AI model interaction.
+ * Chat client for the selected LLM provider.
  * Handles tool-calling with the execute_command interface.
  * Includes rate limiting, retry logic, and response validation.
+ * The class name is kept so existing call sites stay stable.
  */
 @Singleton
 class OpenRouterClient @Inject constructor(
@@ -60,6 +62,7 @@ class OpenRouterClient @Inject constructor(
         const val MAX_RETRIES = 2
         const val INITIAL_DELAY_MS = 700L
         const val MAX_DELAY_MS = 10000L
+        const val MAX_RATE_LIMIT_DELAY_MS = 30000L
         const val BACKOFF_MULTIPLIER = 2.0
     }
 
@@ -82,15 +85,18 @@ class OpenRouterClient @Inject constructor(
             )
         }
 
-        val apiKey = settingsStore.apiKey.first()
-            ?: return@withContext ChatCompletionResult.Error("OpenRouter API key not configured")
+        val selection = settingsStore.readLlmSelection()
+        val provider = selection.provider
+        if (provider == LlmProvider.ANTHROPIC) return@withContext ChatCompletionResult.Error("Native Anthropic support requires the Anthropic provider feature.")
+        val apiKey = selection.apiKey
+            ?: return@withContext ChatCompletionResult.Error("${provider.displayName} API key not configured")
 
         // Validate API key format
         if (!InputValidator.isValidApiKey(apiKey)) {
             return@withContext ChatCompletionResult.Error("Invalid API key format")
         }
 
-        val model = settingsStore.selectedModel.first()
+        val model = selection.model
 
         val compactMessages = trimConversationForRequest(messages)
 
@@ -100,7 +106,7 @@ class OpenRouterClient @Inject constructor(
         val hasImages = compactMessages.any { !it.imageAttachments.isNullOrEmpty() }
         val processedMessages = if (hasImages) {
             Log.w(TAG, "chat(): images still present at chat() entry — running safety-net preprocessing")
-            preprocessImagesAsText(compactMessages, apiKey)
+            preprocessImagesAsText(compactMessages, apiKey, provider)
         } else {
             compactMessages
         }
@@ -118,7 +124,7 @@ class OpenRouterClient @Inject constructor(
             addAll(sanitizeAndBuildRequestMessages(processedMessages))
         }
 
-        val candidateModels = buildToolModelCandidates(model)
+        val candidateModels = provider.toolCandidates(model)
         var lastError: ChatCompletionResult.Error? = null
         val attemptedModels = mutableListOf<String>()
         val unsupportedModels = mutableListOf<String>()
@@ -133,6 +139,7 @@ class OpenRouterClient @Inject constructor(
 
             val result = executeWithRetry(
                 buildToolCallingRequest(
+                    provider = provider,
                     apiKey = apiKey,
                     model = candidateModel,
                     messages = requestMessages,
@@ -188,9 +195,15 @@ class OpenRouterClient @Inject constructor(
      * attachments with the text description. This allows the primary model
      * (which may not support images) to understand what the user photographed.
      */
+    internal suspend fun preprocessImagesAsText(messages: List<ChatMessage>, apiKey: String): List<ChatMessage> {
+        val selection = settingsStore.readLlmSelection()
+        return preprocessImagesAsText(messages, selection.apiKey ?: return messages, selection.provider)
+    }
+
     internal suspend fun preprocessImagesAsText(
         messages: List<ChatMessage>,
-        apiKey: String
+        apiKey: String,
+        provider: LlmProvider
     ): List<ChatMessage> = coroutineScope {
         val imageCount = messages.sumOf { it.imageAttachments?.size ?: 0 }
         Log.d(TAG, "preprocessImagesAsText: processing $imageCount image(s) across ${messages.size} message(s)")
@@ -200,7 +213,7 @@ class OpenRouterClient @Inject constructor(
 
             // Process all images in parallel for faster response
             val results = msg.imageAttachments.map { attachment ->
-                async { describeImage(apiKey, attachment) }
+                async { describeImage(provider, apiKey, attachment) }
             }.awaitAll()
             val descriptions = results.filterNotNull()
             val failedCount = results.size - descriptions.size
@@ -245,7 +258,9 @@ class OpenRouterClient @Inject constructor(
         attachment: ImageAttachment,
         prompt: String
     ): String? = withContext(Dispatchers.IO) {
-        val apiKey = settingsStore.apiKey.first() ?: run {
+        val selection = settingsStore.readLlmSelection()
+        val provider = selection.provider
+        val apiKey = selection.apiKey ?: run {
             Log.w(TAG, "describeImageForAgent: no API key configured")
             return@withContext null
         }
@@ -268,28 +283,14 @@ class OpenRouterClient @Inject constructor(
             )
         )
 
-        for (model in VISION_MODEL_CANDIDATES) {
+        for (model in provider.visionModels) {
             try {
                 Log.d(TAG, "describeImageForAgent: trying model $model")
-                val request = OpenRouterRequest(
-                    model = model,
-                    messages = visionMessages,
-                    tools = null,
-                    toolChoice = null,
-                    maxTokens = 500
+                val httpRequest = postChat(
+                    provider,
+                    apiKey,
+                    limitedRequest(provider, model, visionMessages, tools = null, toolChoice = null, maxTokens = 500)
                 )
-
-                val requestBody = json.encodeToString(request)
-                    .toRequestBody("application/json".toMediaType())
-
-                val httpRequest = Request.Builder()
-                    .url(OPENROUTER_API_URL)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("HTTP-Referer", "https://vesper.flipper.app")
-                    .addHeader("X-Title", "Vesper Flipper Control")
-                    .post(requestBody)
-                    .build()
 
                 val result = executeWithRetry(httpRequest)
                 when (result) {
@@ -320,6 +321,7 @@ class OpenRouterClient @Inject constructor(
      * deprecation or temporary outages on OpenRouter.
      */
     private suspend fun describeImage(
+        provider: LlmProvider,
         apiKey: String,
         attachment: ImageAttachment
     ): String? = withContext(Dispatchers.IO) {
@@ -344,29 +346,14 @@ class OpenRouterClient @Inject constructor(
             )
         )
 
-        for (model in VISION_MODEL_CANDIDATES) {
+        for (model in provider.visionModels) {
             try {
                 Log.d(TAG, "describeImage: trying model $model")
-
-                val request = OpenRouterRequest(
-                    model = model,
-                    messages = visionMessages,
-                    tools = null,
-                    toolChoice = null,
-                    maxTokens = 300
+                val httpRequest = postChat(
+                    provider,
+                    apiKey,
+                    limitedRequest(provider, model, visionMessages, tools = null, toolChoice = null, maxTokens = 300)
                 )
-
-                val requestBody = json.encodeToString(request)
-                    .toRequestBody("application/json".toMediaType())
-
-                val httpRequest = Request.Builder()
-                    .url(OPENROUTER_API_URL)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("HTTP-Referer", "https://vesper.flipper.app")
-                    .addHeader("X-Title", "Vesper Flipper Control")
-                    .post(requestBody)
-                    .build()
 
                 val result = executeWithRetry(httpRequest)
                 when (result) {
@@ -399,33 +386,20 @@ class OpenRouterClient @Inject constructor(
     suspend fun chatSimple(prompt: String): String? = withContext(Dispatchers.IO) {
         if (!rateLimiter.tryAcquire()) return@withContext null
 
-        val apiKey = settingsStore.apiKey.first() ?: return@withContext null
+        val selection = settingsStore.readLlmSelection()
+        if (selection.provider == LlmProvider.ANTHROPIC) return@withContext null
+        val apiKey = selection.apiKey ?: return@withContext null
         if (!InputValidator.isValidApiKey(apiKey)) return@withContext null
 
-        val model = settingsStore.selectedModel.first()
-        val messages = listOf(
-            OpenRouterMessage.text(role = "user", content = prompt)
-        )
-
-        val request = OpenRouterRequest(
-            model = model,
-            messages = messages,
+        val request = limitedRequest(
+            provider = selection.provider,
+            model = selection.model,
+            messages = listOf(OpenRouterMessage.text(role = "user", content = prompt)),
             tools = null,
             toolChoice = null,
             maxTokens = FORGE_RESPONSE_MAX_TOKENS
         )
-
-        val requestBody = json.encodeToString(request)
-            .toRequestBody("application/json".toMediaType())
-
-        val httpRequest = Request.Builder()
-            .url(OPENROUTER_API_URL)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("HTTP-Referer", "https://vesper.flipper.app")
-            .addHeader("X-Title", "Vesper Flipper Control")
-            .post(requestBody)
-            .build()
+        val httpRequest = postChat(selection.provider, apiKey, request)
 
         val result = executeWithRetry(httpRequest)
         when (result) {
@@ -435,31 +409,49 @@ class OpenRouterClient @Inject constructor(
     }
 
     private fun buildToolCallingRequest(
+        provider: LlmProvider,
         apiKey: String,
         model: String,
         messages: List<OpenRouterMessage>,
         includeGlassesActions: Boolean = false
     ): Request {
         val tool = if (includeGlassesActions) EXECUTE_COMMAND_TOOL else buildToolWithoutGlasses()
-        val request = OpenRouterRequest(
+        val request = limitedRequest(
+            provider = provider,
             model = model,
             messages = messages,
             tools = listOf(tool),
             toolChoice = "auto",
             maxTokens = TOOL_CALL_RESPONSE_MAX_TOKENS
         )
+        return postChat(provider, apiKey, request)
+    }
 
-        val requestBody = json.encodeToString(request)
-            .toRequestBody("application/json".toMediaType())
+    private fun limitedRequest(
+        provider: LlmProvider,
+        model: String,
+        messages: List<OpenRouterMessage>,
+        tools: List<OpenRouterTool>?,
+        toolChoice: String?,
+        maxTokens: Int
+    ): OpenRouterRequest {
+        val limits = provider.completionLimits(maxTokens)
+        return OpenRouterRequest(
+            model = model,
+            messages = messages,
+            tools = tools,
+            toolChoice = toolChoice,
+            maxTokens = limits.maxTokens,
+            maxCompletionTokens = limits.maxCompletionTokens
+        )
+    }
 
-        return Request.Builder()
-            .url(OPENROUTER_API_URL)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("HTTP-Referer", "https://vesper.flipper.app")
-            .addHeader("X-Title", "Vesper Flipper Control")
-            .post(requestBody)
-            .build()
+    private fun postChat(
+        provider: LlmProvider,
+        apiKey: String,
+        request: OpenRouterRequest
+    ): Request {
+        return OpenAiChatProtocol.buildRequest(provider, apiKey, request)
     }
 
     /**
@@ -470,20 +462,28 @@ class OpenRouterClient @Inject constructor(
         var delayMs = RetryConfig.INITIAL_DELAY_MS
 
         repeat(RetryConfig.MAX_RETRIES) { attempt ->
+            val isLastAttempt = attempt == RetryConfig.MAX_RETRIES - 1
             try {
                 client.newCall(request).execute().use { response ->
                     val responseBody = response.body?.string()
 
                     // Check for rate limit from server
                     if (response.code == 429) {
-                        val retryAfter = response.header("Retry-After")?.toLongOrNull() ?: 60
-                        delay(retryAfter * 1000)
+                        if (isLastAttempt) {
+                            return ChatCompletionResult.Error(
+                                "Rate limited by the API (HTTP 429). Please retry shortly."
+                            )
+                        }
+                        // Honor Retry-After but never sleep unbounded on a hostile/large value.
+                        val retryAfterMs = (response.header("Retry-After")?.toLongOrNull() ?: 60) * 1000
+                        delay(retryAfterMs.coerceAtMost(RetryConfig.MAX_RATE_LIMIT_DELAY_MS))
                         return@repeat // Retry
                     }
 
                     // Check for server errors (5xx) - these are retryable
                     if (response.code in 500..599) {
                         lastException = IOException("Server error: ${response.code}")
+                        if (isLastAttempt) return@repeat
                         delay(delayMs)
                         delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
                             .coerceAtMost(RetryConfig.MAX_DELAY_MS)
@@ -504,19 +504,26 @@ class OpenRouterClient @Inject constructor(
                     return parseResponse(responseBody)
                 }
 
+            } catch (e: CancellationException) {
+                // Never report a cancelled request as a normal API failure.
+                throw e
             } catch (e: SocketTimeoutException) {
                 lastException = e
-                delay(delayMs)
-                delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
-                    .coerceAtMost(RetryConfig.MAX_DELAY_MS)
+                if (!isLastAttempt) {
+                    delay(delayMs)
+                    delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
+                        .coerceAtMost(RetryConfig.MAX_DELAY_MS)
+                }
             } catch (e: IOException) {
                 if (isDnsResolutionFailure(e)) {
-                    return ChatCompletionResult.Error(DNS_RESOLUTION_ERROR_MESSAGE)
+                    return ChatCompletionResult.Error(LlmProvider.dnsFailureMessage(request.url.host))
                 }
                 lastException = e
-                delay(delayMs)
-                delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
-                    .coerceAtMost(RetryConfig.MAX_DELAY_MS)
+                if (!isLastAttempt) {
+                    delay(delayMs)
+                    delayMs = (delayMs * RetryConfig.BACKOFF_MULTIPLIER).toLong()
+                        .coerceAtMost(RetryConfig.MAX_DELAY_MS)
+                }
             } catch (e: Exception) {
                 // Non-retryable exception
                 return ChatCompletionResult.Error("Request failed: ${e.message}")
@@ -524,7 +531,8 @@ class OpenRouterClient @Inject constructor(
         }
 
         return ChatCompletionResult.Error(
-            "Request failed after ${RetryConfig.MAX_RETRIES} attempts: ${lastException?.message}"
+            "Request failed after ${RetryConfig.MAX_RETRIES} attempts: " +
+                (lastException?.message ?: "no response from API")
         )
     }
 
@@ -1024,8 +1032,8 @@ class OpenRouterClient @Inject constructor(
                         // Drop any buffered trailing comma before a closer
                         pendingComma = null
                         sb.append(ch)
-                        if (ch == '}' && stack.lastOrNull() == '{') stack.removeLast()
-                        else if (ch == ']' && stack.lastOrNull() == '[') stack.removeLast()
+                        if (ch == '}' && stack.lastOrNull() == '{') stack.removeAt(stack.lastIndex)
+                        else if (ch == ']' && stack.lastOrNull() == '[') stack.removeAt(stack.lastIndex)
                     }
                     else -> {
                         if (ch.isWhitespace() && pendingComma != null) {
@@ -1197,9 +1205,9 @@ class OpenRouterClient @Inject constructor(
             CommandAction.GET_DEVICE_INFO -> """{"action":"get_device_info","args":{}}"""
             CommandAction.GET_STORAGE_INFO -> """{"action":"get_storage_info","args":{}}"""
             CommandAction.SEARCH_FAPHUB ->
-                """{"action":"search_faphub","args":{"query":"wifi marauder"}}"""
+                """{"action":"search_faphub","args":{"query":"edge"}}"""
             CommandAction.INSTALL_FAPHUB_APP ->
-                """{"action":"install_faphub_app","args":{"app_id":"wifi_marauder","download_url":"https://.../app.fap"}}"""
+                """{"action":"install_faphub_app","args":{"app_id":"quac"}}"""
             CommandAction.PUSH_ARTIFACT ->
                 """{"action":"push_artifact","args":{"path":"/ext/file.bin","artifact_data":"<base64>"}}"""
             CommandAction.EXECUTE_CLI ->
@@ -1283,13 +1291,13 @@ class OpenRouterClient @Inject constructor(
             return@withContext Result.failure(Exception("Rate limit exceeded"))
         }
 
-        val apiKey = settingsStore.apiKey.first()
-            ?: return@withContext Result.failure(Exception("API key not configured"))
+        val selection = settingsStore.readLlmSelection()
+        if (selection.provider == LlmProvider.ANTHROPIC) return@withContext Result.failure(IllegalStateException("Native Anthropic support requires the Anthropic provider feature."))
+        val apiKey = selection.apiKey
+            ?: return@withContext Result.failure(Exception("${selection.provider.displayName} API key not configured"))
         if (!InputValidator.isValidApiKey(apiKey)) {
             return@withContext Result.failure(Exception("Invalid API key format"))
         }
-
-        val model = settingsStore.selectedModel.first()
 
         val compactMessages = trimConversationForRequest(messages)
         val requestMessages = buildList {
@@ -1300,25 +1308,15 @@ class OpenRouterClient @Inject constructor(
             addAll(sanitizeAndBuildRequestMessages(compactMessages))
         }
 
-        val request = OpenRouterRequest(
-            model = model,
+        val request = limitedRequest(
+            provider = selection.provider,
+            model = selection.model,
             messages = requestMessages,
-            tools = null,  // No tool calling for simple messages
+            tools = null,
             toolChoice = null,
             maxTokens = DEFAULT_RESPONSE_MAX_TOKENS
         )
-
-        val requestBody = json.encodeToString(request)
-            .toRequestBody("application/json".toMediaType())
-
-        val httpRequest = Request.Builder()
-            .url(OPENROUTER_API_URL)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("HTTP-Referer", "https://vesper.flipper.app")
-            .addHeader("X-Title", "Vesper Flipper Control")
-            .post(requestBody)
-            .build()
+        val httpRequest = postChat(selection.provider, apiKey, request)
 
         when (val result = executeWithRetry(httpRequest)) {
             is ChatCompletionResult.Success -> Result.success(result.content)
@@ -1340,7 +1338,8 @@ class OpenRouterClient @Inject constructor(
                 normalized.contains("does not support tool use") ||
                 normalized.contains("function calling is not supported") ||
                 normalized.contains("tool calling is not supported") ||
-                normalized.contains("endpoint does not support tools")
+                normalized.contains("endpoint does not support tools") ||
+                normalized.contains("does not support function")
     }
 
     private fun isToolResultPairingError(message: String): Boolean {
@@ -1357,21 +1356,11 @@ class OpenRouterClient @Inject constructor(
                 normalized.contains("provider not found") ||
                 normalized.contains("not available for your account") ||
                 normalized.contains("you are not allowed to use this model") ||
-                normalized.contains("access denied")
-    }
-
-    private fun buildToolModelCandidates(selectedModel: String): List<String> {
-        val fallbackModels = TOOL_USE_FALLBACK_MODELS + SettingsStore.FALLBACK_MODELS.map { it.id }
-        return (listOf(selectedModel) + fallbackModels)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .filterNot { modelId ->
-                KNOWN_NON_TOOL_MODELS.any { blocked ->
-                    modelId.equals(blocked, ignoreCase = true)
-                }
-            }
-            .distinct()
-            .take(MAX_TOOL_MODEL_CANDIDATES)
+                normalized.contains("access denied") ||
+                normalized.contains("model_not_found") ||
+                normalized.contains("does not exist") ||
+                normalized.contains("invalid model") ||
+                normalized.contains("unknown model")
     }
 
     private fun isToolModelTemporarilyBlocked(model: String): Boolean {
@@ -1395,12 +1384,8 @@ class OpenRouterClient @Inject constructor(
 
     companion object {
         private const val TAG = "OpenRouterClient"
-        private const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-        private const val DNS_RESOLUTION_ERROR_MESSAGE =
-            "Cannot resolve openrouter.ai (DNS/network issue). Verify internet access, disable broken Private DNS/VPN, then retry."
         private const val EXPECTED_TOOL_ARGUMENTS_FORMAT =
             """{"action":"<action>","args":{...},"justification":"...","expected_effect":"..."}"""
-        private const val MAX_TOOL_MODEL_CANDIDATES = 10
         private const val MAX_ERROR_MODEL_LIST = 6
         private const val MAX_TOOL_CALLS_PER_RESPONSE = 1
         private const val TOOL_UNSUPPORTED_CACHE_MS = 5 * 60 * 1000L
@@ -1447,25 +1432,6 @@ class OpenRouterClient @Inject constructor(
             "vibro_control",
             "request_photo"
         )
-
-        private val TOOL_USE_FALLBACK_MODELS = listOf(
-            "anthropic/claude-sonnet-4.5",
-            "openai/gpt-oss-120b",
-        )
-
-        private val KNOWN_NON_TOOL_MODELS = setOf(
-            "google/gemini-2.5-flash-image-preview"
-        )
-
-        // Fast, cheap vision models used to describe images before sending to the
-        // primary tool model. Multiple candidates provide resilience against model
-        // deprecation or temporary outages on OpenRouter.
-        private val VISION_MODEL_CANDIDATES = listOf(
-            "google/gemini-2.0-flash-001",     // Free, fast, reliable — no thinking overhead
-            "google/gemini-2.5-flash",          // GA version (NOT "-preview" which was removed)
-            "openai/gpt-4o-mini"                // Reliable cross-provider fallback
-        )
-        private val VISION_PREPROCESSING_MODEL = VISION_MODEL_CANDIDATES.first()
 
         // Shared vision system prompt used by both image preprocessing and agent-initiated photo capture.
         private const val VISION_SYSTEM_PROMPT =
@@ -1743,7 +1709,9 @@ data class OpenRouterRequest(
     @SerialName("tool_choice")
     val toolChoice: String? = null,
     @SerialName("max_tokens")
-    val maxTokens: Int? = null
+    val maxTokens: Int? = null,
+    @SerialName("max_completion_tokens")
+    val maxCompletionTokens: Int? = null
 )
 
 @Serializable

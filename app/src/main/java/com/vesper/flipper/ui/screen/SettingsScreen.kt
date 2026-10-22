@@ -17,12 +17,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vesper.flipper.ai.SpeechBackend
+import com.vesper.flipper.ai.LlmProvider
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.ui.components.ModelPicker
 import com.vesper.flipper.domain.model.Permission
 import com.vesper.flipper.ui.theme.*
 import com.vesper.flipper.ui.viewmodel.SettingsViewModel
-import com.vesper.flipper.voice.OpenRouterTtsService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +31,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val credentialError by viewModel.credentialError.collectAsState()
     val availableModels by viewModel.availableModels.collectAsState()
     val isRefreshingModels by viewModel.isRefreshingModels.collectAsState()
     var showApiKey by remember { mutableStateOf(false) }
@@ -56,11 +58,56 @@ fun SettingsScreen(
             // API Configuration Section
             item {
                 SettingsSection(title = "API Configuration") {
-                    // API Key
+                    var providerExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = providerExpanded,
+                        onExpandedChange = { providerExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = state.provider.displayName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("LLM provider") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = providerExpanded)
+                            },
+                            supportingText = { Text(state.provider.summary) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = providerExpanded,
+                            onDismissRequest = { providerExpanded = false }
+                        ) {
+                            LlmProvider.entries.forEach { provider ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(provider.displayName, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                provider.summary,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setProvider(provider)
+                                        providerExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     OutlinedTextField(
                         value = state.apiKey,
                         onValueChange = { viewModel.setApiKey(it) },
-                        label = { Text("OpenRouter API Key") },
+                        label = { Text(state.provider.keyLabel) },
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = if (showApiKey) {
                             VisualTransformation.None
@@ -79,8 +126,12 @@ fun SettingsScreen(
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp)
                     )
+                    credentialError?.let { message ->
+                        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = viewModel::retryCredentialStorage) { Text("Retry credential storage") }
+                    }
                     Text(
-                        text = "Paste your OpenRouter key here (starts with \"sk-or-\").",
+                        text = state.provider.keyHint,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -117,7 +168,7 @@ fun SettingsScreen(
                         }
                     }
                     Text(
-                        text = "Recognized model availability or tool-use errors try another model. If a response cannot help, choose a different model and retry.",
+                        text = "Recognized model availability or tool-use errors try another model from this provider. If a response cannot help, choose a different model and retry.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -363,35 +414,36 @@ fun SettingsScreen(
 
             // Voice / TTS Section
             item {
-                SettingsSection(title = "Voice (OpenRouter TTS)") {
+                SettingsSection(title = "Voice") {
                     SettingsSwitch(
                         title = "Enable Voice Output",
-                        subtitle = "Speak agent responses via OpenRouter audio",
+                        subtitle = "Speak agent responses aloud",
                         checked = state.ttsEnabled,
+                        enabled = state.provider.speechBackend != SpeechBackend.NONE,
                         onCheckedChange = { viewModel.setTtsEnabled(it) }
                     )
                     Text(
-                        text = "Uses your OpenRouter API key — no extra key needed.",
+                        text = state.provider.speechSummary,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Voice Selection
                     var voiceExpanded by remember { mutableStateOf(false) }
-                    val currentVoice = OpenRouterTtsService.AVAILABLE_VOICES
-                        .find { it.id == state.ttsVoiceId }
+                    val voices = state.provider.voices
+                    val currentVoice = state.provider.voiceOrDefault(state.ttsVoiceId)
 
                     ExposedDropdownMenuBox(
                         expanded = voiceExpanded,
-                        onExpandedChange = { voiceExpanded = it }
+                        onExpandedChange = { voiceExpanded = it && state.provider.speechBackend != SpeechBackend.NONE }
                     ) {
                         OutlinedTextField(
                             value = currentVoice?.let { "${it.name} — ${it.description}" } ?: "Shimmer",
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Voice") },
+                            enabled = state.provider.speechBackend != SpeechBackend.NONE,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(),
@@ -404,7 +456,7 @@ fun SettingsScreen(
                             expanded = voiceExpanded,
                             onDismissRequest = { voiceExpanded = false }
                         ) {
-                            OpenRouterTtsService.AVAILABLE_VOICES.forEach { voice ->
+                            voices.forEach { voice ->
                                 DropdownMenuItem(
                                     text = {
                                         Column {
@@ -431,6 +483,7 @@ fun SettingsScreen(
                         title = "Auto-Speak",
                         subtitle = "Automatically read agent responses aloud",
                         checked = state.ttsAutoSpeak,
+                        enabled = state.provider.speechBackend != SpeechBackend.NONE,
                         onCheckedChange = { viewModel.setTtsAutoSpeak(it) }
                     )
                 }
@@ -589,6 +642,7 @@ private fun SettingsSwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -609,6 +663,7 @@ private fun SettingsSwitch(
         }
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = VesperOrange,
