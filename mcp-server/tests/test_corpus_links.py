@@ -104,3 +104,34 @@ def test_all_manifest_topic_directories_are_actually_topics():
     assert not missing_or_empty, (
         f"MANIFEST calls out topic dirs that don't exist / are empty: {missing_or_empty}"
     )
+
+
+# Backticked `something.md` in prose. These used to be flat filenames that
+# matched no file, so an MCP client following them got `unknown_topic`.
+_BACKTICK_MD_RE = re.compile(r"`([A-Za-z0-9_-]+\.md)`")
+
+# Repo-root and deferred-plan documents — not corpus topics, so not addressable
+# through read_doc(). Prose mentions of these stay backticked on purpose.
+_NON_CORPUS_BACKTICK_REFS = {
+    "SKILL.md",
+    "SECURITY.md",
+    "plan-deferred-wifi-marauder.md",
+}
+
+
+def test_backticked_prose_refs_resolve(all_pages):
+    """A backticked `*.md` name must either be a real corpus page or an
+    explicitly exempt repo-root/deferred-plan document. Anything else is a
+    flat filename that `read_doc` cannot resolve."""
+    known = {p.name for p in CORPUS_ROOT.rglob("*.md")}
+    unresolved: list[str] = []
+    for page in all_pages:
+        text = page.read_text(encoding="utf-8")
+        for name in _BACKTICK_MD_RE.findall(text):
+            if name in _NON_CORPUS_BACKTICK_REFS or name in known:
+                continue
+            unresolved.append(f"{page.relative_to(REPO_ROOT)}: `{name}`")
+    assert not unresolved, (
+        "backticked prose refs that no corpus page satisfies "
+        "(use a relative markdown link instead):\n  " + "\n  ".join(unresolved)
+    )

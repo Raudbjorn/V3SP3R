@@ -84,7 +84,7 @@ Not all of these are enabled by default:
 
 ### File format
 
-`.nfc` savefiles hold the tag dump. See `signal-formats-nfc.md`.
+`.nfc` savefiles hold the tag dump. See [`nfc/nfc-format.md`](nfc-format.md).
 
 ## Capabilities and limits
 
@@ -150,14 +150,14 @@ Reading MIFARE UIDs in a public setting is a grey area. Cloning access
 credentials (building access, transit cards) without authorization
 is a criminal offense in most jurisdictions (access-control law +
 computer-fraud law). Reading/copying stored value on transit or payment
-cards is theft. See `legal-and-safety.md`.
+cards is theft. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `signal-formats-nfc.md` — `.nfc` file format.
-- `flipper-storage.md` — `/ext/nfc/`, `/ext/nfc/assets/` layout.
-- `flipper-cli.md` — `nfc` verbs.
-- `flipper-hardware.md` — antenna specifics.
+- [`nfc/nfc-format.md`](nfc-format.md) — `.nfc` file format.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/nfc/`, `/ext/nfc/assets/` layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `nfc` verbs.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — antenna specifics.
 - `skill-signal-analysis` (slice 6.6) — capture-and-attack methodology.
 
 ---

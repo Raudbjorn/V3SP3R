@@ -99,7 +99,7 @@ The IR app renders each `name:` as a button in the remote UI.
 - **Naming rules** — the `name` field can contain spaces (not
   quoted) but the app UI works best with short (~15-char) names.
 - **Protocol coverage** — Flipper's parser knows the standard set
-  listed in `ir-overview.md`. Anything else needs `type: raw`.
+  listed in [`ir/README.md`](README.md). Anything else needs `type: raw`.
 
 ## Worked examples
 
@@ -165,7 +165,7 @@ Shortened for illustration; a real A/C block runs 100–300 tokens long.
 - **Missing frequency in a raw block** — some firmwares default to
   38 kHz; others reject. Always include.
 - **Universal remote files** ship with `.ir` extensions but live under
-  firmware-managed asset paths (see `flipper-storage.md`). Do not edit
+  firmware-managed asset paths (see [`flipper-storage/README.md`](../flipper-storage/README.md)). Do not edit
   those directly — they get overwritten on firmware update. Copy to
   `/ext/infrared/` first.
 - **CRLF line endings from Windows editors** are tolerated on
@@ -177,13 +177,13 @@ Shortened for illustration; a real A/C block runs 100–300 tokens long.
 
 None specific to the file format. Actually pointing an IR blaster at
 a target you don't own may still be problematic — see
-`ir-overview.md` gotchas and `legal-and-safety.md`.
+[`ir/README.md`](README.md) gotchas and [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `ir-overview.md` — protocols, hardware, workflow.
-- `flipper-storage.md` — `/ext/infrared/` layout.
-- `flipper-cli.md` — `ir tx <path>`, `ir rx`.
+- [`ir/README.md`](README.md) — protocols, hardware, workflow.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/infrared/` layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `ir tx <path>`, `ir rx`.
 
 ---
 *Attribution:* Flipper-Devices `.ir` format

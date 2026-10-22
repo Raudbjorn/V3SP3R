@@ -65,18 +65,18 @@ part of the Marauder feature set as of 2025-Q3.
 
 ## Firmware and installation
 
-See `marauder-firmware.md` for the flashing workflow, release cadence,
+See [`marauder/firmware.md`](firmware.md) for the flashing workflow, release cadence,
 and CLI protocol details.
 
 ## Wiring
 
-See `marauder-wiring.md` for the physical wiring: TX/RX/GND/3V3
+See [`marauder/wiring.md`](wiring.md) for the physical wiring: TX/RX/GND/3V3
 routing, common failure modes, "screaming pink" official variant vs
 third-party carriers.
 
 ## Commands
 
-See `marauder-commands.md` for the full CLI catalog exposed by Marauder
+See [`marauder/commands.md`](commands.md) for the full CLI catalog exposed by Marauder
 firmware over UART.
 
 ## Capabilities and limits
@@ -100,10 +100,10 @@ firmware over UART.
 ## Common tasks
 
 - **Scan APs:** `scanap` from Marauder CLI. Or via Vesper's Marauder
-  bridge (see `architecture.md`).
+  bridge (see [`vesper/architecture.md`](../vesper/architecture.md)).
 - **Scan clients:** `scansta`.
 - **Deauth a target BSSID:** `select -a <index-of-target-from-scanap>` then `attack -t deauth`
-  (or similar; see `marauder-commands.md` for the exact syntax).
+  (or similar; see [`marauder/commands.md`](commands.md) for the exact syntax).
 - **Beacon spam a Rickroll list:** `attack -t beacon -l 5` (list-mode).
 - **Set up an evil twin:** `attack -t rogueap -s <ssid>`.
 - **Capture PMKID:** `sniffpmkid`.
@@ -117,7 +117,7 @@ firmware over UART.
 - **Baud mismatch** — Marauder's default is 115 200 8N1. Some builds
   bump to 921 600. Check the release notes for your version.
 - **Third-party carriers with wrong RX/TX orientation** just don't
-  boot. See `marauder-wiring.md`.
+  boot. See [`marauder/wiring.md`](wiring.md).
 - **Momentum's built-in "Marauder companion" app** wraps the UART
   protocol but sometimes lags behind Marauder's mainline features. If
   a command works on Marauder's own CLI but not via the Momentum app,
@@ -134,17 +134,17 @@ explicit authorization from the network owner. FCC 47 CFR 15.5 (US)
 treats it as intentional interference; EU / UK equivalents apply.
 Beacon spam and evil-twin APs additionally violate computer-misuse and
 telecommunications-fraud statutes in many places. This is not
-theoretical — people have been prosecuted. See `legal-and-safety.md`.
+theoretical — people have been prosecuted. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `marauder-firmware.md` — flashing, releases, CLI protocol.
-- `marauder-wiring.md` — physical wiring specifics.
-- `marauder-commands.md` — the full command catalog.
-- `flipper-gpio-pinout.md` — GPIO pins consumed by the devboard.
-- `flipper-gpio-extensions.md` — other add-ons on the same header.
-- `firmware-momentum.md` — Momentum's Marauder integration.
-- `legal-and-safety.md` — 802.11 attack legal posture.
+- [`marauder/firmware.md`](firmware.md) — flashing, releases, CLI protocol.
+- [`marauder/wiring.md`](wiring.md) — physical wiring specifics.
+- [`marauder/commands.md`](commands.md) — the full command catalog.
+- [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md) — GPIO pins consumed by the devboard.
+- [`flipper-gpio/extensions.md`](../flipper-gpio/extensions.md) — other add-ons on the same header.
+- [`firmware/momentum.md`](../firmware/momentum.md) — Momentum's Marauder integration.
+- [`legal/README.md`](../legal/README.md) — 802.11 attack legal posture.
 
 ---
 *Attribution:* JustCallMeKoko ESP32Marauder

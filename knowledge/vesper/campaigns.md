@@ -36,6 +36,6 @@ operation under the authorization applicable to that target.
 
 ## See also
 
-- [`labs.md`](labs.md) — existing Alchemy and Payload Lab surfaces.
-- [`architecture.md`](architecture.md) — current command and data flow.
+- [[`vesper/labs.md`](labs.md)](labs.md) — existing Alchemy and Payload Lab surfaces.
+- [[`vesper/architecture.md`](architecture.md)](architecture.md) — current command and data flow.
 - [`SECURITY.md`](../../SECURITY.md) — reporting vulnerabilities.

@@ -41,7 +41,7 @@ once.
   are the common bands; strict duty cycle (~1%) on 868 MHz.
 - **Region unlocks** (Momentum, Unleashed, RogueMaster) *let* the
   radio TX on prohibited bands. They do not legalize it. See
-  `firmware-momentum.md`, `subghz-overview.md`.
+  [`firmware/momentum.md`](../firmware/momentum.md), [`subghz/README.md`](../subghz/README.md).
 
 **When to worry:**
 
@@ -64,7 +64,7 @@ once.
 - **EU:** Directive 2013/40/EU on attacks against information systems.
 - **Payment / EMV cards:** Cloning is theft/fraud in every
   jurisdiction. Full-stop illegal, not merely regulated. See
-  `nfc-overview.md`.
+  [`nfc/README.md`](../nfc/README.md).
 
 **When to worry:**
 
@@ -123,7 +123,7 @@ telecom law (regime 4).
   - Rickroll / joke SSID lists: grey area. Not usually prosecuted
     but has legal exposure under interference statutes.
 
-See `marauder-overview.md`, `marauder-commands.md`.
+See [`marauder/README.md`](../marauder/README.md), [`marauder/commands.md`](../marauder/commands.md).
 
 ### IR
 
@@ -179,18 +179,18 @@ deauth have happened.
   card ranges you're allowed to test.
 - **Isolate test environments.** RF spills. Faraday bags, screen
   rooms, or at minimum "in a basement / rural location."
-- **Log your activity.** Vesper's audit trail (see `architecture.md`)
+- **Log your activity.** Vesper's audit trail (see [`vesper/architecture.md`](../vesper/architecture.md))
   gives you an evidence trail if something goes sideways.
 - **Assume you're on camera.** Physical access-control tests are
   frequently CCTV-recorded.
 
 ## What Vesper does about it
 
-- **`RiskAssessor`** (see `architecture.md`) rates every
+- **`RiskAssessor`** (see [`vesper/architecture.md`](../vesper/architecture.md)) rates every
   `execute_command` invocation LOW / MED / HIGH and requires user
   confirmation for MED / HIGH.
 - **`FirmwareCompatibilityProfile`** (see
-  `firmware-compatibility-profile.md`) routes TX-heavy verbs through
+  [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md)) routes TX-heavy verbs through
   the app-bridged RPC path when possible, giving Vesper a second
   gate.
 - **`AuditService`** logs every command with justification and
@@ -205,15 +205,15 @@ transmission legal.
 
 ## See also
 
-- `subghz-overview.md` — RF regulation details for SubGHz TX.
-- `nfc-overview.md` — MIFARE / access-control specifics.
-- `rfid-lf-overview.md` — LF RFID cloning specifics.
-- `ibutton-overview.md` — iButton cloning specifics.
-- `marauder-overview.md` — 802.11 attack specifics.
-- `marauder-commands.md` — command-level legal callouts.
-- `firmware-families.md` / `firmware-momentum.md` — region policy in
+- [`subghz/README.md`](../subghz/README.md) — RF regulation details for SubGHz TX.
+- [`nfc/README.md`](../nfc/README.md) — MIFARE / access-control specifics.
+- [`rfid/README.md`](../rfid/README.md) — LF RFID cloning specifics.
+- [`ibutton/README.md`](../ibutton/README.md) — iButton cloning specifics.
+- [`marauder/README.md`](../marauder/README.md) — 802.11 attack specifics.
+- [`marauder/commands.md`](../marauder/commands.md) — command-level legal callouts.
+- [`firmware/families.md`](../firmware/families.md) / [`firmware/momentum.md`](../firmware/momentum.md) — region policy in
   firmware.
-- `architecture.md` — Vesper's local enforcement mechanisms.
+- [`vesper/architecture.md`](../vesper/architecture.md) — Vesper's local enforcement mechanisms.
 
 ---
 *Attribution:* Not legal advice. Cited statutes are for orientation.

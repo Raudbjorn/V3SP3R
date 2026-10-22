@@ -58,7 +58,7 @@ antenna is a printed loop on the PCB.
 - **SPI Flash (external NOR, small):** used by ST's stack for the
   BLE binary and radio configuration; not user-writable.
 
-See `flipper-storage.md` for the SD layout.
+See [`flipper-storage/README.md`](../flipper-storage/README.md) for the SD layout.
 
 ### Buttons, LCD, LED, vibro
 
@@ -77,7 +77,7 @@ See `flipper-storage.md` for the SD layout.
   a week or more of on-standby time. Actively transmitting on SubGHz +
   keeping BLE up + backlight on drops runtime to a few hours.
 - The GPIO header can source 3V3 (~500 mA) or 5V from a USB OTG path — see
-  `flipper-gpio-pinout.md`.
+  [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md).
 
 ## Capabilities and limits
 
@@ -89,12 +89,12 @@ in-app tools (RNG, U2F, remote-key learning), GPIO for external boards.
 Limits worth naming up front:
 
 - **No Wi-Fi radio on-board.** 802.11 needs an ESP32 companion on the
-  GPIO header — see `flipper-gpio-extensions.md` and the Marauder docs.
+  GPIO header — see [`flipper-gpio/extensions.md`](../flipper-gpio/extensions.md) and the Marauder docs.
 - **No cellular, no LoRa on-board.** Some third-party GPIO boards add
   these; the base Flipper cannot.
 - **Region-locked SubGHz TX** on official firmware. Custom firmware
   (Momentum / Unleashed / RogueMaster) unlocks additional windows; see
-  `firmware-families.md`.
+  [`firmware/families.md`](../firmware/families.md).
 - **RX-only for some HF standards.** 13.56 MHz FeliCa and ISO15693 have
   partial support depending on firmware.
 
@@ -104,7 +104,7 @@ Limits worth naming up front:
   into the on-device Updater; or use qFlipper over USB.
 - **Add an SD card:** eject the microSD from the slot on the top edge,
   format FAT32, drop it back in. First boot recreates the standard tree.
-- **Read basic info:** `device_info` over the CLI (`flipper-cli.md`)
+- **Read basic info:** `device_info` over the CLI ([`flipper-cli/README.md`](../flipper-cli/README.md))
   gives hardware revision, firmware family, unique ID, battery %.
 - **Hard reset:** hold BACK for ~10 s to force a reboot without needing
   to disassemble anything.
@@ -134,18 +134,20 @@ Limits worth naming up front:
 
 Owning a Flipper Zero is legal in most countries. Transmitting on
 SubGHz, cloning access-control credentials, and running BadUSB payloads
-against systems you don't own is not. See `legal-and-safety.md`.
+against systems you don't own is not. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `flipper-gpio-pinout.md` — the 18-pin expansion header, pin by pin.
-- `flipper-storage.md` — SD card layout.
-- `flipper-cli.md` — the on-device serial CLI.
-- `firmware-families.md` — Official vs Momentum vs Unleashed vs RogueMaster.
-- `subghz-overview.md` — deeper on the CC1101 + tuning.
+- [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md) — the 18-pin expansion header, pin by pin.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — SD card layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — the on-device serial CLI.
+- [`firmware/families.md`](../firmware/families.md) — Official vs Momentum vs Unleashed vs RogueMaster.
+- [`subghz/README.md`](../subghz/README.md) — deeper on the CC1101 + tuning.
 
 ---
 *Attribution:* Flipper-Devices hardware documentation
 (<https://docs.flipper.net/>), ST STM32WB55 datasheet (RM0434), TI
 CC1101 datasheet (SWRS061I), ST25R3916 product page. Retrieved
 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

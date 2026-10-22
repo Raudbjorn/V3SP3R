@@ -193,16 +193,18 @@ only). Not part of the production API.
 ## Legal & safety notes
 
 The profile itself is not a regulated artefact. The verbs it routes
-often are; see `legal-and-safety.md`.
+often are; see [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `firmware-families.md` — the ecosystem overview.
-- `firmware-momentum.md` — Momentum's fingerprint keys in detail.
-- `flipper-cli.md` — the verbs `prefersRpcBridge` gates.
-- `architecture.md` — where `FirmwareCompatibilityProfile` sits in the
+- [`firmware/families.md`](families.md) — the ecosystem overview.
+- [`firmware/momentum.md`](momentum.md) — Momentum's fingerprint keys in detail.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — the verbs `prefersRpcBridge` gates.
+- [`vesper/architecture.md`](../vesper/architecture.md) — where `FirmwareCompatibilityProfile` sits in the
   transport pipeline.
 
 ---
 *Attribution:* `FirmwareCompatibilityProfile.kt` (this repo). Retrieved
 from HEAD of `feature/expand-knowledge` branch, 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

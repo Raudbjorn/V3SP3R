@@ -128,7 +128,7 @@ Be respectful. We're all here to build something useful. Harassment, trolling, a
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [GPL-3.0 License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [AGPL-3.0 License](LICENSE).
 
 ---
 

@@ -44,7 +44,7 @@ Canonical directories under `/ext/` (on Momentum; official is a subset):
 | `/ext/rfid/`                  | May occur in imported/custom layouts; not Momentum's default LF RFID browser directory. |
 | `/ext/ibutton/`               | `.ibtn` files (Dallas DS1990A, CYFRAL, Metakom).                            |
 | `/ext/infrared/`              | `.ir` files, custom remotes.                                                |
-| `/ext/badusb/`                | `.txt` DuckyScript / BadUSB payloads. See `flipper-fap-apps.md`.            |
+| `/ext/badusb/`                | `.txt` DuckyScript / BadUSB payloads. See [`development/fap-apps.md`](../development/fap-apps.md).            |
 | `/ext/apps/`                  | Installed `.fap` applications.                                              |
 | `/ext/apps_assets/`           | Read-only asset packs shipped with `.fap` apps.                             |
 | `/ext/apps_data/`             | Per-app writable state (settings, cached data).                             |
@@ -64,19 +64,19 @@ settings.
 
 | Extension  | Content                             | Reference doc                             |
 |------------|-------------------------------------|-------------------------------------------|
-| `.sub`     | SubGHz capture (decoded or raw)     | `signal-formats-sub.md`                   |
-| `.nfc`     | NFC tag dump / emulation savefile   | `signal-formats-nfc.md`                   |
-| `.ir`      | IR remote / signal set              | `signal-formats-ir.md`                    |
-| `.rfid`    | LF RFID card savefile               | `rfid-lf-overview.md`                     |
-| `.ibtn`    | iButton (1-Wire) savefile           | `ibutton-overview.md`                     |
-| `.txt`     | BadUSB DuckyScript payload          | `flipper-fap-apps.md`                     |
-| `.fap`     | Flipper Application Package (app binary) | `flipper-fap-apps.md`                |
-| `.js`      | Momentum JS runner script           | `flipper-js-runner.md`                    |
+| `.sub`     | SubGHz capture (decoded or raw)     | [`subghz/sub-format.md`](../subghz/sub-format.md)                   |
+| `.nfc`     | NFC tag dump / emulation savefile   | [`nfc/nfc-format.md`](../nfc/nfc-format.md)                   |
+| `.ir`      | IR remote / signal set              | [`ir/ir-format.md`](../ir/ir-format.md)                    |
+| `.rfid`    | LF RFID card savefile               | [`rfid/README.md`](../rfid/README.md)                     |
+| `.ibtn`    | iButton (1-Wire) savefile           | [`ibutton/README.md`](../ibutton/README.md)                     |
+| `.txt`     | BadUSB DuckyScript payload          | [`development/fap-apps.md`](../development/fap-apps.md)                     |
+| `.fap`     | Flipper Application Package (app binary) | [`development/fap-apps.md`](../development/fap-apps.md)                |
+| `.js`      | Momentum JS runner script           | [`development/js-runner.md`](../development/js-runner.md)                    |
 | `.fmf`     | Flipper Music Format                | —                                         |
 | `.mus`     | Music player alt format             | —                                         |
 | `.rtttl`   | Ring Tone Text Transfer Language    | —                                         |
-| `.tgz`     | Firmware update bundle              | `firmware-updating.md`                    |
-| `.dfu`     | DFU-mode firmware image             | `firmware-updating.md`                    |
+| `.tgz`     | Firmware update bundle              | [`firmware/updating.md`](../firmware/updating.md)                    |
+| `.dfu`     | DFU-mode firmware image             | [`firmware/updating.md`](../firmware/updating.md)                    |
 
 All Flipper savefile formats are **plain text** with a `Filetype:` /
 `Version:` preamble, except `.fap`, `.tgz`, `.dfu` which are binary.
@@ -123,19 +123,21 @@ This is important: you can grep `/ext/` and get meaningful hits.
 ## Legal & safety notes
 
 Storage layout is not itself regulated. What you capture and store may
-have implications — see `legal-and-safety.md` for the RF capture and
+have implications — see [`legal/README.md`](../legal/README.md) for the RF capture and
 credential-cloning notes.
 
 ## See also
 
-- `flipper-hardware.md` — SD slot physical layout.
-- `flipper-cli.md` — `storage.*` verbs.
-- `signal-formats-sub.md`, `signal-formats-nfc.md`, `signal-formats-ir.md`
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — SD slot physical layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `storage.*` verbs.
+- [`subghz/sub-format.md`](../subghz/sub-format.md), [`nfc/nfc-format.md`](../nfc/nfc-format.md), [`ir/ir-format.md`](../ir/ir-format.md)
   — file formats.
-- `firmware-updating.md` — how `/ext/update/` is consumed.
-- `flipper-fap-apps.md` — `/ext/apps/` layout.
+- [`firmware/updating.md`](../firmware/updating.md) — how `/ext/update/` is consumed.
+- [`development/fap-apps.md`](../development/fap-apps.md) — `/ext/apps/` layout.
 
 ---
 *Attribution:* Flipper-Devices file-format documentation
 (<https://docs.flipper.net/file-formats>), Momentum firmware repo
 (directory conventions). Retrieved 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

@@ -34,7 +34,7 @@ Preset: FuriHalSubGhzPresetOok650Async
   2025-Q3.
 - **`Frequency`** — Hz.
 - **`Preset`** — one of the CC1101 configuration names. See
-  `subghz-overview.md`. Momentum-specific `FuriHalSubGhzPresetCustom`
+  [`subghz/README.md`](README.md). Momentum-specific `FuriHalSubGhzPresetCustom`
   is followed by extra `Custom_preset_module` and
   `Custom_preset_data` lines.
 
@@ -142,7 +142,7 @@ Manchester code, gap at the end. Replayable but not decodable.
 ## Common tasks
 
 - **Inspect a saved capture:** `storage read /ext/subghz/mycap.sub`
-  (see `flipper-cli.md`), or open in any text editor with the SD in a
+  (see [`flipper-cli/README.md`](../flipper-cli/README.md)), or open in any text editor with the SD in a
   laptop.
 - **Replay:** `subghz tx_from_file /ext/subghz/mycap.sub`. Frequency
   and preset come from the header.
@@ -157,7 +157,7 @@ Manchester code, gap at the end. Replayable but not decodable.
 ## Gotchas
 
 - **`Preset: FuriHalSubGhzPresetCustom`** is Momentum-only. See
-  `firmware-compatibility-profile.md`; Vesper's parser handles it
+  [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md); Vesper's parser handles it
   differently per profile.
 - **Editing `Frequency:` without changing the physical timing** — if
   you shift a capture from 315 → 433.92 MHz by editing the header,
@@ -177,18 +177,20 @@ Manchester code, gap at the end. Replayable but not decodable.
 ## Legal & safety notes
 
 Replaying a captured `.sub` against a target you don't own is what the
-legal notes on `subghz-overview.md` and `legal-and-safety.md` cover.
+legal notes on [`subghz/README.md`](README.md) and [`legal/README.md`](../legal/README.md) cover.
 The file format itself is not regulated.
 
 ## See also
 
-- `subghz-overview.md` — presets, frequencies, region policy.
-- `subghz-protocols.md` — what `Protocol:` values mean.
-- `flipper-storage.md` — where `.sub` files live on the SD.
-- `flipper-cli.md` — `subghz tx_from_file`, `subghz decode_raw`.
-- `firmware-compatibility-profile.md` — cross-family parser tolerance.
+- [`subghz/README.md`](README.md) — presets, frequencies, region policy.
+- [`subghz/protocols.md`](protocols.md) — what `Protocol:` values mean.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — where `.sub` files live on the SD.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `subghz tx_from_file`, `subghz decode_raw`.
+- [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md) — cross-family parser tolerance.
 
 ---
 *Attribution:* Flipper-Devices `.sub` format
 (<https://docs.flipper.net/file-formats/sub>), Momentum
 `applications/main/subghz/` sources. Retrieved 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

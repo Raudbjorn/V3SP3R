@@ -39,7 +39,7 @@ outside its official windows.
   433.92, 868, 869.5 MHz. Outside → RX-only.
 - **Momentum / Unleashed / RogueMaster:** no software enforcement.
   Every frequency the CC1101 can tune, you can *technically* TX on.
-  See `firmware-families.md`.
+  See [`firmware/families.md`](../firmware/families.md).
 
 ### Presets
 
@@ -55,7 +55,7 @@ built-in presets:
 | `FuriHalSubGhzPresetCustom` | *depends* | User-defined registers           | Advanced captures; not universally decodable. |
 
 The preset a `.sub` file uses is part of its header (see
-`signal-formats-sub.md`). Playing back with the wrong preset makes the
+[`subghz/sub-format.md`](sub-format.md)). Playing back with the wrong preset makes the
 signal audible-but-wrong on the receiver.
 
 ### TX vs RX sensitivity asymmetry
@@ -73,7 +73,7 @@ serious work — long range, weak signals — an external antenna helps.
 Dedicated external CC1101 radio boards can connect through GPIO/SPI
 when supported by the selected firmware. The Video Game Module is an
 RP2040 video/motion accessory, not a SubGHz radio or antenna extension.
-See `flipper-gpio-extensions.md` for the distinction and check the
+See [`flipper-gpio/extensions.md`](../flipper-gpio/extensions.md) for the distinction and check the
 external radio board's wiring and supported frequency band.
 
 ## Why some captures RX but don't decode
@@ -88,10 +88,10 @@ The most common assistant question. Reasons in rough frequency:
    frequencies.
 3. **The protocol isn't in the Flipper's decoder table.** The Flipper
    ships decoders for a few dozen protocols (see
-   `subghz-protocols.md`). Anything else RX'd goes into RAW_Data,
+   [`subghz/protocols.md`](protocols.md)). Anything else RX'd goes into RAW_Data,
    which you can replay but the Flipper can't parse.
 4. **It's rolling code.** KeeLoq, Security+, etc. capture and replay
-   *once*. See `subghz-protocols.md`.
+   *once*. See [`subghz/protocols.md`](protocols.md).
 5. **The signal is FHSS/CSS.** LoRa, some baby monitors, some game
    controllers use spread-spectrum. CC1101 can't demodulate those.
 6. **The signal is 2.4 GHz.** Different radio subsystem. Flipper Zero
@@ -101,7 +101,7 @@ The most common assistant question. Reasons in rough frequency:
 ## Capabilities and limits
 
 - **RX with duration** — `subghz rx <freq> <preset> <ms>` streams
-  captured packets (decoded or raw) to the CLI. See `flipper-cli.md`.
+  captured packets (decoded or raw) to the CLI. See [`flipper-cli/README.md`](../flipper-cli/README.md).
 - **Passive RX with save** — the SubGHz app can save captures to
   `.sub` files in `/ext/subghz/`.
 - **TX from file** — `subghz tx_from_file` replays a `.sub`. Preferred
@@ -127,7 +127,7 @@ The most common assistant question. Reasons in rough frequency:
   CLI: `subghz tx_from_file /ext/subghz/mycap.sub`.
 - **Brute-force a fixed-code remote:** SubBrute app (Momentum
   built-in). Only useful for fixed protocols like Princeton — see
-  `subghz-protocols.md`.
+  [`subghz/protocols.md`](protocols.md).
 
 ## Gotchas
 
@@ -135,7 +135,7 @@ The most common assistant question. Reasons in rough frequency:
   away won't register. Get within 10-30 cm.
 - **`Preset=Custom` in `.sub` files** is Momentum-specific and won't
   parse on Official. Fingerprint the firmware first — see
-  `firmware-compatibility-profile.md`.
+  [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md).
 - **Some `.sub` files claim `Frequency: 433920000` but were captured
   at 433870000.** Trust the *waveform*, not the header, if replay
   fails.
@@ -150,18 +150,20 @@ The most common assistant question. Reasons in rough frequency:
 
 **TX below 300 MHz, or on non-ISM bands within the CC1101's range, is
 illegal without a license in most jurisdictions.** Even ISM-band TX has
-duty-cycle and power caps. See `legal-and-safety.md`.
+duty-cycle and power caps. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `subghz-protocols.md` — protocol-by-protocol reference.
-- `signal-formats-sub.md` — the `.sub` file format.
-- `firmware-families.md` — region policy differences.
-- `flipper-cli.md` — `subghz` CLI verbs.
-- `flipper-gpio-extensions.md` — external antennas.
+- [`subghz/protocols.md`](protocols.md) — protocol-by-protocol reference.
+- [`subghz/sub-format.md`](sub-format.md) — the `.sub` file format.
+- [`firmware/families.md`](../firmware/families.md) — region policy differences.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `subghz` CLI verbs.
+- [`flipper-gpio/extensions.md`](../flipper-gpio/extensions.md) — external antennas.
 - `skill-signal-analysis` (added in slice 6.6) — methodology.
 
 ---
 *Attribution:* TI CC1101 datasheet (SWRS061I), Flipper-Devices SubGHz
 docs (<https://docs.flipper.net/sub-ghz>), Momentum SubGHz app source.
 Retrieved 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

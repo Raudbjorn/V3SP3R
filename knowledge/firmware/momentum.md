@@ -73,8 +73,8 @@ The Momentum-only functionality assistants routinely surface:
 - **Worldwide SubGHz TX.** The CC1101 tuning table is broad; region
   checks are advisory, not enforced. You can TX on 868 MHz in the US,
   315 MHz in the EU, etc. — legality is *your* problem, not the
-  firmware's. See `subghz-overview.md` for the physics and
-  `legal-and-safety.md` for the caveats.
+  firmware's. See [`subghz/README.md`](../subghz/README.md) for the physics and
+  [`legal/README.md`](../legal/README.md) for the caveats.
 - **Extended NFC parsers.** MIFARE Classic dictionary attacks
   (mfkey32, hardnested, static-encrypted) are integrated into the NFC
   app UI. `.nfc` reads more parsers (DESFire partial, NTAG21x, iso15693
@@ -83,7 +83,7 @@ The Momentum-only functionality assistants routinely surface:
   DuckyScript extensions (loops, variables, delays with sub-second
   precision on some builds).
 - **JS runner.** A JavaScript execution environment (`js` CLI verb) —
-  see `flipper-js-runner.md`. Access to storage, subghz, notification,
+  see [`development/js-runner.md`](../development/js-runner.md). Access to storage, subghz, notification,
   gpio, math, keyboard APIs.
 - **Extra apps preinstalled.** SubBrute (SubGHz brute-force helper),
   KeyLogger (BadUSB variant), UARTerminal (Marauder-style bridge),
@@ -112,7 +112,7 @@ radio_stack_type    : full
 
 The two `momentum_*` keys are how `FirmwareCompatibilityProfile.kt`
 positively identifies the family and routes commands. See
-`firmware-compatibility-profile.md`.
+[`firmware/compatibility-profile.md`](compatibility-profile.md).
 
 ### What the Vesper `FirmwareCompatibilityProfile` selects on Momentum
 
@@ -158,11 +158,11 @@ and can assume every legal SubGHz preset works.
 - **Read what version you're on:** `device_info` → `momentum_firmware_commit`.
 - **Enable a devboard:** Momentum handles OTG automatically for
   supported IDs; otherwise `power otg_on`. See
-  `flipper-gpio-pinout.md`.
+  [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md).
 - **Run a JS script:** upload the `.js` to `/ext/apps_data/js_app/`
   (or the current path — check the JS runner app's UI), open the JS
   runner, select. Or: `js <path>` from the CLI on Momentum builds that
-  expose it. See `flipper-js-runner.md`.
+  expose it. See [`development/js-runner.md`](../development/js-runner.md).
 - **Verify Vesper is speaking to a Momentum Flipper:** in the app,
   check the connect toast; if `FirmwareCompatibilityProfile` matched
   `MOMENTUM`, all Momentum-only CLI verbs are enabled in the
@@ -183,7 +183,7 @@ and can assume every legal SubGHz preset works.
 - **Cross-family installation can use the staged Updater.** Follow
   Momentum's supported package or extracted-folder instructions; a family
   difference alone does not require DFU. Back up data before switching
-  or returning to Official. See `firmware-updating.md`.
+  or returning to Official. See [`firmware/updating.md`](updating.md).
 - **`momentum_firmware_commit` is not present on Xtreme.** Old Xtreme
   builds set `xtreme_firmware_commit` instead. Both map to
   `FirmwareFamily.MOMENTUM` (with `XTREME` as the enum branch) in
@@ -194,19 +194,21 @@ and can assume every legal SubGHz preset works.
 Momentum removes software region checks; you become the enforcer. TXing
 on 868 MHz in the US is *technically* possible but violates FCC Part 15.
 Cloning access-control credentials on Momentum is no more or less legal
-than on any other firmware — see `legal-and-safety.md`.
+than on any other firmware — see [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `firmware-families.md` — where Momentum sits among the alternatives.
-- `firmware-compatibility-profile.md` — exact Vesper detection mechanics.
-- `firmware-updating.md` — install / rollback / DFU.
-- `flipper-js-runner.md` — the Momentum JS runtime.
-- `subghz-overview.md` — what "region unlocked" actually means.
-- `marauder-firmware.md` — Marauder integration Momentum ships with.
+- [`firmware/families.md`](families.md) — where Momentum sits among the alternatives.
+- [`firmware/compatibility-profile.md`](compatibility-profile.md) — exact Vesper detection mechanics.
+- [`firmware/updating.md`](updating.md) — install / rollback / DFU.
+- [`development/js-runner.md`](../development/js-runner.md) — the Momentum JS runtime.
+- [`subghz/README.md`](../subghz/README.md) — what "region unlocked" actually means.
+- [`marauder/firmware.md`](../marauder/firmware.md) — Marauder integration Momentum ships with.
 
 ---
 *Attribution:* Momentum Firmware GitHub
 (<https://github.com/Next-Flip/Momentum-Firmware>), Momentum web
 installer (<https://momentum-fw.dev/>), Momentum wiki. Retrieved
 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

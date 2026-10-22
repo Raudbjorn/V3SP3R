@@ -6,7 +6,7 @@
 
 ## What it is
 
-The Flipper Zero's 18-pin GPIO header (see `flipper-gpio-pinout.md`)
+The Flipper Zero's 18-pin GPIO header (see [`flipper-gpio/pinout.md`](pinout.md))
 takes exactly *one* physical add-on at a time. The ecosystem of add-ons
 falls into four rough buckets: Wi-Fi companions, sub-GHz co-processors,
 debug interfaces, and general-purpose expansion boards.
@@ -40,8 +40,8 @@ Firmware options for the ESP32:
   M0MA target.
 - **ESP-IDF custom** — you can build your own.
 
-See the Marauder docs for depth: `marauder-overview.md`,
-`marauder-firmware.md`, `marauder-wiring.md`, `marauder-commands.md`.
+See the Marauder docs for depth: [`marauder/README.md`](../marauder/README.md),
+[`marauder/firmware.md`](../marauder/firmware.md), [`marauder/wiring.md`](../marauder/wiring.md), [`marauder/commands.md`](../marauder/commands.md).
 
 ### NRF24 module
 
@@ -71,7 +71,7 @@ alone does not identify its radio or frequency band.
 A small ARM CMSIS-DAP debug probe wired to the SWD pins (10/11/12).
 Used for:
 
-- **Recovering hard-bricked Flippers** (see `firmware-updating.md`).
+- **Recovering hard-bricked Flippers** (see [`firmware/updating.md`](../firmware/updating.md)).
 - **Developing firmware from source** — attach a DAP-Link, run
   `openocd`, single-step FURI code.
 - **Reflashing over SWD** when DFU isn't reachable.
@@ -120,7 +120,7 @@ Consequences:
   can sag the rail; some carriers add a large decoupling cap for this
   reason.
 - **OTG (5V rail) is off by default.** Wi-Fi devboards that need 5V
-  require `power otg_on` (see `flipper-cli.md`). Momentum
+  require `power otg_on` (see [`flipper-cli/README.md`](../flipper-cli/README.md)). Momentum
   auto-enables OTG for known devboard IDs.
 - **UART:** exactly one bus. Wi-Fi devboards, VGM, and other
   UART-first accessories collide.
@@ -137,7 +137,7 @@ Consequences:
 - **Attach DAP-Link for recovery:** power off, seat the DAP-Link,
   connect to a laptop, `openocd` with the appropriate cfg for STM32WB55.
 - **Identify unknown add-on:** check its silkscreen labels against
-  `flipper-gpio-pinout.md`. TX/RX + power = Wi-Fi devboard variant;
+  [`flipper-gpio/pinout.md`](pinout.md). TX/RX + power = Wi-Fi devboard variant;
   8-pin SPI header = NRF24; SMA jack = external antenna.
 
 ## Gotchas
@@ -160,19 +160,21 @@ Consequences:
 The add-on hardware is unregulated on its own. What the add-on lets
 you *do* is where legality matters — Marauder's 802.11 attacks in
 particular are illegal in most jurisdictions without authorization. See
-`legal-and-safety.md` and `marauder-overview.md`.
+[`legal/README.md`](../legal/README.md) and [`marauder/README.md`](../marauder/README.md).
 
 ## See also
 
-- `flipper-gpio-pinout.md` — the pin table.
-- `marauder-overview.md` — the Wi-Fi devboard's primary use case.
-- `marauder-wiring.md` — Wi-Fi devboard wiring specifics.
-- `subghz-overview.md` — external SubGHz antenna context.
-- `firmware-updating.md` — DAP-Link for brick recovery.
-- `flipper-cli.md` — `power otg_on`, `gpio` verbs.
+- [`flipper-gpio/pinout.md`](pinout.md) — the pin table.
+- [`marauder/README.md`](../marauder/README.md) — the Wi-Fi devboard's primary use case.
+- [`marauder/wiring.md`](../marauder/wiring.md) — Wi-Fi devboard wiring specifics.
+- [`subghz/README.md`](../subghz/README.md) — external SubGHz antenna context.
+- [`firmware/updating.md`](../firmware/updating.md) — DAP-Link for brick recovery.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `power otg_on`, `gpio` verbs.
 
 ---
 *Attribution:* Flipper-Devices GPIO / modules docs
 (<https://docs.flipper.net/gpio-and-modules>), Flipper Wi-Fi Devboard
 product page, JustCallMeKoko Marauder wiki, Nordic nRF24L01+ datasheet.
 Retrieved 2025-Q3.
+Verified as of 2026-10-22 against repo commit 338e935 (V3SP3R) and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28.

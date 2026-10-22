@@ -149,7 +149,7 @@ Block 7: A0 A1 A2 A3 A4 A5 FF 07 80 69 B0 B1 B2 B3 B4 B5
 ## Common tasks
 
 - **Inspect a `.nfc` file:** `storage read /ext/nfc/mycard.nfc`
-  (see `flipper-cli.md`), or open in any text editor.
+  (see [`flipper-cli/README.md`](../flipper-cli/README.md)), or open in any text editor.
 - **Emulate:** `nfc emulate /ext/nfc/mycard.nfc` from CLI, or
   Emulate button in the app.
 - **Hand-author a UID emulator:** create a minimal `.nfc` with only
@@ -188,13 +188,13 @@ Block 7: A0 A1 A2 A3 A4 A5 FF 07 80 69 B0 B1 B2 B3 B4 B5
 Cloning access-control credentials without authorization is illegal
 in most jurisdictions. The file format itself is neutral; what you
 capture into it is where the tripwires live. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `nfc-overview.md` — protocols, hardware, attacks.
-- `flipper-storage.md` — `/ext/nfc/`, `/ext/nfc/assets/` layout.
-- `flipper-cli.md` — `nfc emulate`, `nfc detect`.
+- [`nfc/README.md`](README.md) — protocols, hardware, attacks.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/nfc/`, `/ext/nfc/assets/` layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `nfc emulate`, `nfc detect`.
 
 ---
 *Attribution:* Flipper-Devices NFC file format

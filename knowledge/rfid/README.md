@@ -114,7 +114,7 @@ bytes.
 ## Gotchas
 
 - **Reading a "MIFARE" or "HID iCLASS" badge on 125 kHz will fail.**
-  Those are 13.56 MHz cards; use the NFC app (see `nfc-overview.md`).
+  Those are 13.56 MHz cards; use the NFC app (see [`nfc/README.md`](../nfc/README.md)).
   Confusion between "prox" (LF, 125 kHz) and "iCLASS" (HF, 13.56 MHz)
   is the #1 support question.
 - **HID Prox reads sometimes come back with wrong facility code.** LF
@@ -136,16 +136,16 @@ bytes.
 Copying a physical access-control credential without authorization is
 a criminal offense in most jurisdictions — often under "counterfeiting
 of tokens" or similar statutes, and always under computer-fraud /
-trespass law if used to enter a building. See `legal-and-safety.md`.
+trespass law if used to enter a building. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `flipper-hardware.md` — LF antenna specifics.
-- `flipper-storage.md` — `/ext/rfid/` layout.
-- `flipper-cli.md` — `rfid` verbs (read/write/emulate).
-- `nfc-overview.md` — the HF counterpart, for the "prox vs iCLASS"
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — LF antenna specifics.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/rfid/` layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `rfid` verbs (read/write/emulate).
+- [`nfc/README.md`](../nfc/README.md) — the HF counterpart, for the "prox vs iCLASS"
   distinction.
-- `ibutton-overview.md` — the 1-Wire access-control counterpart.
+- [`ibutton/README.md`](../ibutton/README.md) — the 1-Wire access-control counterpart.
 
 ---
 *Attribution:* Flipper-Devices RFID docs

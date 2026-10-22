@@ -7,7 +7,7 @@
 ## What it is
 
 The Flipper Zero exposes its GPIO header on the top edge (see
-`flipper-gpio-pinout.md`). A Marauder-flashed ESP32 devboard plugs
+[`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md)). A Marauder-flashed ESP32 devboard plugs
 into that header and communicates over UART. The wiring is minimal —
 **four wires** (TX, RX, GND, 3V3) plus optionally a boot pin.
 
@@ -18,7 +18,7 @@ ESP32 modules).
 ## The four essential connections
 
 Numbers below refer to Flipper GPIO header pins (see
-`flipper-gpio-pinout.md`):
+[`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md)):
 
 | Flipper pin | Flipper name  | ESP32 pin                   | Notes                                      |
 |-------------|---------------|------------------------------|--------------------------------------------|
@@ -150,7 +150,7 @@ Roughly in order of frequency:
   continuity, reseat.
 - **Reflash the ESP32 in-place:** the ESP32 devboard's own USB
   bypasses the Flipper. Just plug USB into the devboard, use the
-  Marauder web installer (see `marauder-firmware.md`).
+  Marauder web installer (see [`marauder/firmware.md`](firmware.md)).
 - **Add a boot-hold rig** for auto-flash: wire Flipper pin 7 → ESP32
   BOOT with a level-shifter if needed. Not standard.
 
@@ -173,15 +173,15 @@ Roughly in order of frequency:
 ## Legal & safety notes
 
 Wiring is neutral. What you run on the wired-up Marauder is where the
-legal notes on `marauder-overview.md` and `legal-and-safety.md` apply.
+legal notes on [`marauder/README.md`](README.md) and [`legal/README.md`](../legal/README.md) apply.
 
 ## See also
 
-- `flipper-gpio-pinout.md` — the pin table.
-- `marauder-overview.md` — what this connection enables.
-- `marauder-firmware.md` — flashing the ESP32 independently.
-- `flipper-cli.md` — `power otg_on`, `gpio` for verification.
-- `flipper-gpio-extensions.md` — other add-ons on the same header.
+- [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md) — the pin table.
+- [`marauder/README.md`](README.md) — what this connection enables.
+- [`marauder/firmware.md`](firmware.md) — flashing the ESP32 independently.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `power otg_on`, `gpio` for verification.
+- [`flipper-gpio/extensions.md`](../flipper-gpio/extensions.md) — other add-ons on the same header.
 
 ---
 *Attribution:* Flipper Wi-Fi Devboard product docs, JustCallMeKoko
