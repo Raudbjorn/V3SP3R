@@ -73,7 +73,8 @@ class CommandExecutorTest {
         val command = ExecuteCommand(CommandAction.LOAD_SKILL,
             CommandArgs(command = "signal-analysis"), "Requested guidance", "Read methodology")
         whenever(riskAssessor.assess(command)).thenReturn(RiskAssessment(
-            level = RiskLevel.LOW, reason = "Read-only bundled reference"))
+            level = RiskLevel.LOW, reason = "Read-only bundled reference",
+            affectedPaths = emptyList(), requiresDiff = false, requiresConfirmation = false))
         val result = commandExecutor.execute(command, "skill-session")
         assertTrue(result.success)
         assertEquals("Read-only methodology", result.data?.content)
