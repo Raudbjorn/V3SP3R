@@ -24,6 +24,26 @@ class BleOperationPolicyTest {
         assertFalse(touched)
         assertTrue(mutex.isLocked)
     }
+    @Test fun `timeout during lock acquisition handoff releases ownership for next caller`() = runTest {
+        val underlying = Mutex()
+        // Grant ownership, then hold delivery of the lock result until the timeout wins.
+        val delayedHandoff = object : Mutex by underlying {
+            override suspend fun lock(owner: Any?) {
+                underlying.lock(owner)
+                delay(100)
+            }
+        }
+        var touched = false
+        try {
+            delayedHandoff.withBoundedGattQueue(50) { touched = true }
+            fail("handoff should time out")
+        } catch (_: IllegalStateException) { }
+        assertFalse(touched)
+        assertFalse("timed-out acquisition leaked ownership", underlying.isLocked)
+        val nextOwner = Any()
+        assertTrue("next caller must be able to acquire", underlying.tryLock(nextOwner))
+        underlying.unlock(nextOwner)
+    }
     @Test fun `cancellation restores remote configuration before returning`() = runTest {
         val started = CompletableDeferred<Unit>()
         val events = mutableListOf<String>()

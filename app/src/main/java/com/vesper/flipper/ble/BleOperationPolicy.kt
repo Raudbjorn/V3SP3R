@@ -14,9 +14,15 @@ internal fun requireBleWriteFits(bytes: Int, withResponse: Boolean, mtu: Int) {
 }
 
 internal suspend fun <T> Mutex.withBoundedGattQueue(timeoutMs: Long, block: suspend () -> T): T {
-    val acquired = withTimeoutOrNull(timeoutMs) { lock(); true } ?: false
-    check(acquired) { "Phone BLE queue busy; no connection attempted" }
-    try { return block() } finally { unlock() }
+    val owner = Any()
+    try {
+        val acquired = withTimeoutOrNull(timeoutMs) { lock(owner); true } ?: false
+        check(acquired) { "Phone BLE queue busy; no connection attempted" }
+        return block()
+    } finally {
+        // Timeout/cancellation can win after ownership is granted but before lock returns.
+        if (holdsLock(owner)) unlock(owner)
+    }
 }
 
 /** Restore remote configuration even on cancellation; cleanup itself has a fixed deadline. */
