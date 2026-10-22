@@ -77,10 +77,37 @@ class DeviceViewModel @Inject constructor(
     private val _glassesBridgeUrl = MutableStateFlow("")
     val glassesBridgeUrl: StateFlow<String> = _glassesBridgeUrl.asStateFlow()
 
+    private val screenPresentation = ScreenMirrorPresentation()
+    val screenFrame = screenPresentation.frame
+    private val _screenStreamStatus = MutableStateFlow<String?>(null)
+    val screenStreamStatus = _screenStreamStatus.asStateFlow()
+    private val screenMirrorMutex = Mutex()
+
+    fun setScreenMirrorEnabled(enabled: Boolean) {
+        screenPresentation.setEnabled(enabled)
+        if (!enabled) _screenStreamStatus.value = "Paused"
+        viewModelScope.launch {
+            screenMirrorMutex.withLock {
+                val wanted = screenPresentation.enabled && _connectionState.value is ConnectionState.Connected
+                _screenStreamStatus.value = if (wanted) "Opening screen stream…" else "Paused"
+                val result = if (wanted) fileSystem.startScreenStream() else fileSystem.stopScreenStream()
+                if (wanted == screenPresentation.enabled) {
+                    _screenStreamStatus.value = result.getOrElse { it.message ?: "Screen stream unavailable" }
+                }
+            }
+        }
+    }
+
     private val refreshMutex = Mutex()
     private val remoteInputMutex = Mutex()
 
     init {
+        viewModelScope.launch {
+            fileSystem.screenFrame.collect { frame ->
+                // Pause freezes the presented image immediately, even if the stop RPC is delayed.
+                screenPresentation.accept(frame)
+            }
+        }
         bleServiceManager.bindService()
         observeServiceState()
         viewModelScope.launch {

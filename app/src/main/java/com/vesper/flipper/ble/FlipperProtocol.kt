@@ -32,6 +32,51 @@ class FlipperProtocol @Inject constructor() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var bleService: FlipperBleService? = null
+    private val _screenFrame = MutableStateFlow<FlipperScreenImage?>(null)
+    val screenFrame: StateFlow<FlipperScreenImage?> = _screenFrame.asStateFlow()
+    private var screenFrameId = 0L
+    @Volatile private var screenStreamActive = false
+
+    suspend fun startScreenStream(): ProtocolResponse = withCommandLock(
+        operation = "screen stream start",
+        onTimeout = { ProtocolResponse.Error("Screen stream start timed out waiting for command lock") }
+    ) {
+        if (screenStreamActive) return@withCommandLock ProtocolResponse.Success("Screen stream already running")
+        val service = bleService ?: return@withCommandLock ProtocolResponse.Error("Device service unavailable")
+        if (!ensureTransportConnected(service) || !ensureRpcAvailableLocked("Screen stream RPC probe")) {
+            return@withCommandLock ProtocolResponse.Error("RPC screen streaming is unavailable")
+        }
+        setScreenFrameRouting(true)
+        screenStreamActive = true
+        var confirmed = false
+        try {
+            val response = sendRpcMainAndAwaitResponse(timeoutMs = 4000L) {
+                setGuiStartScreenStreamRequest(Gui.StartScreenStreamRequest.getDefaultInstance())
+            }
+            confirmed = response?.commandStatus == Flipper.CommandStatus.OK ||
+                response?.commandStatus == Flipper.CommandStatus.ERROR_VIRTUAL_DISPLAY_ALREADY_STARTED
+            if (confirmed) ProtocolResponse.Success("Screen stream started")
+            else ProtocolResponse.Error("Screen stream start failed: ${response?.commandStatus ?: "no acknowledgement"}")
+        } finally {
+            screenStreamActive = confirmed
+            // Retain routing after uncertain start: firmware may still be streaming.
+        }
+    }
+
+    suspend fun stopScreenStream(): ProtocolResponse = withCommandLock(
+        operation = "screen stream stop",
+        onTimeout = { ProtocolResponse.Error("Screen stream stop timed out waiting for command lock") }
+    ) {
+        if (!screenFrameRouting) return@withCommandLock ProtocolResponse.Success("Screen stream already stopped")
+        screenStreamActive = false
+        val response = sendRpcMainAndAwaitResponse(timeoutMs = 4000L) {
+            setGuiStopScreenStreamRequest(Gui.StopScreenStreamRequest.getDefaultInstance())
+        }
+        screenStreamActive = false
+        // Retain the last image and keep demultiplexing any late notifications.
+        if (response?.commandStatus == Flipper.CommandStatus.OK) ProtocolResponse.Success("Screen stream paused")
+        else ProtocolResponse.Error("Screen stream stop was not acknowledged")
+    }
 
     private val responseBuffer = ByteArrayOutputStream()
     private data class IncomingChunk(val epoch: Int, val bytes: ByteArray)
@@ -89,6 +134,13 @@ class FlipperProtocol @Inject constructor() {
 
     init {
         scope.launch {
+            rpcScreenFrames.collect { frame ->
+                FlipperScreenDecoder.decode(frame.data.toByteArray(), frame.orientation)?.let {
+                    if (screenStreamActive) _screenFrame.value = it.copy(id = ++screenFrameId)
+                }
+            }
+        }
+        scope.launch {
             processWriteQueue()
         }
         scope.launch {
@@ -108,6 +160,8 @@ class FlipperProtocol @Inject constructor() {
         rawCliCollector = null
         rawBinaryCollector = null
         setScreenFrameRouting(false)
+        screenStreamActive = false
+        _screenFrame.value = null
         firmwareProfile = FirmwareProfile.UNKNOWN
         lastCliProbeAtMs = 0L
         desktopLockProbeSupported = null

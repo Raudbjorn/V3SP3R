@@ -20,6 +20,17 @@ class FlipperFileSystem @Inject constructor(
     private val protocol: FlipperProtocol,
     private val securityUtils: SecurityUtils
 ) {
+    val screenFrame: StateFlow<FlipperScreenImage?> get() = protocol.screenFrame
+    suspend fun startScreenStream(): Result<String> = screenStreamResult { protocol.startScreenStream() }
+    suspend fun stopScreenStream(): Result<String> = screenStreamResult { protocol.stopScreenStream() }
+    private suspend fun screenStreamResult(action: suspend () -> ProtocolResponse): Result<String> = try {
+        protocolResponseToStringResult(action())
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     val firmwareCompatibility: StateFlow<FirmwareCompatibilityProfile>
         get() = protocol.firmwareCompatibility
 

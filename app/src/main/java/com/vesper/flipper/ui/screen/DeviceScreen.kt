@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -46,6 +48,9 @@ fun DeviceScreen(
     viewModel: DeviceViewModel = hiltViewModel(),
     onNavigateToFiles: () -> Unit = {}
 ) {
+    val screenFrame by viewModel.screenFrame.collectAsState()
+    val screenStatus by viewModel.screenStreamStatus.collectAsState()
+    var mirrorEnabled by remember { mutableStateOf(false) }
     val connectionState by viewModel.connectionState.collectAsState()
     val discoveredDevices by viewModel.discoveredDevices.collectAsState()
     val connectedDevice by viewModel.connectedDevice.collectAsState()
@@ -62,6 +67,13 @@ fun DeviceScreen(
     val glassesEnabled by viewModel.glassesEnabled.collectAsState()
     val glassesBridgeState by viewModel.glassesBridgeState.collectAsState()
     val glassesBridgeUrl by viewModel.glassesBridgeUrl.collectAsState()
+
+    LaunchedEffect(connectionState, mirrorEnabled) {
+        viewModel.setScreenMirrorEnabled(mirrorEnabled && connectionState is ConnectionState.Connected)
+    }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.setScreenMirrorEnabled(false) }
+    }
 
     Scaffold(
         topBar = {
@@ -141,6 +153,16 @@ fun DeviceScreen(
             }
 
             if (connectionState is ConnectionState.Connected) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Live screen", modifier = Modifier.weight(1f))
+                            Switch(checked = mirrorEnabled, onCheckedChange = { mirrorEnabled = it },
+                                modifier = Modifier.semantics { contentDescription = "Live screen" })
+                        }
+                        com.vesper.flipper.ui.components.FlipperScreenMirror(screenFrame, screenStatus)
+                    }
+                }
                 item {
                     RemoteControlCard(
                         isSendingRemoteInput = isSendingRemoteInput,
