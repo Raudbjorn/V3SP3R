@@ -46,7 +46,15 @@ def schema_path() -> Path:
     wheel. Distinct from the corpus (`knowledge/`) — this is the *interface*
     to the Android executor, not lore about the Flipper.
     """
-    return knowledge_root() / "docs" / "execute_command_schema.json"
+    candidate = knowledge_root() / "docs" / "execute_command_schema.json"
+    if candidate.is_file():
+        return candidate
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        source = parent / "docs" / "execute_command_schema.json"
+        if (parent / "mcp-server").is_dir() and source.is_file():
+            return source
+    return here.parent / "_knowledge" / "docs" / "execute_command_schema.json"
 
 
 def ok(data: Any) -> dict[str, Any]:

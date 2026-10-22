@@ -25,8 +25,9 @@ Version: 4
 ```
 
 - **`Version:`** varies by firmware. Version 3 is the historical stable
-  format; version 4 adds richer metadata (Momentum uses 4 by default
-  as of 2025-Q3). Both are read by all firmwares.
+  format; version 4 uses an updated device representation. Read support
+  depends on the exact firmware version and protocol. Do not assume
+  older firmware accepts version 4.
 
 ### Device / tag identification
 
@@ -115,9 +116,9 @@ No block data. Emulation replays UID + ATQA/SAK responses.
 - **UID length** — 4-byte UIDs (single-size), 7-byte UIDs (double-size),
   10-byte UIDs (triple-size) all supported. Length is inferred from
   the `UID:` byte count.
-- **Version drift** — Version 3 files parse on all firmwares. Version 4
-  requires 2024+ firmware. Don't emit Version 4 if targeting old
-  Official.
+- **Version drift** — Check the target firmware's NFC loader and supported
+  protocol before exporting. A date or family name alone does not prove
+  support for a particular file version.
 - **DESFire dumps** capture UID, ATQA, SAK, ATS. No file-selection
   content beyond that (auth required).
 - **`Data format version:`** on MIFARE Classic bodies — bumped when
@@ -162,9 +163,10 @@ Key B sector 1: B0 B1 B2 B3 B4 B5
 - **Extract keys from a saved dump:** the `Key A sector N` /
   `Key B sector N` lines *are* the keys. Add them to
   `mf_classic_dict_user.nfc` for future dictionary attacks.
-- **Convert between v3 and v4:** manually — v4-specific fields
-  (extended metadata) can be dropped to downgrade; v3 can be trivially
-  upgraded by bumping the header. Rarely necessary.
+- **Convert between v3 and v4:** use firmware that can load the source
+  format, then save through its NFC app. Preserve a backup. Changing only
+  the header does not convert protocol data or required fields; verify
+  that the saved result loads correctly on the target firmware.
 
 ## Gotchas
 

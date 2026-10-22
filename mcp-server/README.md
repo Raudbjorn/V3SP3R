@@ -94,3 +94,16 @@ python scripts/sync_skills.py --check
 ruff check .
 pytest -q
 ```
+
+HTTP binds default to loopback. For a reverse proxy or explicit external bind,
+add each expected `Host` with `--allowed-host knowledge.example:443` and each
+browser origin with `--allowed-origin https://knowledge.example`. These extend
+the loopback allowlist and keep DNS rebinding protection enabled. Bind addresses
+(such as `0.0.0.0`) are not client Host names. Supply authentication/TLS at your
+proxy before exposing the corpus; the server itself remains read-only.
+
+`--knowledge` may contain only `knowledge/`; schema tools fall back to the
+installed/source schema if that override has no `docs/execute_command_schema.json`.
+Secure corpus reads require POSIX directory-handle and `O_NOFOLLOW` support;
+on unsupported platforms document reads fail closed. Files must be regular,
+UTF-8, and at most 512 KiB. Symlinks are excluded at every path component.

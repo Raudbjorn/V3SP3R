@@ -29,8 +29,10 @@ Three routes:
 2. **qFlipper + `.tgz`** — download the release bundle, drop it into
    qFlipper's Update tab, click Install. Under the hood this stages the
    `.tgz` to `/ext/update/` and calls the on-device Updater.
-3. **`uFBT`** — for people building from source; `ufbt flash` after a
-   `git clone` + `ufbt`.
+3. **Full firmware source build** — clone the Momentum firmware repository,
+   follow its toolchain instructions, then use `./fbt flash` with the device
+   in the required flashing mode (DFU when appropriate). `ufbt` builds
+   standalone apps; `ufbt launch` launches an app, not a full firmware image.
 
 All three exit into Momentum's boot animation and recreate the standard
 `/ext/` tree if needed. Existing captures survive.
@@ -143,8 +145,8 @@ and can assume every legal SubGHz preset works.
 - **App ABI stability** — Momentum ships weekly builds. `.fap` apps
   compiled against last month's Momentum may fail against this
   month's; recompile or use FapHub.
-- **JS runner is Momentum-specific.** Scripts that run on Momentum will
-  not run on Official. Cross-compile intent must be explicit.
+- **JS modules vary by firmware.** Official 1.0+ also supports JavaScript;
+  check each script's module requirements on the installed firmware.
 - **DFU recovery** is identical to Official — Momentum uses the same
   ST bootloader. No fork-specific recovery step.
 

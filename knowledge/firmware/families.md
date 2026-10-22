@@ -39,7 +39,7 @@ Every fork inherits the upstream Flipper-Devices base and then patches
 2. **App set.** Forks preinstall community apps that Flipper-Devices
    won't ship — extra `.sub` protocol packs, extra IR remote databases,
    extra NFC parsers, brute-force tools (mfkey, KeyLogger, etc.), a
-   JavaScript runner (Momentum), sub-brute helpers, WPA-PSK utilities
+   JavaScript extensions (firmware-dependent), sub-brute helpers, WPA-PSK utilities
    that assume a Marauder devboard is attached.
 3. **Assets.** Custom animation packs, extra dolphin moods, alternative
    font packs, boot logos.
@@ -62,7 +62,7 @@ Rough summary. Not a substitute for `device_info` at runtime.
 | Extra `.sub` protocol packs                | No       | Yes        | Yes       | Yes         |
 | MIFARE key dictionary preinstalled         | Small    | Extensive  | Extensive | Extensive   |
 | Hardnested / Nested attack helpers on-device| No      | Yes        | Yes       | Yes         |
-| JavaScript runner (`js`)                   | No       | Yes        | Partial   | Partial     |
+| JavaScript runner (`js`)                   | Yes (1.0+)       | Yes        | Partial   | Partial     |
 | BadUSB expanded (extra layouts, HID+)      | Basic    | Yes        | Yes       | Yes         |
 | ESP32 companion CLI passthrough            | Manual   | Yes        | Yes       | Yes         |
 | Momentum `assets/` manifest system         | No       | Yes        | No        | No          |

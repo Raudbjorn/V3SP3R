@@ -126,6 +126,7 @@ def test_page_filenames_are_kebab_case_or_README(all_pages):
 def test_corpus_remains_separate_from_app_documentation():
     # V3SP3R has legitimate app documentation under docs; only knowledge is served.
     from vesper_mcp.tools.knowledge import _iter_lore
+
     assert all(lf.path.is_relative_to(CORPUS_ROOT) for lf in _iter_lore(REPO_ROOT))
 
 

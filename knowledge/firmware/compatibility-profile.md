@@ -93,7 +93,7 @@ command, hasRpcMapping)` in `FirmwareCompatibilityLayer`:
 
 The result is a `FirmwareCommandCompatibility(supported, route,
 message)` — `message` carries the user-visible reason when
-`supported = false` (e.g. "Momentum required for JS runner").
+`supported = false` (e.g. "Required JS module absent on this firmware version").
 
 ### `prefersRpcBridge()` — the RPC-preferred verbs
 

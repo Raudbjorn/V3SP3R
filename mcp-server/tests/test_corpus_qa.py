@@ -34,9 +34,7 @@ def _read(topic: str, name: str) -> str:
 def _assert_contains(topic: str, name: str, needles: list[str]) -> None:
     body = _read(topic, name)
     missing = [n for n in needles if n not in body]
-    assert not missing, (
-        f"{topic}/{name}.md is missing expected content: {missing!r}"
-    )
+    assert not missing, f"{topic}/{name}.md is missing expected content: {missing!r}"
 
 
 # --- Flipper hardware — the MCU + radios --------------------------------------
@@ -46,7 +44,8 @@ def test_flipper_hardware_names_the_stm32wb55():
     """Success criterion §9.1: 'What chip does the Flipper's SubGHz radio
     use, and what's its frequency range?' must be answerable."""
     _assert_contains(
-        "flipper-hardware", "README",
+        "flipper-hardware",
+        "README",
         ["STM32WB55", "CC1101", "ST25R3916"],
     )
 
@@ -76,9 +75,7 @@ def test_nfc_page_states_13_56_mhz():
 
 def test_rfid_page_states_125_khz():
     body = _read("rfid", "README")
-    assert "125 kHz" in body or "125kHz" in body, (
-        "rfid/README must state the LF carrier is 125 kHz"
-    )
+    assert "125 kHz" in body or "125kHz" in body, "rfid/README must state the LF carrier is 125 kHz"
 
 
 def test_rfid_page_covers_key_card_types():
@@ -98,7 +95,8 @@ def test_firmware_families_names_all_four():
     """Success criterion §9.2: 'What's Momentum and how does it differ
     from stock?' must be answerable."""
     _assert_contains(
-        "firmware", "families",
+        "firmware",
+        "families",
         ["Official", "Momentum", "Unleashed", "RogueMaster"],
     )
 
@@ -107,11 +105,9 @@ def test_momentum_is_flagged_as_m0ma_priority():
     body = _read("firmware", "momentum")
     # Look for the "M0MA priority" or "primary M0MA target" framing that
     # plan-knowledge-expand.md §3 promises.
-    assert (
-        "M0MA" in body
-        or "primary target" in body
-        or "primary firmware" in body.lower()
-    ), "firmware/momentum should explicitly call out its M0MA priority status"
+    assert "M0MA" in body or "primary target" in body or "primary firmware" in body.lower(), (
+        "firmware/momentum should explicitly call out its M0MA priority status"
+    )
 
 
 def test_momentum_page_covers_worldwide_subghz():
@@ -127,9 +123,7 @@ def test_compatibility_profile_explains_detection():
     """The Vesper FirmwareCompatibilityProfile is what routes CLI verbs by
     firmware. The page must document `device_info` probing."""
     body = _read("firmware", "compatibility-profile")
-    assert "device_info" in body, (
-        "firmware/compatibility-profile must document device_info probing"
-    )
+    assert "device_info" in body, "firmware/compatibility-profile must document device_info probing"
 
 
 # --- SubGHz protocols ---------------------------------------------------------
@@ -141,9 +135,7 @@ def test_subghz_protocols_covers_named_families():
     body = _read("subghz", "protocols")
     required = ["Princeton", "CAME", "KeeLoq", "Security+", "Somfy"]
     missing = [n for n in required if n not in body]
-    assert not missing, (
-        f"subghz/protocols is missing named families: {missing}"
-    )
+    assert not missing, f"subghz/protocols is missing named families: {missing}"
 
 
 def test_keeloq_notes_rolling_code():
@@ -159,9 +151,7 @@ def test_sub_format_documents_key_and_raw_data():
     is exactly the drift alarm here."""
     body = _read("subghz", "sub-format")
     for needle in ("Filetype", "Frequency", "Preset", "Protocol", "RAW_Data"):
-        assert needle in body, (
-            f"subghz/sub-format must document `.sub` field {needle!r}"
-        )
+        assert needle in body, f"subghz/sub-format must document `.sub` field {needle!r}"
 
 
 def test_ir_format_documents_parsed_vs_raw():
@@ -173,9 +163,7 @@ def test_ir_format_documents_parsed_vs_raw():
 def test_nfc_format_documents_atqa_sak_uid():
     body = _read("nfc", "nfc-format")
     for needle in ("ATQA", "SAK", "UID"):
-        assert needle in body, (
-            f"nfc/nfc-format must document field {needle!r}"
-        )
+        assert needle in body, f"nfc/nfc-format must document field {needle!r}"
 
 
 # --- Marauder — the WiFi devboard ---------------------------------------------
@@ -193,9 +181,7 @@ def test_marauder_wiring_references_gpio_pins():
     body = _read("marauder", "wiring")
     # Wiring page must at least mention TX/RX/GND/3V3 lines.
     for pin_hint in ("TX", "RX", "GND", "3V3"):
-        assert pin_hint in body, (
-            f"marauder/wiring must reference pin/rail {pin_hint!r}"
-        )
+        assert pin_hint in body, f"marauder/wiring must reference pin/rail {pin_hint!r}"
 
 
 def test_marauder_commands_covers_scan_attack_groups():
@@ -204,9 +190,7 @@ def test_marauder_commands_covers_scan_attack_groups():
     body = _read("marauder", "commands")
     # Concrete verbs from the mainline command set.
     for verb in ("scanap", "sniffbeacon", "deauth"):
-        assert verb in body, (
-            f"marauder/commands must document verb {verb!r}"
-        )
+        assert verb in body, f"marauder/commands must document verb {verb!r}"
 
 
 def test_marauder_commands_flags_legality():
@@ -246,17 +230,13 @@ def test_storage_page_documents_int_and_ext():
 def test_storage_page_lists_expected_subdirs():
     body = _read("flipper-storage", "README")
     for subdir in ("/ext/subghz", "/ext/nfc", "/ext/badusb"):
-        assert subdir in body, (
-            f"flipper-storage/README must reference {subdir}"
-        )
+        assert subdir in body, f"flipper-storage/README must reference {subdir}"
 
 
 def test_cli_page_covers_command_verb_categories():
     body = _read("flipper-cli", "README")
     for verb in ("storage", "subghz", "device_info"):
-        assert verb in body, (
-            f"flipper-cli/README must document CLI verb category {verb!r}"
-        )
+        assert verb in body, f"flipper-cli/README must document CLI verb category {verb!r}"
 
 
 # --- Development pages -------------------------------------------------------
@@ -302,17 +282,13 @@ def test_architecture_page_documents_risk_tiers():
     body = _read("vesper", "architecture")
     # The Vesper risk tiers are LOW / MEDIUM / HIGH / BLOCKED.
     for tier in ("LOW", "MEDIUM", "HIGH", "BLOCKED"):
-        assert tier in body, (
-            f"vesper/architecture must document risk tier {tier!r}"
-        )
+        assert tier in body, f"vesper/architecture must document risk tier {tier!r}"
 
 
 def test_mcp_page_documents_three_transports():
     body = _read("vesper", "mcp")
     for transport in ("stdio", "sse", "streamable-http"):
-        assert transport in body, (
-            f"vesper/mcp must document transport {transport!r}"
-        )
+        assert transport in body, f"vesper/mcp must document transport {transport!r}"
 
 
 def test_campaigns_page_documents_ralph_phases():
@@ -321,6 +297,28 @@ def test_campaigns_page_documents_ralph_phases():
     # ALL-CAPS or Title Case, so match case-insensitive.
     phases = ["recon", "research", "enumerate", "exploit", "report"]
     missing = [p for p in phases if p not in body]
-    assert not missing, (
-        f"vesper/campaigns must document Ralph phases; missing {missing}"
-    )
+    assert not missing, f"vesper/campaigns must document Ralph phases; missing {missing}"
+
+
+async def test_gpio_power_pin_is_not_one_wire():
+    from vesper_mcp.tools.knowledge import read_doc
+
+    result = await read_doc("flipper-gpio", "pinout")
+    rows = {
+        row.split("|")[1].strip(): row
+        for row in result["data"]["content"].splitlines()
+        if row.startswith("| ") and row.split("|")[1].strip().isdigit()
+    }
+    assert "5V" in rows["1"] and "PB14" in rows["17"]
+    assert "PA7" in rows["2"] and "PC3" in rows["7"]
+    wiring = (await read_doc("marauder", "wiring"))["data"]["content"]
+    assert "pin 17 (5V" not in wiring and "pin 1 (5V" in wiring
+
+
+async def test_official_javascript_and_capture_save_guidance():
+    from vesper_mcp.tools.knowledge import read_doc
+
+    js = (await read_doc("development", "js-runner"))["data"]["content"]
+    assert "Official firmware supports JavaScript since version 1.0" in js
+    cli = (await read_doc("flipper-cli"))["data"]["content"]
+    assert "never a capture-saving operation" in cli

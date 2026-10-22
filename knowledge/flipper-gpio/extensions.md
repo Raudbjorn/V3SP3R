@@ -51,7 +51,7 @@ NRF24 is a separate radio speaking Nordic's Shockburst protocol,
 useful for logitech / rf24 keyboards, generic 2.4 GHz IoT devices, and
 "mouse jackers."
 
-- **Pins consumed:** 3V3 (9), GND (8/11/18), SPI1 (1/2/3/4), plus CE
+- **Pins consumed:** 3V3 (9), GND (8/11/18), SPI1 (2/3/4/5), plus CE
   and IRQ on remaining GPIO.
 - **Firmware support:** Momentum, Unleashed, and RogueMaster ship
   dedicated NRF24 apps (sniffer, jammer, Mousejack).

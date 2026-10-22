@@ -57,7 +57,7 @@ Verbs are grouped by category. The exact set varies by firmware family
 | `music_player`| Play `.fmf` / `.rtttl`.                        |
 | `crypto`      | Some firmwares — key derivation helpers.       |
 
-Momentum adds `js` (JavaScript runner), and expanded `subghz` /
+Official 1.0+ and Momentum support JavaScript; CLI availability is version-dependent. Momentum adds expanded `subghz` /
 `nfc` verbs. Unleashed / RogueMaster add region-unlock toggles under
 `subghz`.
 
@@ -81,7 +81,7 @@ The ones an assistant will name repeatedly:
 - `power reboot` — reboot.
 - `power reboot2dfu` — reboot into ST DFU (recovery). Not reversible
   without USB.
-- `power otg_on` / `power otg_off` — 5V on GPIO pin 17.
+- `power otg_on` / `power otg_off` — 5V on GPIO pin 1.
 - `power info` — voltages, currents, charge %.
 
 **Storage**
@@ -205,8 +205,10 @@ is JSON, not markdown, so it doesn't appear in `list_topics`).
   and Momentum-specific keys like `momentum_firmware_commit`.
 - **Capture then replay a SubGHz remote:**
   1. `subghz rx 433920000 AM650 10000` (10 s).
-  2. If decoded, save via GUI or `subghz tx_from_file` against the
-     produced `.sub`.
+  2. Save the captured signal as a `.sub` file using the on-device GUI.
+  3. Only after scope, frequency legality, and current-session approval
+     checks, `subghz tx_from_file <saved-path>` transmits that saved file.
+     This is replay/transmit, never a capture-saving operation.
 - **Deploy a BadUSB payload:** upload the `.txt` to
   `/ext/badusb/`, then `badusb /ext/badusb/mypayload.txt`.
 - **Emergency reboot:** hold BACK for ~10 s (physical), or `power reboot`.
@@ -226,8 +228,8 @@ is JSON, not markdown, so it doesn't appear in `list_topics`).
   Prefer USB for `storage read` on large captures.
 - **`log trace`** produces a firehose that can fill the CLI buffer and
   cause dropped bytes; use sparingly.
-- On **Official firmware**, some verbs listed here (e.g. `js`) don't
-  exist. Detect firmware with `device_info` first — see
+- CLI verbs vary by firmware version; Official 1.0+ supports JavaScript.
+  Detect firmware with `device_info` first — see
   `firmware-compatibility-profile.md`.
 
 ## Legal & safety notes

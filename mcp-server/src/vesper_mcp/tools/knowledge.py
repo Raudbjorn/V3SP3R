@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,15 +19,58 @@ def _corpus_dir(root: Path) -> Path:
     return root / "knowledge"
 
 
+MAX_DOC_BYTES = 512 * 1024
+
+
+def _read_lore(root: Path, path: Path) -> str:
+    """Read a bounded regular file using pinned, no-follow directory handles.
+
+    Directory traversal and the final read use the same handles. A rename or
+    symlink substitution cannot redirect an already validated path outside root.
+    Fail closed on platforms without the required openat/no-follow primitives.
+    """
+    if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+        raise OSError("Secure corpus reads require POSIX openat/O_NOFOLLOW support")
+    parts = path.relative_to(root).parts
+    if not parts or any(part in (".", "..") for part in parts):
+        raise ValueError("invalid corpus path")
+    descriptors = []
+    try:
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptors.append(directory)
+        for part in parts[:-1]:
+            directory = os.open(
+                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            descriptors.append(directory)
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        descriptors.append(fd)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_DOC_BYTES:
+            raise ValueError("corpus entry must be a bounded regular file")
+        chunks = bytearray()
+        while len(chunks) <= MAX_DOC_BYTES:
+            chunk = os.read(fd, min(65536, MAX_DOC_BYTES + 1 - len(chunks)))
+            if not chunk:
+                break
+            chunks.extend(chunk)
+        if len(chunks) > MAX_DOC_BYTES:
+            raise ValueError("corpus entry exceeds size limit")
+        return chunks.decode("utf-8")
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
+
+
 def _iter_lore(root: Path) -> list[LoreFile]:
     corpus = _corpus_dir(root)
     if not corpus.is_dir():
         return []
     out: list[LoreFile] = []
     for md in sorted(corpus.rglob("*.md")):
-        if md.is_symlink() or not md.resolve().is_relative_to(corpus.resolve()):
-            continue
-        if md.stat().st_size > 512 * 1024:
+        try:
+            _read_lore(root, md)
+        except (OSError, UnicodeError, ValueError):
             continue
         rel = md.relative_to(corpus)
         parts = rel.parts
@@ -62,12 +107,14 @@ async def list_topics() -> dict:
     topics: dict[str, list[str]] = {}
     for lf in _iter_lore(root):
         topics.setdefault(lf.topic, []).append(lf.name)
-    return ok({
-        "root": str(_corpus_dir(root)),
-        "topic_count": len(topics),
-        "file_count": sum(len(v) for v in topics.values()),
-        "topics": topics,
-    })
+    return ok(
+        {
+            "root": str(_corpus_dir(root)),
+            "topic_count": len(topics),
+            "file_count": sum(len(v) for v in topics.values()),
+            "topics": topics,
+        }
+    )
 
 
 async def read_doc(topic: str, name: str = "README") -> dict:
@@ -89,12 +136,18 @@ async def read_doc(topic: str, name: str = "README") -> dict:
             f"unknown lore file topic={topic!r} name={name!r}; try list_topics()",
             code="unknown_topic",
         )
-    return ok({
-        "topic": lf.topic,
-        "name": lf.name,
-        "path": str(lf.path.relative_to(root)),
-        "content": lf.path.read_text(encoding="utf-8"),
-    })
+    try:
+        content = _read_lore(root, lf.path)
+    except (OSError, UnicodeError, ValueError):
+        return err("corpus entry changed or is unreadable", code="unreadable_doc")
+    return ok(
+        {
+            "topic": lf.topic,
+            "name": lf.name,
+            "path": str(lf.path.relative_to(root)),
+            "content": content,
+        }
+    )
 
 
 async def search_docs(query: str, limit: int = 20) -> dict:
@@ -115,17 +168,19 @@ async def search_docs(query: str, limit: int = 20) -> dict:
     hits: list[dict] = []
     for lf in _iter_lore(root):
         try:
-            text = lf.path.read_text(encoding="utf-8")
-        except OSError:
+            text = _read_lore(root, lf.path)
+        except (OSError, UnicodeError, ValueError):
             continue
         for i, line in enumerate(text.splitlines(), start=1):
             if needle in line.lower():
-                hits.append({
-                    "topic": lf.topic,
-                    "name": lf.name,
-                    "line": i,
-                    "text": line.rstrip(),
-                })
+                hits.append(
+                    {
+                        "topic": lf.topic,
+                        "name": lf.name,
+                        "line": i,
+                        "text": line.rstrip(),
+                    }
+                )
                 if len(hits) >= limit:
                     return ok(hits)
     return ok(hits)

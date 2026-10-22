@@ -43,8 +43,10 @@ async def describe_action(action: str) -> dict:
     if action not in actions:
         return err(f"unknown action {action!r}; try list_actions()", code="unknown_action")
     args_props = schema.get("properties", {}).get("args", {}).get("properties", {})
-    return ok({
-        "action": action,
-        "args": args_props,
-        "required_top_level": schema.get("required", []),
-    })
+    return ok(
+        {
+            "action": action,
+            "args": args_props,
+            "required_top_level": schema.get("required", []),
+        }
+    )

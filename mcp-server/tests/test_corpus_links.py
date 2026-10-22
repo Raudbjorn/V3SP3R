@@ -33,10 +33,7 @@ def _iter_links(text: str):
 
 def _is_external(target: str) -> bool:
     lower = target.lower()
-    return any(
-        lower.startswith(p)
-        for p in ("http://", "https://", "mailto:", "ftp://")
-    )
+    return any(lower.startswith(p) for p in ("http://", "https://", "mailto:", "ftp://"))
 
 
 def _strip_fragment(target: str) -> str:
@@ -65,8 +62,7 @@ def test_every_markdown_link_resolves(all_pages):
             resolved = (page.parent / file_part).resolve()
             if not resolved.exists():
                 broken.append(
-                    f"{page.relative_to(REPO_ROOT)}: [...]({raw}) -> "
-                    f"{resolved} (missing)"
+                    f"{page.relative_to(REPO_ROOT)}: [...]({raw}) -> {resolved} (missing)"
                 )
     assert not broken, "broken cross-links:\n  " + "\n  ".join(broken)
 
@@ -86,12 +82,9 @@ def test_manifest_links_resolve_to_topic_pages():
             continue
         md_links += 1
         resolved = (manifest.parent / file_part).resolve()
-        assert resolved.exists(), (
-            f"MANIFEST link [...]({raw}) does not resolve"
-        )
+        assert resolved.exists(), f"MANIFEST link [...]({raw}) does not resolve"
     assert md_links >= 15, (
-        f"MANIFEST.md has only {md_links} .md links; expected the TOC to be "
-        f"substantive (>=15)"
+        f"MANIFEST.md has only {md_links} .md links; expected the TOC to be substantive (>=15)"
     )
 
 
@@ -109,6 +102,5 @@ def test_all_manifest_topic_directories_are_actually_topics():
         if not d.is_dir() or not any(d.rglob("*.md")):
             missing_or_empty.append(topic)
     assert not missing_or_empty, (
-        f"MANIFEST calls out topic dirs that don't exist / are empty: "
-        f"{missing_or_empty}"
+        f"MANIFEST calls out topic dirs that don't exist / are empty: {missing_or_empty}"
     )

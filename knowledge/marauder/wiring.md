@@ -48,7 +48,7 @@ Two paths to power the ESP32:
 
 ### Path B — from Flipper's 5V OTG + on-devboard regulator
 
-- Flipper pin 17 (5V/OTG) → ESP32 devboard's 5V input.
+- Flipper pin 1 (5V/OTG) → ESP32 devboard's 5V input.
 - ESP32 devboard has its own LDO (linear regulator) stepping 5V→3V3.
 - Requires `power otg_on` from the Flipper CLI (or auto-OTG on
   Momentum, which recognizes some devboard IDs and enables OTG on
@@ -70,7 +70,7 @@ input.
 - Small BOOT / RESET buttons on the pink board's side.
 
 Wiring is fixed: pin 13 (Flipper TX) → GPIO16 (ESP32 RX); pin 14
-(Flipper RX) → GPIO17 (ESP32 TX); 5V from pin 17 → regulator → ESP32
+(Flipper RX) → GPIO17 (ESP32 TX); 5V from pin 1 → regulator → ESP32
 3V3. No user routing decisions.
 
 ## Layout — third-party carriers
@@ -140,7 +140,7 @@ Roughly in order of frequency:
   baud mismatch, no response suggests TX/RX swap or floating GND.
 - **Multimeter check:** with everything unpowered, continuity between
   Flipper pin 8 GND and ESP32 GND; and between Flipper pin 9 3V3 and
-  ESP32 3V3 (or Path B: pin 17 5V and devboard 5V in).
+  ESP32 3V3 (or Path B: pin 1 5V and devboard 5V in).
 
 ## Common tasks
 

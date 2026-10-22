@@ -85,7 +85,7 @@ This means (a) the primary model doesn't need vision, (b) sensitive image conten
 
 ## The Command Envelope
 
-Every AI-issued action is defined inline as `EXECUTE_COMMAND_TOOL` in `OpenRouterClient.kt` (there is no separate schema JSON file) and enforced by the tool-call handling in `OpenRouterClient` and by `CommandExecutor`:
+The Android runtime tool definition is inline as `EXECUTE_COMMAND_TOOL` in `OpenRouterClient.kt`. The synchronized `docs/execute_command_schema.json` artifact is served by MCP; the command-schema feature generates and verifies it from the Kotlin action/argument manifest. AI-issued actions are enforced by the tool-call handling in `OpenRouterClient` and by `CommandExecutor`:
 
 ```json
 {

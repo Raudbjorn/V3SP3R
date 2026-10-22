@@ -154,7 +154,7 @@ Use `vuln_classify(vuln_type=…)` if the mapping is uncertain. Do not invent ne
 1. CALL the exploit tool (ble_write_char / subghz_transmit / etc.)
 2. OBSERVE the tool result verbatim
 3. CALL vuln_validate(vuln_id=…, reproduced=<bool>, notes="<what happened>")
-4. If reproduced=false: revise hypothesis or mark finding false_positive; do not retry blindly
+4. If reproduced=false: record not reproduced / inconclusive and revise the hypothesis; do not retry blindly. Mark false_positive only when evidence rules out the vulnerability, not after one failed reproduction
 5. If reproduced=true: consider what new target this reveals (see §Target expansion)
 ```
 

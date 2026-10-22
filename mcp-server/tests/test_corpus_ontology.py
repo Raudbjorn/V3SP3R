@@ -23,31 +23,33 @@ CORPUS_ROOT = REPO_ROOT / "knowledge"
 
 # Group → topic directories the plan promises. Missing here means the
 # corpus lost a Group A-H slice from plan-knowledge-expand.md.
-PLAN_TOPICS = frozenset({
-    # Group A — Flipper Zero hardware & platform
-    "flipper-hardware",
-    "flipper-gpio",
-    "flipper-storage",
-    "flipper-cli",
-    # Group B — Firmware ecosystem
-    "firmware",
-    # Group C — RF subsystems
-    "subghz",
-    "ir",
-    "nfc",
-    "rfid",
-    "ibutton",
-    # Group D — Marauder
-    "marauder",
-    # Group E — Extension & development
-    "development",
-    # Group F — Methodology playbooks
-    "skills",
-    # Group G — Legal & safety
-    "legal",
-    # Group H — Vesper positioning
-    "vesper",
-})
+PLAN_TOPICS = frozenset(
+    {
+        # Group A — Flipper Zero hardware & platform
+        "flipper-hardware",
+        "flipper-gpio",
+        "flipper-storage",
+        "flipper-cli",
+        # Group B — Firmware ecosystem
+        "firmware",
+        # Group C — RF subsystems
+        "subghz",
+        "ir",
+        "nfc",
+        "rfid",
+        "ibutton",
+        # Group D — Marauder
+        "marauder",
+        # Group E — Extension & development
+        "development",
+        # Group F — Methodology playbooks
+        "skills",
+        # Group G — Legal & safety
+        "legal",
+        # Group H — Vesper positioning
+        "vesper",
+    }
+)
 
 
 def test_every_plan_topic_directory_exists():

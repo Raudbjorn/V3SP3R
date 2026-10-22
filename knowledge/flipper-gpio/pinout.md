@@ -19,13 +19,13 @@ facing you; pin 1 is on the left.
 
 | Pin | Silk  | STM32 name  | Function on Flipper                                         | Notes                                       |
 |-----|-------|-------------|-------------------------------------------------------------|---------------------------------------------|
-| 1   | PA7   | PA7         | GPIO / SPI1_MOSI / TIM17_CH1                                | 3V3 logic; usable for SPI to add-on.        |
-| 2   | PA6   | PA6         | GPIO / SPI1_MISO                                            | 3V3 logic.                                  |
-| 3   | PA4   | PA4         | GPIO / SPI1_NSS                                             | 3V3 logic; commonly SPI CS to add-on.       |
-| 4   | PB3   | PB3         | GPIO / SPI1_SCK / SWO trace                                 | 3V3 logic.                                  |
-| 5   | PB2   | PB2         | GPIO                                                        | 3V3 logic.                                  |
-| 6   | PC3   | PC3         | GPIO / ADC1_IN4                                             | 3V3 logic; analog-capable.                  |
-| 7   | 1W    | PB14        | 1-Wire bus (iButton)                                        | Shared with on-board iButton connector.     |
+| 1   | 5V    | —           | 5 V OTG out                                                 | See "OTG behavior" below.                   |
+| 2   | PA7   | PA7         | GPIO / SPI1_MOSI / TIM17_CH1                                | 3V3 logic; usable for SPI to add-on.        |
+| 3   | PA6   | PA6         | GPIO / SPI1_MISO                                            | 3V3 logic.                                  |
+| 4   | PA4   | PA4         | GPIO / SPI1_NSS                                             | 3V3 logic; commonly SPI CS to add-on.       |
+| 5   | PB3   | PB3         | GPIO / SPI1_SCK / SWO trace                                 | 3V3 logic.                                  |
+| 6   | PB2   | PB2         | GPIO                                                        | 3V3 logic.                                  |
+| 7   | PC3   | PC3         | GPIO / ADC1_IN4                                             | 3V3 logic; analog-capable.                  |
 | 8   | GND   | —           | Ground                                                      |                                             |
 | 9   | 3V3   | —           | 3V3 out (~500 mA max)                                       | Regulated; enabled by firmware.             |
 | 10  | SWC   | PA14 (SWCLK)| SWD clock                                                   | Debug; used by DAP-Link.                    |
@@ -35,7 +35,7 @@ facing you; pin 1 is on the left.
 | 14  | RX    | PB7         | USART1_RX                                                   | 3V3 UART RX from add-on.                    |
 | 15  | PC1   | PC1         | GPIO / I2C1_SDA                                             | 3V3 logic; I2C data.                        |
 | 16  | PC0   | PC0         | GPIO / I2C1_SCL                                             | 3V3 logic; I2C clock.                       |
-| 17  | 5V    | —           | 5 V OTG out                                                 | See "OTG behavior" below.                   |
+| 17  | 1W    | PB14        | 1-Wire bus (iButton)                                        | Shared with on-board iButton connector.     |
 | 18  | GND   | —           | Ground                                                      |                                             |
 
 **All GPIO on this header is 3V3 logic.** Do not drive 5 V logic into any
@@ -48,7 +48,7 @@ pin except 5V/OTG.
   transient sags happen if you actively transmit on the on-board radios
   at the same time. Under-volting an ESP32 devboard on this rail is a
   classic Marauder wiring bug.
-- **5V (pin 17)** is USB-OTG-style output. It is only present when the
+- **5V (pin 1)** is USB-OTG-style output. It is only present when the
   Flipper is configured to source it — either off USB pass-through when
   a host is charging, or via the "5V on GPIO" toggle in the on-device
   power menu / `power` CLI. Do not assume 5V is live by default.
@@ -92,7 +92,7 @@ mechanism for multiplexing; the pinout is single-ended.
 
 ## Capabilities and limits
 
-- SPI (pins 1/2/3/4) is one SPI bus (SPI1 on the STM32WB55). Fast enough
+- SPI (pins 2/3/4/5) is one SPI bus (SPI1 on the STM32WB55). Fast enough
   for most sensors and NRF24-style radios; up to ~10 MHz in practice.
 - I2C (pins 15/16) is one I2C bus (I2C1). 100 kHz / 400 kHz supported;
   fast-mode-plus untested.
@@ -117,8 +117,7 @@ mechanism for multiplexing; the pinout is single-ended.
 ## Gotchas
 
 - **Silkscreen numbering ≠ STM32 pin numbering.** Callers routinely
-  confuse "pin 1" (PA7 on the header) with "PA1". This table is
-  canonical; don't trust random forum posts.
+  confuse "pin 2" (PA7 on the header) with "PA1". Verify the silkscreen and the official pin table before wiring.
 - **TX and RX cross over.** The Flipper's `TX` (pin 13) drives the
   add-on's `RX`, and vice versa. Marauder wiring failures are almost
   always a swapped pair.
@@ -127,7 +126,7 @@ mechanism for multiplexing; the pinout is single-ended.
   devboard.
 - **Do not** drive 5 V into any pin marked as GPIO — you'll damage the
   MCU.
-- **SWD SWO** (trace output) is on PB3 (pin 4). If you use SWO for
+- **SWD SWO** (trace output) is on PB3 (pin 5). If you use SWO for
   debug, that pin can't simultaneously be your SPI clock.
 
 ## Legal & safety notes
@@ -147,3 +146,5 @@ regulated activity. What you *run* on those boards may be; see
 *Attribution:* Flipper-Devices GPIO documentation
 (<https://docs.flipper.net/gpio-and-modules>), STM32WB55RG reference
 manual (RM0434). Retrieved 2025-Q3.
+
+Pin numbering checked against the [official F7 GPIO resource table](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/targets/f7/furi_hal/furi_hal_resources.c); pin 1 is 5V and pin 17 is PB14 / 1-Wire.

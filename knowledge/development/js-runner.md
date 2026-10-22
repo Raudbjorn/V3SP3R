@@ -1,13 +1,12 @@
 # Flipper JavaScript runner
 
-> The Momentum JavaScript execution environment: what it is, what APIs
+> The Flipper JavaScript execution environment: what it is, what APIs
 > it exposes, how it differs from writing a `.fap` in C.
 
 ## What it is
 
 The **Flipper JS runner** is a JavaScript interpreter that ships as an
-in-tree app on **Momentum firmware** (also present in Xtreme-lineage
-forks). It lets you write scripted Flipper behavior in ordinary
+in-tree app on **Official firmware 1.0 and later**, Momentum, and other compatible forks. It lets you write scripted Flipper behavior in ordinary
 JavaScript, drop the `.js` file on the SD, and run it — no compilation,
 no `fbt`/uFBT, no C.
 
@@ -16,9 +15,10 @@ verify the current implementation in Momentum's
 `applications/external/js_app/`. It's a subset of ECMAScript with
 Flipper-specific host APIs bolted on.
 
-**Not present on Official firmware.** Attempting to run a `.js`
-script on stock Flipper-Devices firmware fails silently. See
-`firmware-families.md`.
+**Official firmware supports JavaScript since version 1.0 (September 2024).**
+Module availability and CLI launch routes still depend on the installed version.
+See the [official 1.0 release](https://blog.flipper.net/released-firmware-1/)
+and `applications/system/js_app/application.fam` in the official firmware tree.
 
 ## How it works
 
@@ -85,7 +85,7 @@ Momentum JS API reference at the time of writing.
 | Startup time             | 200–500 ms (loader mmaps ELF)                 | Faster (~50–100 ms interpret)                  |
 | API surface              | Full FURI, all HAL                            | Curated, higher-level, safer                   |
 | Performance              | Native M4 code; fast                          | Interpreted; slow, but plenty for scripting    |
-| Portability              | Firmware-family-specific ABI                  | Momentum-only; identical across Momentum builds |
+| Portability              | Firmware-family-specific ABI                  | Version/module-dependent on Official and forks |
 | Debugging                | fap crashes hard; SWD needed                  | JS exceptions surface as dialogs               |
 | Ecosystem                | FapHub (thousands of apps)                    | Smaller; user-shared scripts                   |
 | Sandboxing               | None (see `flipper-fap-apps.md`)              | Runtime-enforced (bounded API)                 |
@@ -137,8 +137,8 @@ Use `.js` for scripting, one-off automation, and non-C developers.
 
 ## Gotchas
 
-- **The API is Momentum-only.** Sharing a JS script with an Official
-  user won't work — they need Momentum first.
+- **Check API availability by firmware version.** Official supports JS;
+  fork-specific modules may require adaptation.
 - **Momentum's JS API evolves.** Scripts written against a 2024 build
   may not run on a 2025 build. Pin your dependencies (in the file
   header) or test after firmware updates.
@@ -166,7 +166,7 @@ distinction; the underlying capability is what matters. See
 - `firmware-families.md` — which forks include it.
 - `flipper-fap-apps.md` — the C-based alternative.
 - `flipper-storage.md` — where `.js` files live.
-- `flipper-cli.md` — `js` CLI verb (Momentum only).
+- `flipper-cli.md` — `js` CLI verb (check installed firmware).
 - `flipper-firmware-build.md` — where `js_app` lives in the tree.
 
 ---

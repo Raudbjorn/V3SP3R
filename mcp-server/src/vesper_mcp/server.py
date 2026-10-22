@@ -4,6 +4,7 @@ import argparse
 import os
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .logging_config import configure_logging
 from .resources import register_resources
@@ -32,6 +33,16 @@ _TOOLS = (
 def _apply_transport_settings(args: argparse.Namespace) -> None:
     """Only sse / streamable-http honor --host / --port. stdio ignores them silently."""
     if args.transport in ("sse", "streamable-http"):
+        mcp.settings.transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*", *args.allowed_host],
+            allowed_origins=[
+                "http://127.0.0.1:*",
+                "http://localhost:*",
+                "http://[::1]:*",
+                *args.allowed_origin,
+            ],
+        )
         if args.host is not None:
             mcp.settings.host = args.host
         if args.port is not None:
@@ -72,6 +83,18 @@ def main() -> None:
             "Override corpus root (also readable from $VESPER_MCP_KNOWLEDGE). "
             "Must be an existing directory containing a knowledge/ subdirectory."
         ),
+    )
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        help="Additional HTTP Host allowlist entry (host:port); repeat as needed.",
+    )
+    parser.add_argument(
+        "--allowed-origin",
+        action="append",
+        default=[],
+        help="Additional Origin allowlist entry (scheme://host:port); repeat as needed.",
     )
     args = parser.parse_args()
 
