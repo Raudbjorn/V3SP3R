@@ -1,6 +1,7 @@
 package com.vesper.flipper.data
 
 import com.vesper.flipper.ai.LlmProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -54,17 +55,17 @@ class OpenRouterModelCatalog @Inject constructor() {
                 .addHeader("Accept", "application/json")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).withCancellableResponse { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(
+                    return@withCancellableResponse Result.failure(
                         IOException("${provider.displayName} models API error: ${response.code}")
                     )
                 }
-                val body = response.body?.string()
-                    ?: return@withContext Result.failure(IOException("Empty model catalog response"))
+                val body = response.body?.readBoundedBytes(2 * 1024 * 1024)?.decodeToString()
+                    ?: return@withCancellableResponse Result.failure(IOException("Empty model catalog response"))
                 val root = json.parseToJsonElement(body).jsonObject
                 val rows = root["data"]?.jsonArray ?: root["models"]?.jsonArray
-                    ?: return@withContext Result.success(provider.models)
+                    ?: return@withCancellableResponse Result.success(provider.models)
                 val liveIds = rows.mapNotNull { element ->
                     val modelObj = element.jsonObject
                     modelObj.string("id") ?: modelObj.string("name")
@@ -72,6 +73,7 @@ class OpenRouterModelCatalog @Inject constructor() {
                 Result.success(LlmProvider.mergeCatalog(provider, liveIds))
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -83,19 +85,19 @@ class OpenRouterModelCatalog @Inject constructor() {
                 .addHeader("Accept", "application/json")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).withCancellableResponse { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(
+                    return@withCancellableResponse Result.failure(
                         IOException("OpenRouter models API error: ${response.code}")
                     )
                 }
 
-                val body = response.body?.string()
-                    ?: return@withContext Result.failure(IOException("Empty model catalog response"))
+                val body = response.body?.readBoundedBytes(2 * 1024 * 1024)?.decodeToString()
+                    ?: return@withCancellableResponse Result.failure(IOException("Empty model catalog response"))
 
                 val root = json.parseToJsonElement(body).jsonObject
                 val data = root["data"]?.jsonArray
-                    ?: return@withContext Result.failure(IOException("Invalid model catalog payload"))
+                    ?: return@withCancellableResponse Result.failure(IOException("Invalid model catalog payload"))
 
                 val remoteModels = data.mapNotNull { element ->
                     val modelObj = element.jsonObject
@@ -129,7 +131,7 @@ class OpenRouterModelCatalog @Inject constructor() {
                 }
 
                 if (selectedByProvider.isEmpty()) {
-                    return@withContext Result.success(SettingsStore.FALLBACK_MODELS)
+                    return@withCancellableResponse Result.success(SettingsStore.FALLBACK_MODELS)
                 }
 
                 val selectedByProviderId = selectedByProvider.associateBy { providerFromId(it.id) }.toMutableMap()
@@ -144,6 +146,7 @@ class OpenRouterModelCatalog @Inject constructor() {
                 Result.success(ordered)
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
