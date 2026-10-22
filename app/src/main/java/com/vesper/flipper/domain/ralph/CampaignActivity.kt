@@ -39,6 +39,7 @@ class CampaignActivity: ComponentActivity() {
                 item { Text("Disabled by default. Use only authorized /ext scope. Each write needs the existing approval flow. Interrupted commands are never replayed automatically.") }
                 item { Row { Text("Enable campaigns",modifier=Modifier.weight(1f)); Switch(checked=enabled,onCheckedChange={ value -> scope.launch { try { if(value) store.enabled=true else orchestrator.kill(); enabled=value } catch(e:Exception) { error=e.message.orEmpty() } } }) } }
                 item { Button(onClick={ scope.launch { orchestrator.kill(); enabled=false } }) { Text("STOP ALL AND DISABLE") } }
+                item { Text("Stop prevents later steps. A command already claimed or sent may still finish.") }
                 item { OutlinedTextField(value=planText,onValueChange={ if(it.length<=65536) planText=it },label={Text("Campaign plan JSON")},modifier=Modifier.fillMaxWidth(),minLines=5,maxLines=12) }
                 item { Button(enabled=enabled,onClick={ try { orchestrator.start(Json.decodeFromString(planText)); error="" } catch(e:Exception) {error=e.message.orEmpty()} }) {Text("Start scoped campaign")} }
                 item { if(error.isNotEmpty()) Text(error,color=MaterialTheme.colorScheme.error) }
