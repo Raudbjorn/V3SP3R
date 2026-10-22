@@ -169,7 +169,7 @@ class FlipperProtocol @Inject constructor() {
             status.supportsCli && observedCommandSessionMode == CommandSessionMode.CLI
     }
 
-    private var currentRequestId: UInt = 0u
+    private var currentRequestId: UInt = 1u
 
     private val _responseFlow = MutableSharedFlow<ProtocolResponse>(extraBufferCapacity = 64,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
@@ -904,6 +904,7 @@ class FlipperProtocol @Inject constructor() {
         val commandId = nextRpcProbeCommandId()
         val totalChunks = (content.size + WRITE_CHUNK_SIZE - 1) / WRITE_CHUNK_SIZE
         val service = bleService ?: return ProtocolResponse.Error("BLE not connected")
+        val telemetrySession = service.rpcTelemetrySessionId()
         val timeoutMs = resolveRpcStorageWriteTimeoutMs(content.size)
         var lastFailure: ProtocolResponse? = null
 
@@ -944,7 +945,14 @@ class FlipperProtocol @Inject constructor() {
                     if (responses.isEmpty()) {
                         lastFailure = ProtocolResponse.Error("No RPC response for storage write (chunked): $path")
                     } else {
-                        if (!recordVerifiedRpcResponse(epoch)) return ProtocolResponse.Error("Connection changed during storage write")
+                        val recorded = synchronized(ingressStateLock) {
+                            if (!recordVerifiedRpcResponse(epoch)) false
+                            else {
+                                service.recordRpcResponseReceived(telemetrySession)
+                                true
+                            }
+                        }
+                        if (!recorded) return ProtocolResponse.Error("Connection changed during storage write")
                         val status = responses
                             .firstOrNull { it.commandStatus != Flipper.CommandStatus.OK }
                             ?.commandStatus
@@ -3375,6 +3383,7 @@ class FlipperProtocol @Inject constructor() {
         }
         return try {
             val service = bleService ?: return emptyList()
+            val telemetrySession = service.rpcTelemetrySessionId()
             // One collector spans write, quiet gaps, and all continuations. Never lose
             // a fragmented envelope or incoming bytes while swapping tail collectors.
             val collected = withTimeoutOrNull<List<Flipper.Main>>(timeoutMs) {
@@ -3402,6 +3411,7 @@ class FlipperProtocol @Inject constructor() {
                 ensureGeneration()
                 observedCommandSessionMode = CommandSessionMode.RPC
                 recordVerifiedRpcResponse(epoch)
+                service.recordRpcResponseReceived(telemetrySession)
             }
             collected
         } finally {
@@ -3458,7 +3468,7 @@ class FlipperProtocol @Inject constructor() {
 
     private fun nextRpcProbeCommandId(): Int {
         val value = currentRequestId.toInt().coerceAtLeast(1)
-        currentRequestId += 1u
+        currentRequestId = if (value == Int.MAX_VALUE) 1u else (value + 1).toUInt()
         return value
     }
 
