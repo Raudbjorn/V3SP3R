@@ -50,6 +50,14 @@ class ChatStreamTest {
         val message = Json.parseToJsonElement(raw).jsonObject["choices"]!!.jsonArray[0].jsonObject["message"]!!.jsonObject
         assertEquals("Hello", message["content"]!!.jsonPrimitive.content)
     }
+    @Test fun `compatible tool fragments must form complete JSON before completion`() = runBlocking {
+        val first = """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t","function":{"name":"execute_command","arguments":"{\"action\":"}}]}}]}"""
+        val last = """{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"list_directory\"}"}}]}}]}"""
+        val complete = ChatStreamReader(false).read(sse(first, last, "[DONE]")) {}
+        assertTrue(complete.contains("list_directory"))
+        try { ChatStreamReader(false).read(sse(first, "[DONE]")) {}; fail("Truncated JSON must not execute") }
+        catch (_: kotlinx.serialization.SerializationException) { }
+    }
     @Test fun `cancellation closes stalled HTTP call promptly`() = runBlocking {
         MockWebServer().use { server ->
             server.start(); server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))

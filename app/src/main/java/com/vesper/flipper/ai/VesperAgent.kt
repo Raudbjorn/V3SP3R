@@ -119,7 +119,13 @@ class VesperAgent @Inject constructor(
         return try {
             processAIResponse(messages)
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is kotlinx.coroutines.CancellationException) {
+                _conversationState.value = _conversationState.value.copy(
+                    messages = _conversationState.value.messages.filterNot { it.status == MessageStatus.STREAMING },
+                    isLoading = false, progress = null
+                )
+                throw e
+            }
             _conversationState.value = _conversationState.value.copy(
                 messages = messages,
                 isLoading = false,
@@ -186,7 +192,13 @@ class VesperAgent @Inject constructor(
         return try {
             processAIResponse(messages)
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is kotlinx.coroutines.CancellationException) {
+                _conversationState.value = _conversationState.value.copy(
+                    messages = _conversationState.value.messages.filterNot { it.status == MessageStatus.STREAMING },
+                    isLoading = false, progress = null
+                )
+                throw e
+            }
             _conversationState.value = _conversationState.value.copy(
                 messages = messages,
                 isLoading = false,
@@ -687,7 +699,7 @@ class VesperAgent @Inject constructor(
             .map { state ->
                 PersistedConversationSnapshot(
                     sessionId = state.sessionId,
-                    messages = state.messages.takeLast(MAX_PERSISTED_MESSAGES)
+                    messages = ChatContextWindow.trim(state.messages.filterNot { it.status == MessageStatus.STREAMING }, MAX_PERSISTED_MESSAGES)
                 )
             }
             .distinctUntilChanged()

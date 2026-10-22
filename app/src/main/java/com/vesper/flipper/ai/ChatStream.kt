@@ -54,6 +54,14 @@ internal class ChatStreamReader(private val native: Boolean) {
         }
         if (!terminal && data.isNotEmpty()) consume(data.toString().trimEnd('\n'), emit)
         if (!terminal) throw IOException("Stream ended before completion; retry the request")
+        if (!native) {
+            require(tools.size <= 1) { "Provider returned more tool calls than supported" }
+            tools.forEach { (index, tool) ->
+                require(!tool["id"]?.jsonPrimitive?.content.isNullOrBlank()) { "Tool call is missing its ID" }
+                require(!tool["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content.isNullOrBlank()) { "Tool call is missing its name" }
+                Json.parseToJsonElement(arguments[index].toString()).jsonObject
+            }
+        }
         return if (native) buildJsonObject {
             put("id", id); put("model", model); put("stop_reason", stop); put("usage", usage)
             put("content", JsonArray(blocks.values.toList()))
@@ -91,9 +99,10 @@ internal class ChatStreamReader(private val native: Boolean) {
                 for (part in delta["tool_calls"]?.jsonArray.orEmpty()) {
                     val call = part.jsonObject; val index = call["index"]!!.jsonPrimitive.int
                     val old = tools[index] ?: buildJsonObject { put("type", "function") }
-                    val function = JsonObject((old["function"] as? JsonObject).orEmpty() + call["function"]!!.jsonObject.filterKeys { it != "arguments" })
+                    val functionDelta = (call["function"] as? JsonObject).orEmpty()
+                    val function = JsonObject((old["function"] as? JsonObject).orEmpty() + functionDelta.filterKeys { it != "arguments" })
                     tools[index] = JsonObject(old + call.filterKeys { it != "index" && it != "function" } + ("function" to function))
-                    val fragment = call["function"]!!.jsonObject["arguments"]?.jsonPrimitive?.content.orEmpty()
+                    val fragment = functionDelta["arguments"]?.jsonPrimitive?.content.orEmpty()
                     arguments.getOrPut(index) { StringBuilder() }.append(fragment)
                     emit(ChatStreamEvent.ToolDelta(index, fragment))
                 }

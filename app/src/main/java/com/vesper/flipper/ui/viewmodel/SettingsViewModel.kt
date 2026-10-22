@@ -143,8 +143,8 @@ class SettingsViewModel @Inject constructor(
                     glassesSailorMouth = glasses.glassesSailorMouth,
                     glassesMuted = glasses.glassesMuted
                 )
-            }.combine(settingsStore.selectedProvider) { settings, provider ->
-                settings.copy(provider = provider)
+            }.combine(settingsStore.llmSelection) { settings, selection ->
+                settings.copy(provider = selection.provider, apiKey = selection.apiKey.orEmpty(), selectedModel = selection.model)
             }.collect { settings ->
                 _state.update { it.copy(
                     provider = settings.provider,
