@@ -20,9 +20,12 @@ Thanks for your interest in contributing! Vesper is an open-source project and w
 ### Requirements
 
 - Android Studio (latest stable recommended)
-- JDK 17+
-- Android SDK with API 26+ (Android 8.0)
+- JDK 21 (Eclipse Temurin 21.0.13+9 recommended)
+- Android SDK Platform 35 and Build Tools 36.0.0; runtime minimum is API 26 (Android 8.0)
 - A Flipper Zero device (for testing hardware features)
+
+Use the checked-in Gradle 9.8.2 wrapper. See [Building V3SP3R](docs/building.md)
+for release APK creation, signing, and the manual-only GitHub workflow.
 
 ## Development Guidelines
 

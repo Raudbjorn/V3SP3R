@@ -19,6 +19,37 @@ val localProps = Properties().apply {
     }
 }
 
+// Select a complete signing identity from one source; never mix credentials.
+val signingPropertyNames = listOf(
+    "RELEASE_STORE_FILE", "RELEASE_STORE_PASSWORD", "RELEASE_KEY_ALIAS", "RELEASE_KEY_PASSWORD"
+)
+val environmentSigning = signingPropertyNames.associateWith { name ->
+    providers.environmentVariable(name).orNull
+}
+val useEnvironmentSigning = environmentSigning.values.any { it != null }
+val signingSource = if (useEnvironmentSigning) "environment" else "local.properties"
+val selectedSigning = if (useEnvironmentSigning) environmentSigning else {
+    signingPropertyNames.associateWith { localProps.getProperty(it) }
+}
+val releaseSigning = selectedSigning.mapValues { (_, value) ->
+    value?.takeIf { it.isNotBlank() }
+}
+val hasSigningConfig = selectedSigning.values.any { it != null }
+if (hasSigningConfig) {
+    val missing = signingPropertyNames.filter { releaseSigning[it] == null }
+    require(missing.isEmpty()) {
+        "Incomplete release signing configuration from $signingSource. Missing: ${missing.joinToString()}. " +
+            "Set all four RELEASE_* values or remove them to build an unsigned APK."
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+
 android {
     namespace = "com.vesper.flipper"
     compileSdk = 35
@@ -36,21 +67,14 @@ android {
         }
     }
 
-    // Release signing — only activated when keystore properties are set.
-    // To enable: add these to local.properties (never commit this file):
-    //   RELEASE_STORE_FILE=../keystore/vesper-release.jks
-    //   RELEASE_STORE_PASSWORD=your_store_password
-    //   RELEASE_KEY_ALIAS=vesper
-    //   RELEASE_KEY_PASSWORD=your_key_password
-    val hasSigningConfig = localProps.getProperty("RELEASE_STORE_FILE") != null
-
     if (hasSigningConfig) {
         signingConfigs {
             create("release") {
-                storeFile = file(localProps.getProperty("RELEASE_STORE_FILE"))
-                storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
-                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
-                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+                // Relative paths retain the existing app/ directory convention.
+                storeFile = file(releaseSigning.getValue("RELEASE_STORE_FILE")!!)
+                storePassword = releaseSigning.getValue("RELEASE_STORE_PASSWORD")
+                keyAlias = releaseSigning.getValue("RELEASE_KEY_ALIAS")
+                keyPassword = releaseSigning.getValue("RELEASE_KEY_PASSWORD")
             }
         }
     }
@@ -74,12 +98,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     testOptions { unitTests.isReturnDefaultValues = true }
