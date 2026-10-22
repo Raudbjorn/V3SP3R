@@ -1455,7 +1455,8 @@ class FlipperBleService : Service() {
     suspend fun sendData(
         data: ByteArray,
         preferNoResponse: Boolean = false,
-        ignoreOverflowBudget: Boolean = false
+        ignoreOverflowBudget: Boolean = false,
+        allowWriteRetry: Boolean = true
     ): Boolean {
         lastWriteFailureReason = null
         if (!awaitCommandTransportReady()) {
@@ -1466,7 +1467,7 @@ class FlipperBleService : Service() {
         return when {
             isUsbCommandTransportConnected() -> sendDataOverUsb(data, preferNoResponse)
             isDesktopBridgeCommandTransportConnected() -> sendDataOverDesktopBridge(data, preferNoResponse)
-            else -> sendDataOverBle(data, preferNoResponse, ignoreOverflowBudget)
+            else -> sendDataOverBle(data, preferNoResponse, ignoreOverflowBudget, allowWriteRetry)
         }
     }
 
@@ -1536,7 +1537,8 @@ class FlipperBleService : Service() {
     private suspend fun sendDataOverBle(
         data: ByteArray,
         preferNoResponse: Boolean,
-        ignoreOverflowBudget: Boolean
+        ignoreOverflowBudget: Boolean,
+        allowWriteRetry: Boolean
     ): Boolean {
         if (!hasBluetoothPermissions()) {
             lastWriteFailureReason = "Bluetooth permission missing"
@@ -1561,7 +1563,7 @@ class FlipperBleService : Service() {
         requestHighPriorityConnectionIfNeeded()
 
         val lockTimeoutMs = resolveWriteLockTimeoutMs(data.size, preferNoResponse)
-        val writeAttempts = resolveBleWriteAttempts(data.size, preferNoResponse)
+        val writeAttempts = if (allowWriteRetry) resolveBleWriteAttempts(data.size, preferNoResponse) else 1
         val writeRetryDelayMs = resolveBleWriteRetryDelayMs(data.size, preferNoResponse)
         val writeAckTimeoutMs = resolveBleAckTimeoutMs(data.size, preferNoResponse)
         val writeNoResponseDelayMs = resolveBleNoResponseDelayMs(data.size, preferNoResponse)
@@ -1581,14 +1583,14 @@ class FlipperBleService : Service() {
 
                 for (chunk in chunks) {
                     val chunkData = chunk.toByteArray()
-                    if (!ignoreOverflowBudget && !waitForOverflowBudget(chunkData.size)) {
+                    if (!ignoreOverflowBudget && !waitForOverflowBudget(chunkData.size, data.size)) {
                         pendingWriteAck = null
                         lastWriteFailureReason = "Serial overflow budget timeout"
                         return@withContext false
                     }
 
                     var chunkWritten = false
-                    writeTypeLoop@ for ((attemptIndex, writeType) in writeTypeCandidates.withIndex()) {
+                    writeTypeLoop@ for ((attemptIndex, writeType) in (if (allowWriteRetry) writeTypeCandidates else writeTypeCandidates.take(1)).withIndex()) {
                         for (retryIndex in 1..writeAttempts) {
                             val gatt = bluetoothGatt
                             if (gatt == null || !gattLinkConnected || _connectionState.value !is ConnectionState.Connected) {
@@ -1696,14 +1698,13 @@ class FlipperBleService : Service() {
     }
 
     private fun updateOverflowCapacityFromBytes(bytes: ByteArray) {
-        if (bytes.size < OVERFLOW_VALUE_SIZE_BYTES) return
-        val remaining = java.nio.ByteBuffer.wrap(bytes.copyOfRange(0, OVERFLOW_VALUE_SIZE_BYTES)).int
-        remainingSerialBufferBytes = remaining.coerceAtLeast(0)
+        val remaining = SerialFlowControl.remainingBytes(bytes) ?: return
+        remainingSerialBufferBytes = remaining
     }
 
-    private suspend fun waitForOverflowBudget(requiredBytes: Int): Boolean {
+    private suspend fun waitForOverflowBudget(requiredBytes: Int, payloadBytes: Int): Boolean {
         val overflowCharacteristic = serialOverflowCharacteristic ?: return true
-        val deadline = System.currentTimeMillis() + OVERFLOW_WAIT_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + SerialFlowControl.waitTimeoutMs(payloadBytes, OVERFLOW_WAIT_TIMEOUT_MS)
 
         while (true) {
             val available = remainingSerialBufferBytes
