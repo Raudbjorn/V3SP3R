@@ -304,11 +304,11 @@ class OpenRouterClient @Inject constructor(
                         Log.w(TAG, "describeImageForAgent: $model returned blank, trying next")
                     }
                     is ChatCompletionResult.Error -> {
-                        Log.w(TAG, "describeImageForAgent: $model failed: [redacted]")
+                        Log.w(TAG, "describeImageForAgent: $model failed")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "describeImageForAgent: exception with $model: [redacted]")
+                Log.w(TAG, "describeImageForAgent: exception with $model")
             }
         }
 
@@ -381,11 +381,11 @@ class OpenRouterClient @Inject constructor(
                         Log.w(TAG, "describeImage: $model returned blank content, trying next model")
                     }
                     is ChatCompletionResult.Error -> {
-                        Log.w(TAG, "describeImage: $model failed: [redacted], trying next model")
+                        Log.w(TAG, "describeImage: $model failed, trying next model")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "describeImage: exception with $model: [redacted], trying next model")
+                Log.w(TAG, "describeImage: exception with $model, trying next model")
             }
         }
 
@@ -521,7 +521,7 @@ class OpenRouterClient @Inject constructor(
                     .coerceAtMost(RetryConfig.MAX_DELAY_MS)
             } catch (e: Exception) {
                 // Non-retryable exception
-                return ChatCompletionResult.Error("Request failed: [redacted]")
+                return ChatCompletionResult.Error("Request failed")
             }
         }
 
@@ -597,7 +597,7 @@ class OpenRouterClient @Inject constructor(
                 tokensUsed = apiResponse.usage?.totalTokens
             )
         } catch (e: Exception) {
-            ChatCompletionResult.Error("Failed to parse response: [redacted]")
+            ChatCompletionResult.Error("Failed to parse response")
         }
     }
 
