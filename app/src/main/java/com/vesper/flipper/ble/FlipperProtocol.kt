@@ -59,7 +59,7 @@ class FlipperProtocol @Inject constructor() {
     @Volatile
     private var lastRpcActivityAtMs: Long = 0L
 
-    private var currentRequestId: UInt = 0u
+    private var currentRequestId: UInt = 1u
     private val immediateRpcCommandId = AtomicInteger(10_000)
 
     private val _responseFlow = MutableSharedFlow<ProtocolResponse>()
@@ -82,6 +82,7 @@ class FlipperProtocol @Inject constructor() {
     fun onConnectionReset() {
         responseBuffer.reset()
         rawCliCollector = null
+        rawBinaryCollector = null
         firmwareProfile = FirmwareProfile.UNKNOWN
         lastCliProbeAtMs = 0L
         desktopLockProbeSupported = null
@@ -3335,6 +3336,7 @@ class FlipperProtocol @Inject constructor() {
             collected += tailResponses
         }
         if (collected.isNotEmpty()) {
+            bleService?.recordRpcResponseReceived()
             lastRpcActivityAtMs = System.currentTimeMillis()
         }
         return collected
@@ -3383,7 +3385,7 @@ class FlipperProtocol @Inject constructor() {
 
     private fun nextRpcProbeCommandId(): Int {
         val value = currentRequestId.toInt().coerceAtLeast(1)
-        currentRequestId += 1u
+        currentRequestId = if (value == Int.MAX_VALUE) 1u else (value + 1).toUInt()
         return value
     }
 

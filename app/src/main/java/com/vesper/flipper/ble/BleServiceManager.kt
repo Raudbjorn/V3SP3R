@@ -48,12 +48,15 @@ class BleServiceManager @Inject constructor(
     val connectedDevice: StateFlow<FlipperDevice?> = _connectedDevice.asStateFlow()
     private val _cliCapabilityStatus = MutableStateFlow(CliCapabilityStatus())
     val cliCapabilityStatus: StateFlow<CliCapabilityStatus> = _cliCapabilityStatus.asStateFlow()
+    private val _transportTelemetry = MutableStateFlow(TransportTelemetry.idle())
+    val transportTelemetry: StateFlow<TransportTelemetry> = _transportTelemetry.asStateFlow()
 
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var connectionStateJob: Job? = null
     private var discoveredDevicesJob: Job? = null
     private var connectedDeviceJob: Job? = null
     private var cliCapabilityJob: Job? = null
+    private var transportTelemetryJob: Job? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -73,6 +76,7 @@ class BleServiceManager @Inject constructor(
             _discoveredDevices.value = emptyList()
             _connectedDevice.value = null
             _cliCapabilityStatus.value = CliCapabilityStatus()
+            _transportTelemetry.value = TransportTelemetry.idle()
         }
     }
 
@@ -196,6 +200,9 @@ class BleServiceManager @Inject constructor(
         cliCapabilityJob = managerScope.launch {
             service.cliCapabilityStatus.collect { _cliCapabilityStatus.value = it }
         }
+        transportTelemetryJob = managerScope.launch {
+            service.transportTelemetry.collect { _transportTelemetry.value = it }
+        }
     }
 
     private fun cancelServiceCollectors() {
@@ -203,10 +210,12 @@ class BleServiceManager @Inject constructor(
         discoveredDevicesJob?.cancel()
         connectedDeviceJob?.cancel()
         cliCapabilityJob?.cancel()
+        transportTelemetryJob?.cancel()
         connectionStateJob = null
         discoveredDevicesJob = null
         connectedDeviceJob = null
         cliCapabilityJob = null
+        transportTelemetryJob = null
     }
 
     suspend fun awaitService(timeoutMs: Long = DEFAULT_BIND_TIMEOUT_MS): FlipperBleService? {

@@ -47,6 +47,9 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class FlipperBleService : Service() {
 
+    private val telemetryRecorder = TransportTelemetryRecorder()
+    val transportTelemetry: StateFlow<TransportTelemetry> = telemetryRecorder.state
+
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -95,6 +98,10 @@ class FlipperBleService : Service() {
     private var currentUsbBaudRate: Int? = null
     @Volatile
     private var lastWriteFailureReason: String? = null
+        set(value) {
+            field = value
+            telemetryRecorder.writeFailure(value)
+        }
     private var serialCharacteristic: BluetoothGattCharacteristic? = null
     private var serialRxCharacteristic: BluetoothGattCharacteristic? = null
     private var serialServiceUuid: UUID? = null
@@ -112,6 +119,10 @@ class FlipperBleService : Service() {
     private var gattLinkConnected: Boolean = false
     @Volatile
     private var activeTransport: CommandTransport = CommandTransport.NONE
+        set(value) {
+            field = value
+            refreshTransportTelemetry()
+        }
     @Volatile
     private var pendingUsbPermissionRequest: CompletableDeferred<Boolean>? = null
     @Volatile
@@ -829,6 +840,7 @@ class FlipperBleService : Service() {
                     val bytesRead = port.read(readBuffer, USB_READ_TIMEOUT_MS.toInt())
                     if (bytesRead > 0) {
                         val payload = readBuffer.copyOf(bytesRead)
+                        telemetryRecorder.received(payload.size)
                         completePendingOperation(payload)
                         flipperProtocol.processIncomingData(payload)
                     }
@@ -871,23 +883,9 @@ class FlipperBleService : Service() {
         bleKeepaliveJob = null
     }
 
-    @SuppressLint("MissingPermission")
     private fun sendBleKeepaliveProbe() {
-        if (!hasBluetoothPermissions()) return
-        val gatt = bluetoothGatt ?: return
-        if (!isCurrentGatt(gatt)) return
-
-        val sent = when {
-            serialOverflowCharacteristic != null -> {
-                gatt.readCharacteristic(serialOverflowCharacteristic)
-            }
-            else -> {
-                gatt.readRemoteRssi()
-            }
-        }
-        if (sent) {
-            markBleActivity()
-        }
+        // Link supervision is handled by BLE. Extra RSSI/capacity reads can race
+        // with command writes for Android's single outstanding GATT operation.
     }
 
     @SuppressLint("MissingPermission")
@@ -1092,6 +1090,7 @@ class FlipperBleService : Service() {
             serialOverflowCharacteristic = serialService.getCharacteristic(FLIPPER_SERIAL_OVERFLOW_UUID)
             serialResetCharacteristic = serialService.getCharacteristic(FLIPPER_SERIAL_RESET_UUID)
             remainingSerialBufferBytes = null
+            refreshTransportTelemetry()
             if (serialCharacteristic == null || serialRxCharacteristic == null) {
                 _connectionState.value = ConnectionState.Error("Flipper serial characteristics not usable")
                 return
@@ -1179,6 +1178,7 @@ class FlipperBleService : Service() {
                 return
             }
             if (shouldHandleIncomingCharacteristic(characteristic)) {
+                telemetryRecorder.received(value.size)
                 completePendingOperation(value)
                 flipperProtocol.processIncomingData(value)
             }
@@ -1196,6 +1196,7 @@ class FlipperBleService : Service() {
             }
             if (shouldHandleIncomingCharacteristic(characteristic)) {
                 characteristic.value?.let { data ->
+                    telemetryRecorder.received(data.size)
                     completePendingOperation(data)
                     flipperProtocol.processIncomingData(data)
                 }
@@ -1289,6 +1290,7 @@ class FlipperBleService : Service() {
         ) {
             withContext(Dispatchers.IO) {
                 try {
+                    telemetryRecorder.writeAttempt("serial")
                     val chunks = data.toList().chunked(USB_WRITE_CHUNK_SIZE_BYTES)
                     chunks.forEachIndexed { index, chunk ->
                         port.write(chunk.toByteArray(), USB_WRITE_TIMEOUT_MS.toInt())
@@ -1381,6 +1383,11 @@ class FlipperBleService : Service() {
                             val ack = if (requiresAck) CompletableDeferred<Boolean>() else null
                             pendingWriteAck = ack
 
+                            telemetryRecorder.writeAttempt(when (writeType) {
+                                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE -> "no_response"
+                                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT -> "default"
+                                else -> "type=$writeType"
+                            })
                             characteristic.value = chunkData
                             characteristic.writeType = writeType
 
@@ -1493,8 +1500,6 @@ class FlipperBleService : Service() {
             if (System.currentTimeMillis() >= deadline) {
                 return false
             }
-            // Try to refresh once while waiting in case notifications are stale.
-            refreshOverflowCapacity(overflowCharacteristic)
             delay(OVERFLOW_WAIT_POLL_MS)
         }
     }
@@ -1794,6 +1799,23 @@ class FlipperBleService : Service() {
 
     suspend fun probeCliCapability(force: Boolean = false): CliCapabilityStatus {
         return flipperProtocol.probeCliAvailability(force)
+    }
+
+    /** Called only after the protocol matches an incoming response to its request. */
+    fun recordRpcResponseReceived() {
+        telemetryRecorder.rpcResponseReceived()
+    }
+
+    private fun refreshTransportTelemetry() {
+        telemetryRecorder.routeChanged(
+            when (activeTransport) {
+                CommandTransport.NONE -> "None"
+                CommandTransport.BLE -> "BLE"
+                CommandTransport.USB -> "USB"
+            },
+            serialCharacteristic?.uuid?.toString().takeIf { activeTransport == CommandTransport.BLE },
+            serialRxCharacteristic?.uuid?.toString().takeIf { activeTransport == CommandTransport.BLE }
+        )
     }
 
     fun isCommandTransportConnected(): Boolean {

@@ -30,6 +30,7 @@ import com.vesper.flipper.ble.ConnectionDiagnosticsReport
 import com.vesper.flipper.ble.ConnectionState
 import com.vesper.flipper.ble.FirmwareCompatibilityProfile
 import com.vesper.flipper.ble.FirmwareTransportMode
+import com.vesper.flipper.ble.TransportTelemetry
 import com.vesper.flipper.ble.FlipperDevice
 import com.vesper.flipper.domain.model.FlipperRemoteButton
 import com.vesper.flipper.glasses.BridgeState
@@ -57,6 +58,7 @@ fun DeviceScreen(
     val isRunningDiagnostics by viewModel.isRunningDiagnostics.collectAsState()
     val autotuneStatus by viewModel.autotuneStatus.collectAsState()
     val firmwareCompatibility by viewModel.firmwareCompatibility.collectAsState()
+    val transportTelemetry by viewModel.transportTelemetry.collectAsState()
     val isSendingRemoteInput by viewModel.isSendingRemoteInput.collectAsState()
     val remoteInputStatus by viewModel.remoteInputStatus.collectAsState()
     val glassesEnabled by viewModel.glassesEnabled.collectAsState()
@@ -135,6 +137,7 @@ fun DeviceScreen(
                     diagnostics = connectionDiagnostics,
                     autotuneStatus = autotuneStatus,
                     firmwareCompatibility = firmwareCompatibility,
+                    transportTelemetry = transportTelemetry,
                     isRunningDiagnostics = isRunningDiagnostics,
                     onRunDiagnostics = { viewModel.runConnectionDiagnostics() }
                 )
@@ -606,6 +609,7 @@ private fun CommandAutomationStatusCard(
     diagnostics: ConnectionDiagnosticsReport,
     autotuneStatus: CommandPipelineAutotuneStatus,
     firmwareCompatibility: FirmwareCompatibilityProfile,
+    transportTelemetry: TransportTelemetry,
     isRunningDiagnostics: Boolean,
     onRunDiagnostics: () -> Unit
 ) {
@@ -732,6 +736,42 @@ private fun CommandAutomationStatusCard(
             )
             Text(
                 text = firmwareCompatibility.notes,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "Transport Telemetry",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = buildString {
+                    append("Transport: ")
+                    append(transportTelemetry.transportLabel)
+                    append(" | Route verified: ")
+                    append(if (transportTelemetry.writeRouteVerified) "yes" else "no")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "TX=${transportTelemetry.writeCharacteristicUuid ?: "?"} | RX=${transportTelemetry.notifyCharacteristicUuid ?: "?"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Last write type=${transportTelemetry.lastWriteTypeLabel ?: "?"} | Last write failure=${transportTelemetry.lastWriteFailure ?: "none"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Last RX=${transportTelemetry.lastRxSummary ?: "none"}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
