@@ -74,6 +74,8 @@ class FlipperBleService : Service() {
     private var desktopBridgeHost: String? = null
     private var desktopBridgePort: Int? = null
     private var bleKeepaliveJob: Job? = null
+    private var bleSetup: BleSetupSequence? = null
+    private var bleSetupTimeoutJob: Job? = null
     private var usbReceiverRegistered = false
     private var broadScanStarted = false
 
@@ -1051,6 +1053,10 @@ class FlipperBleService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun disconnectBleTransport() {
+        bleSetup?.cancel()
+        bleSetup = null
+        bleSetupTimeoutJob?.cancel()
+        bleSetupTimeoutJob = null
         bluetoothGatt?.let { gatt ->
             if (hasBluetoothPermissions()) {
                 runCatching { gatt.disconnect() }
@@ -1172,11 +1178,14 @@ class FlipperBleService : Service() {
                             gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                         }
                         lastBlePriorityRequestAtMs = System.currentTimeMillis()
-                        gatt.requestMtu(REQUESTED_ATT_MTU)
-                        gatt.discoverServices()
+                        beginBleSetup(gatt)
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    bleSetup?.cancel()
+                    bleSetup = null
+                    bleSetupTimeoutJob?.cancel()
+                    bleSetupTimeoutJob = null
                     failPendingWriteAck()
                     flipperProtocol.onConnectionReset()
                     gattLinkConnected = false
@@ -1206,7 +1215,7 @@ class FlipperBleService : Service() {
                         val statusText = describeGattStatus(status)
                         val reasonHint = when (status) {
                             GATT_STATUS_CONN_TERMINATE_PEER_USER ->
-                                "Flipper closed the session. Keep the Flipper Bluetooth app open and close other apps connected to it."
+                                "Flipper closed the session. Keep it unlocked on its normal screen and close other connected companion apps."
                             GATT_STATUS_GENERIC_ERROR ->
                                 "Android BLE stack error. Toggle Bluetooth off/on and reconnect."
                             else ->
@@ -1226,7 +1235,7 @@ class FlipperBleService : Service() {
             if (!isCurrentGatt(gatt)) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "Service discovery failed status=${describeGattStatus(status)}")
-                _connectionState.value = ConnectionState.Error("Service discovery failed")
+                bleSetup?.fail("Service discovery failed: ${describeGattStatus(status)}")
                 return
             }
 
@@ -1235,7 +1244,7 @@ class FlipperBleService : Service() {
                 val discoveredServices = gatt.services
                     ?.joinToString(limit = 8) { it.uuid.toString() }
                     .orEmpty()
-                _connectionState.value = ConnectionState.Error(
+                bleSetup?.fail(
                     "Flipper serial service not found. Exit Bluetooth Remote/Control mode on Flipper and retry. " +
                             "Services: $discoveredServices"
                 )
@@ -1251,7 +1260,7 @@ class FlipperBleService : Service() {
             serialResetCharacteristic = serialService.getCharacteristic(FLIPPER_SERIAL_RESET_UUID)
             remainingSerialBufferBytes = null
             if (serialCharacteristic == null || serialRxCharacteristic == null) {
-                _connectionState.value = ConnectionState.Error("Flipper serial characteristics not usable")
+                bleSetup?.fail("Flipper serial characteristics not usable")
                 return
             }
 
@@ -1264,34 +1273,7 @@ class FlipperBleService : Service() {
             pendingConnectedDevice = device
             notificationsReady = false
 
-            // Enable notifications on RX characteristic and wait for descriptor write completion.
-            if (hasBluetoothPermissions()) {
-                val rx = serialRxCharacteristic ?: run {
-                    _connectionState.value = ConnectionState.Error("Flipper RX characteristic unavailable")
-                    return
-                }
-                gatt.setCharacteristicNotification(rx, true)
-                val descriptor = rx.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
-                if (descriptor != null) {
-                    descriptor.value = if (supportsNotification(rx)) {
-                        BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    } else if (supportsIndication(rx)) {
-                        BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                    } else {
-                        BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                    }
-                    val started = gatt.writeDescriptor(descriptor)
-                    if (!started) {
-                        pendingConnectedDevice = null
-                        _connectionState.value = ConnectionState.Error("Failed to enable Flipper notifications")
-                    }
-                    return
-                }
-            }
-
-            // Descriptor not available; continue with best-effort connection readiness.
-            notificationsReady = true
-            finalizeConnectedState(device)
+            bleSetup?.servicesFinished()
         }
 
         override fun onDescriptorWrite(
@@ -1299,22 +1281,14 @@ class FlipperBleService : Service() {
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            if (!isCurrentGatt(gatt)) return
-            if (descriptor.uuid != CLIENT_CHARACTERISTIC_CONFIG) return
-            if (descriptor.characteristic?.uuid != serialRxCharacteristic?.uuid) return
-
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                pendingConnectedDevice = null
-                notificationsReady = false
-                _connectionState.value = ConnectionState.Error("Failed to enable Flipper notifications")
-                updateNotification()
-                return
-            }
-
-            notificationsReady = true
-            val device = pendingConnectedDevice
-            if (device != null) {
-                finalizeConnectedState(device)
+            if (!isCurrentGatt(gatt) || descriptor.uuid != CLIENT_CHARACTERISTIC_CONFIG) return
+            val success = status == BluetoothGatt.GATT_SUCCESS
+            when (descriptor.characteristic?.uuid) {
+                serialRxCharacteristic?.uuid -> {
+                    notificationsReady = success
+                    bleSetup?.rxFinished(success, serialOverflowCharacteristic != null)
+                }
+                serialOverflowCharacteristic?.uuid -> bleSetup?.overflowNotificationsFinished(success)
             }
         }
 
@@ -1323,6 +1297,7 @@ class FlipperBleService : Service() {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 negotiatedMtu = mtu.coerceIn(DEFAULT_ATT_MTU, REQUESTED_ATT_MTU)
             }
+            bleSetup?.mtuFinished()
         }
 
         override fun onCharacteristicChanged(
@@ -1367,11 +1342,13 @@ class FlipperBleService : Service() {
             status: Int
         ) {
             if (!isCurrentGatt(gatt)) return
-            if (status == BluetoothGatt.GATT_SUCCESS &&
-                characteristic.uuid == serialOverflowCharacteristic?.uuid
-            ) {
-                markBleActivity()
-                updateOverflowCapacityFromBytes(value)
+            if (characteristic.uuid == serialOverflowCharacteristic?.uuid) {
+                val valid = status == BluetoothGatt.GATT_SUCCESS && value.size >= OVERFLOW_VALUE_SIZE_BYTES
+                if (valid) {
+                    markBleActivity()
+                    updateOverflowCapacityFromBytes(value)
+                }
+                bleSetup?.overflowReadFinished(valid)
             }
         }
 
@@ -1381,12 +1358,9 @@ class FlipperBleService : Service() {
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
-            if (!isCurrentGatt(gatt)) return
-            if (status == BluetoothGatt.GATT_SUCCESS &&
-                characteristic.uuid == serialOverflowCharacteristic?.uuid
-            ) {
-                characteristic.value?.let { updateOverflowCapacityFromBytes(it) }
-            }
+            // Android 13+ delivers the value-bearing callback; do not advance setup twice.
+            if (Build.VERSION.SDK_INT >= 33) return
+            onCharacteristicRead(gatt, characteristic, characteristic.value ?: byteArrayOf(), status)
         }
 
         override fun onCharacteristicWrite(
@@ -1670,8 +1644,8 @@ class FlipperBleService : Service() {
         while (true) {
             val available = remainingSerialBufferBytes
             if (available == null) {
-                // No telemetry yet: best effort write path.
-                return true
+                lastWriteFailureReason = "Flipper flow-control capacity is unavailable; reconnect"
+                return false
             }
             if (available >= requiredBytes) {
                 remainingSerialBufferBytes = (available - requiredBytes).coerceAtLeast(0)
@@ -1908,31 +1882,51 @@ class FlipperBleService : Service() {
         updateNotification()
         startBleKeepalive()
 
-        // Enable overflow control but do NOT auto-probe the automation channel on connect.
-        // The CLI/RPC probe is expensive and should only run when the user explicitly
-        // requests diagnostics or when a command actually needs the automation channel.
-        serviceScope.launch {
-            enableOverflowControl()
-        }
     }
 
     @SuppressLint("MissingPermission")
-    private fun enableOverflowControl() {
-        val gatt = bluetoothGatt ?: return
-        val overflowCharacteristic = serialOverflowCharacteristic ?: return
-        if (!hasBluetoothPermissions()) return
-
-        gatt.setCharacteristicNotification(overflowCharacteristic, true)
-        val descriptor = overflowCharacteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
-        if (descriptor != null && supportsNotifyOrIndicate(overflowCharacteristic)) {
-            descriptor.value = if (supportsNotification(overflowCharacteristic)) {
-                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            } else {
-                BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+    private fun beginBleSetup(gatt: BluetoothGatt) {
+        bleSetup?.cancel()
+        bleSetupTimeoutJob?.cancel()
+        val setup = BleSetupSequence(
+            requestMtu = { gatt.requestMtu(REQUESTED_ATT_MTU) },
+            discoverServices = { gatt.discoverServices() },
+            enableRx = { subscribeForSetup(gatt, serialRxCharacteristic) },
+            enableOverflow = { subscribeForSetup(gatt, serialOverflowCharacteristic) },
+            readOverflow = {
+                serialOverflowCharacteristic?.let { gatt.readCharacteristic(it) } ?: false
+            },
+            ready = {
+                bleSetupTimeoutJob?.cancel()
+                pendingConnectedDevice?.let { finalizeConnectedState(it) }
+            },
+            failed = { reason ->
+                Log.w(TAG, reason)
+                disconnectBleTransport()
+                _connectedDevice.value = null
+                _connectionState.value = ConnectionState.Error(reason)
+                updateNotification()
             }
-            gatt.writeDescriptor(descriptor)
+        )
+        bleSetup = setup
+        bleSetupTimeoutJob = serviceScope.launch {
+            delay(20_000L)
+            if (isCurrentGatt(gatt)) setup.timeout()
         }
-        refreshOverflowCapacity(overflowCharacteristic)
+        setup.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun subscribeForSetup(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic?): Boolean {
+        if (!hasBluetoothPermissions() || characteristic == null) return false
+        if (!gatt.setCharacteristicNotification(characteristic, true)) return false
+        val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG) ?: return false
+        descriptor.value = when {
+            supportsNotification(characteristic) -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            supportsIndication(characteristic) -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            else -> return false
+        }
+        return gatt.writeDescriptor(descriptor)
     }
 
     @SuppressLint("MissingPermission")
