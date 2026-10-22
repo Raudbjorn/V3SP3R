@@ -12,7 +12,56 @@ class DatabaseConversionTest {
         DatabaseConversion(file, { it.readText().startsWith("plain:") },
             { source, target -> target.writeText("encrypted:" + source.readText().removePrefix("plain:")) },
             { check(!invalid && it.readText().startsWith("encrypted:")) }, {},
-            { if (it == crash) error("simulated process death") })
+            { if (it == crash) error("simulated process death") },
+            verifyKey = { check(!invalid && it.readText().startsWith("encrypted:")) })
+
+    @Test fun ordinaryEncryptedOpenDoesNotRunFullIntegrityScans() {
+        val file = temporary.newFile("ordinary").apply { writeText("encrypted:rows") }
+        var scans = 0
+        var keyChecks = 0
+        DatabaseConversion(file, { false }, { _, _ -> error("Already encrypted") },
+            { scans++ }, { error("Ordinary open must not sync or change files") },
+            verifyKey = { keyChecks++ }).run()
+        assertEquals(1, keyChecks)
+        assertEquals("Normal opening must not scan every data page", 0, scans)
+        assertEquals("encrypted:rows", file.readText())
+    }
+
+    @Test fun recoveryArtifactsRequireFullValidationBeforeCleanup() {
+        for (suffix in listOf(".plaintext-backup", ".encrypting", ".encrypting-wal")) {
+            val file = temporary.newFile().apply { writeText("encrypted:rows") }
+            val artifact = File(file.path + suffix).apply { writeText("recovery evidence") }
+            var scans = 0
+            DatabaseConversion(file, { false }, { _, _ -> error("No export") },
+                { assertTrue(artifact.exists()); scans++ }, {},
+                verifyKey = { error("Recovery requires full validation") }).run()
+            assertEquals(1, scans)
+            assertFalse(artifact.exists())
+            assertEquals("encrypted:rows", file.readText())
+        }
+    }
+
+    @Test fun normalWrongKeyDoesNotModifyTheInstalledDatabase() {
+        val file = temporary.newFile().apply { writeText("encrypted:preserve") }
+        try {
+            DatabaseConversion(file, { false }, { _, _ -> error("No export") },
+                { error("No full scan") }, { error("No modification") },
+                verifyKey = { throw IllegalArgumentException("Wrong key") }).run()
+            fail("Expected key failure")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals("encrypted:preserve", file.readText())
+        assertEquals(listOf(file.name), temporary.root.listFiles()!!.map { it.name })
+    }
+
+    @Test fun conversionStillFullyValidatesBothStagedAndInstalledCopies() {
+        val file = temporary.newFile().apply { writeText("plain:rows") }
+        val validated = mutableListOf<String>()
+        DatabaseConversion(file, { it.readText().startsWith("plain:") },
+            { _, target -> target.writeText("encrypted:rows") },
+            { validated += it.name }, {}, verifyKey = { error("Conversion requires full validation") }).run()
+        assertEquals(listOf(file.name + ".encrypting", file.name), validated)
+        assertEquals("encrypted:rows", file.readText())
+    }
 
     @Test fun everyInterruptionRecoversOriginalRowsAndRemovesPlaintext() {
         for (step in listOf("exported", "original-renamed", "encrypted-installed", "complete")) {
@@ -31,7 +80,7 @@ class DatabaseConversionTest {
         val file = temporary.newFile("partial").apply { writeText("plain:rows") }
         val failing = DatabaseConversion(file, { true }, { _, target ->
             target.writeText("partial"); error("disk full")
-        }, {}, {})
+        }, {}, {}, verifyKey = {})
         try { failing.run(); fail("Expected failure") } catch (_: IllegalStateException) {}
         assertEquals("plain:rows", file.readText())
         migration(file).run()

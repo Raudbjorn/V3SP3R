@@ -6,6 +6,8 @@ Before Room opens a plaintext database, the converter checkpoints its WAL and sw
 
 The original becomes `.plaintext-backup`, then the verified export replaces the database name. Directory entries are synced after each rename. The installed copy must pass validation before the plaintext backup is removed. No destructive Room fallback is enabled, and corruption handlers preserve the files.
 
+Ordinary encrypted opens with no migration artifacts verify the key with a read-only schema query. They do not run full integrity scans. Staged exports, newly installed copies, and recovery states with migration artifacts still require full SQLite integrity and SQLCipher page-authentication checks before cleanup. A failed key check preserves the installed file.
+
 On restart:
 
 - Plaintext source plus a partial or invalid staged `.encrypting` export: retain the original source, discard the disposable staged copy, and retry the export.

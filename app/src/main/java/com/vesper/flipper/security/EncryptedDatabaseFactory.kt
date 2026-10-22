@@ -78,7 +78,8 @@ object EncryptedDatabaseFactory {
             DatabaseConversion(file, ::isPlaintext,
                     { source, target -> export(source, target, passphrase) },
                     { validate(it, passphrase) },
-                    { syncDirectory(file.parentFile!!) }).run()
+                    { syncDirectory(file.parentFile!!) },
+                    verifyKey = { verifyKey(it, passphrase) }).run()
             passphrase.toByteArray(Charsets.UTF_8)
         }
     }
@@ -123,6 +124,16 @@ object EncryptedDatabaseFactory {
         }
         RandomAccessFile(target, "rw").use { it.fd.sync() }
         syncDirectory(target.parentFile!!)
+    }
+
+    /** Authenticate the key by reading encrypted schema pages; never scan all user data on open. */
+    internal fun verifyKey(file: File, passphrase: String) {
+        check(!isPlaintext(file)) { "Expected encrypted database; original data has been preserved" }
+        open(file, passphrase, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT name FROM sqlite_master LIMIT 1", emptyArray<String>()).use {
+                it.moveToFirst() // Even an empty schema must be successfully decrypted.
+            }
+        }
     }
 
     internal fun validate(file: File, passphrase: String) {

@@ -109,7 +109,8 @@ class EncryptedDatabaseMigrationTest {
                 EncryptedDatabaseFactory::isPlaintext,
                 { original, target -> EncryptedDatabaseFactory.export(original, target, "test-key") },
                 { EncryptedDatabaseFactory.validate(it, "test-key") }, {},
-                { if (stop && it == crash) error("simulated death") })
+                { if (stop && it == crash) error("simulated death") },
+                verifyKey = { EncryptedDatabaseFactory.verifyKey(it, "test-key") })
             try { conversion(true).run(); fail("Expected interruption") } catch (_: IllegalStateException) {}
             conversion(false).run()
             SQLiteDatabase.openDatabase(source.path, "test-key", null, SQLiteDatabase.OPEN_READONLY, null).use { db ->
@@ -118,6 +119,36 @@ class EncryptedDatabaseMigrationTest {
                 }
             }
             source.delete()
+        }
+    }
+
+    @Test fun ordinaryEncryptedOpenUsesSchemaProbeAndRejectsWrongKeyWithoutChangingFiles() {
+        System.loadLibrary("sqlcipher")
+        val source = context.getDatabasePath("normal-open-" + UUID.randomUUID())
+        source.parentFile!!.mkdirs()
+        val encrypted = java.io.File(source.path + ".encrypted")
+        try {
+            android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(source, null).use {
+                it.execSQL("CREATE TABLE evidence(value TEXT)")
+                it.execSQL("INSERT INTO evidence VALUES('retain')")
+            }
+            EncryptedDatabaseFactory.export(source, encrypted, "correct-key")
+            val before = encrypted.readBytes()
+            fun normalOpen(key: String) = DatabaseConversion(encrypted,
+                EncryptedDatabaseFactory::isPlaintext,
+                { _, _ -> error("Already encrypted") },
+                { error("Ordinary opening must not run full integrity scans") },
+                { error("Ordinary opening must not modify files") },
+                verifyKey = { EncryptedDatabaseFactory.verifyKey(it, key) }).run()
+            normalOpen("correct-key")
+            try {
+                normalOpen("wrong-key")
+                fail("Expected wrong-key failure")
+            } catch (_: Exception) { }
+            assertArrayEquals(before, encrypted.readBytes())
+        } finally {
+            context.deleteDatabase(source.name)
+            context.deleteDatabase(encrypted.name)
         }
     }
 
