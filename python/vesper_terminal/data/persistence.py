@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
+from typing import Iterator
 from pathlib import Path
 
 from vesper_terminal.domain.models import AuditEntry
@@ -13,8 +15,14 @@ class SqlitePersistence:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
-    def _conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
+    @contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(self.db_path)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _init(self) -> None:
         with self._conn() as conn:

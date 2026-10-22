@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,3 +69,48 @@ class ReviewRegressionTest(unittest.TestCase):
                     method('/ext', '/ext/backups/archive')
                 self.assertFalse((Path(root) / 'ext/backups/archive').exists())
             self.assertEqual(transport.read_file('/ext/backups/marker.txt'), 'marker')
+
+    def test_trailing_slash_cannot_read_sensitive_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            agent, _ = build_agent(root)
+            agent.executor.transport.write_file('/ext/a.secret', 'protected-content')
+            text, pending = agent.send_message('cat /ext/a.secret/')
+            self.assertIn('Blocked', text)
+            self.assertNotIn('protected-content', text)
+            self.assertIsNone(pending)
+
+    def test_approval_preview_names_planned_action_arguments_and_cli(self):
+        with tempfile.TemporaryDirectory() as root:
+            agent, _ = build_agent(root)
+            agent.executor.transport.create_directory('/ext/important')
+            raw = json.dumps({'action': 'delete', 'args': {'path': '/ext/important', 'recursive': True}})
+            def requester(*_):
+                return {'choices': [{'message': {'tool_calls': [{'function': {'name': 'execute_command', 'arguments': raw}}]}}]}
+            agent.client = OpenRouterClient(api_key='test-placeholder', requester=requester)
+            text, pending = agent.send_message('clean up the device')
+            self.assertIsNotNone(pending)
+            self.assertIn('/ext/important', text)
+            self.assertIn('delete', text)
+            self.assertIn('"recursive": true', text)
+            self.assertTrue((Path(root) / 'flipper_mock_fs/ext/important').exists())
+            agent.executor.reject(pending, agent.session_id)
+            text, pending = agent.send_message('cli version')
+            self.assertIn('version', text)
+            self.assertIn('execute_cli', text)
+
+    def test_persistence_closes_every_connection_after_use(self):
+        connect = sqlite3.connect
+        connections = []
+        def capture(*args, **kwargs):
+            connection = connect(*args, **kwargs)
+            connections.append(connection)
+            return connection
+        with tempfile.TemporaryDirectory() as root:
+            with patch('vesper_terminal.data.persistence.sqlite3.connect', side_effect=capture):
+                agent, _ = build_agent(root)
+                for _ in range(5):
+                    agent.send_message('ls /ext')
+                self.assertTrue(agent.persistence.history(agent.session_id))
+            for connection in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    connection.execute('SELECT 1')

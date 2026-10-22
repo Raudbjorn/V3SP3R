@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import difflib
+import json
+from dataclasses import asdict
 import time
 from pathlib import PurePosixPath
 from typing import Optional
@@ -76,6 +78,18 @@ class CommandExecutor:
                 old_content = None
             diff = self._compute_diff(old_content, command.args.content)
 
+        arguments = {key: value for key, value in asdict(command.args).items() if value is not None}
+        if command.action == CommandAction.WRITE_FILE:
+            arguments.pop("content", None)  # File contents are shown in the separate diff.
+        preview = {
+            "action": command.action.value,
+            "args": arguments,
+            "affected_paths": risk.affected_paths[:20],
+        }
+        if len(risk.affected_paths) > 20:
+            preview["additional_affected_paths"] = len(risk.affected_paths) - 20
+        approval_message = f"Awaiting user approval for {risk.reason}\nPlanned command:\n" + json.dumps(preview, indent=2)
+
         pending = PendingApproval(command=command, risk_assessment=risk, diff=diff)
         self.pending[pending.id] = pending
         self.pending_sessions[pending.id] = session_id
@@ -83,7 +97,7 @@ class CommandExecutor:
         return CommandResult(
             success=True,
             action=command.action,
-            data=CommandResultData(diff=diff, message=f"Awaiting user approval for {risk.reason}"),
+            data=CommandResultData(diff=diff, message=approval_message),
             requires_confirmation=True,
             pending_approval_id=pending.id,
         )

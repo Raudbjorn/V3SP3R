@@ -25,7 +25,7 @@ class RiskAssessor:
                 if not isinstance(path, str) or not path.startswith("/") or any(c in path for c in "\x00\r\n\\") or any(part in {"..", "."} for part in path.split("/")):
                     raise ValueError("Use absolute Flipper paths without traversal or control characters")
             for path in paths:
-                if path.startswith("//") or str(PurePosixPath(path)) != (path.rstrip("/") or "/"):
+                if path.startswith("//") or str(PurePosixPath(path)) != path:
                     raise ValueError("Use canonical paths without repeated separators")
             cli = command.args.command or command.args.content or ""
             if command.action == CommandAction.EXECUTE_CLI and (any(ord(c) < 32 for c in cli) or any(c in cli for c in ";|&")):
