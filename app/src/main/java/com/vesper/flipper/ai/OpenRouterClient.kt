@@ -565,7 +565,7 @@ class OpenRouterClient {
 
             // Extract content — OpenRouterResponseMessage.textContent handles
             // both plain string and array-of-parts formats transparently.
-            val content = message.textContent ?: ""
+            val content = stripThinkingTags(message.textContent ?: "")
 
             // Validate tool calls if present
             val rawToolCalls = message.toolCalls
@@ -1498,6 +1498,17 @@ class OpenRouterClient {
         private const val DEFAULT_RESPONSE_MAX_TOKENS = 720
         /** Max input size for JSON repair to prevent resource exhaustion. */
         private const val MAX_REPAIRABLE_JSON_LENGTH = 100_000
+
+        private val THINKING_TAG_REGEX = Regex("<think>[\\s\\S]*?</think>\\s*")
+
+        /**
+         * Drop inline <think>...</think> reasoning that MiniMax (and some
+         * OpenRouter reasoning models) emit in the content field.
+         */
+        fun stripThinkingTags(content: String): String {
+            if (!content.contains("<think>")) return content
+            return content.replace(THINKING_TAG_REGEX, "").trim()
+        }
         /** Max unclosed brackets the repair function will close. */
         private const val MAX_REPAIR_BRACKET_DEPTH = 10
 

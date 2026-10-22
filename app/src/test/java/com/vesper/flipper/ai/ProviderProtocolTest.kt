@@ -31,8 +31,8 @@ class ProviderProtocolTest {
         }
     }
     @Test fun `credentials and models use separate slots and speech is capability based`() {
-        assertEquals(5, LlmProvider.entries.map { it.apiKeyPreference }.distinct().size)
-        assertEquals(5, LlmProvider.entries.map { it.modelPreference }.distinct().size)
+        assertEquals(LlmProvider.entries.size, LlmProvider.entries.map { it.apiKeyPreference }.distinct().size)
+        assertEquals(LlmProvider.entries.size, LlmProvider.entries.map { it.modelPreference }.distinct().size)
         assertEquals(SpeechBackend.NONE, LlmProvider.ANTHROPIC.speechBackend)
         for (provider in LlmProvider.entries.filter { it != LlmProvider.OPENROUTER }) {
             assertFalse(provider.toolCandidates(provider.defaultModel).any { it.contains("/") })

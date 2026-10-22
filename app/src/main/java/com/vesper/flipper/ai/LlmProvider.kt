@@ -240,6 +240,37 @@ enum class LlmProvider(
         sendsAttributionHeaders = false,
         usesMaxCompletionTokens = false,
         allowsSamplingTemperature = false
+    ),
+    MINIMAX(
+        id = "minimax",
+        displayName = "MiniMax",
+        summary = "MiniMax M2 models, 1M context",
+        keyLabel = "MiniMax API Key",
+        keyHint = "Paste your MiniMax API key from platform.minimax.io.",
+        chatCompletionsUrl = "https://api.minimax.io/v1/chat/completions",
+        modelsUrl = "https://api.minimax.io/v1/models",
+        apiHost = "api.minimax.io",
+        defaultModel = "MiniMax-M2.7",
+        models = listOf(
+            ModelInfo("MiniMax-M2.7", "MiniMax M2.7", "Latest MiniMax model (1M context)"),
+            ModelInfo("MiniMax-M2.7-highspeed", "MiniMax M2.7 Highspeed", "Faster M2.7 variant"),
+            ModelInfo("MiniMax-M2.5", "MiniMax M2.5", "MiniMax M2.5 (204K context)"),
+            ModelInfo("MiniMax-M2.5-highspeed", "MiniMax M2.5 Highspeed", "Fastest MiniMax model")
+        ),
+        // M2 models are text-only; image description is unavailable on this provider.
+        visionModels = emptyList(),
+        toolFallbackModels = listOf(
+            "MiniMax-M2.7",
+            "MiniMax-M2.5"
+        ),
+        knownNonToolModels = emptySet(),
+        speechBackend = SpeechBackend.NONE,
+        speechSummary = "MiniMax chat only. Speech is not wired for this provider.",
+        voices = listOf(LlmVoice("none", "None", "Speech is not available")),
+        sendsAttributionHeaders = false,
+        usesMaxCompletionTokens = false,
+        // MiniMax only accepts temperature in (0, 1]; requests omit it, so the provider default applies.
+        allowsSamplingTemperature = true
     );
 
     val apiKeyPreference: String
@@ -249,6 +280,7 @@ enum class LlmProvider(
             OPENAI -> "openai_api_key"
             XAI -> "xai_api_key"
             ANTHROPIC -> "anthropic_api_key"
+            MINIMAX -> "minimax_api_key"
         }
 
     val modelPreference: String
@@ -258,6 +290,7 @@ enum class LlmProvider(
             OPENAI -> "selected_model_openai"
             XAI -> "selected_model_xai"
             ANTHROPIC -> "selected_model_anthropic"
+            MINIMAX -> "selected_model_minimax"
         }
 
     fun voiceOrDefault(storedId: String): LlmVoice {
@@ -307,6 +340,8 @@ enum class LlmProvider(
                     !id.contains("imagine") &&
                     !id.contains("voice")
             ANTHROPIC -> id.startsWith("claude-") &&
+                    BLOCKED_MODEL_MARKERS.none { id.contains(it) }
+            MINIMAX -> id.startsWith("minimax-") &&
                     BLOCKED_MODEL_MARKERS.none { id.contains(it) }
         }
     }

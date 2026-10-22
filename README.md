@@ -207,7 +207,7 @@ Every action the AI takes is logged:
 
 ## Recommended AI Models
 
-Vesper supports provider-specific configurations for OpenRouter, OpenAI, Gemini, xAI and Anthropic. Use models with tool support for device commands; see [provider settings](docs/provider-settings.md) for protocol and speech availability. For the default OpenRouter configuration:
+Vesper supports provider-specific configurations for OpenRouter, OpenAI, Gemini, xAI, Anthropic and MiniMax. Use models with tool support for device commands; see [provider settings](docs/provider-settings.md) for protocol and speech availability. For the default OpenRouter configuration:
 
 | Model | Why Use It | Speed | Cost |
 |-------|-----------|-------|------|
@@ -219,6 +219,19 @@ Vesper supports provider-specific configurations for OpenRouter, OpenAI, Gemini,
 
 **Our recommendation:** Start with **Hermes 4** or **Claude Sonnet 4** for daily use. Reach for **Claude Opus 4.6** when you need deep reasoning.
 
+### MiniMax (direct)
+
+Connect directly to [MiniMax](https://www.minimaxi.com) models without an OpenRouter middleman:
+
+| Model | Why Use It | Context | Speed |
+|-------|-----------|---------|-------|
+| **`MiniMax-M2.7`** | Latest MiniMax model with strong tool-calling and reasoning. | 1M tokens | Fast |
+| **`MiniMax-M2.7-highspeed`** | Lower latency variant of M2.7 — great for quick commands. | 1M tokens | Fastest |
+| **`MiniMax-M2.5`** | Previous generation, still very capable. | 204K tokens | Fast |
+| **`MiniMax-M2.5-highspeed`** | Fastest MiniMax option, ideal for simple operations. | 204K tokens | Fastest |
+
+Get your MiniMax API key at [platform.minimax.io](https://platform.minimax.io).
+
 ---
 
 ## Quick Start
@@ -229,18 +242,25 @@ Vesper supports provider-specific configurations for OpenRouter, OpenAI, Gemini,
 |------|-------|
 | **Flipper Zero** | [shop.flipperzero.one](https://shop.flipperzero.one) |
 | **Android device** | Android 8.0+ (API 26), Bluetooth required |
-| **OpenRouter account** | Free signup, pay-per-use — [openrouter.ai](https://openrouter.ai) |
+| **LLM API key** | [OpenRouter](https://openrouter.ai) (200+ models) or [MiniMax](https://platform.minimax.io) (direct) |
 
 ### 1. Prep Your Flipper
 1. Charge it up (USB-C)
 2. Update firmware via [qFlipper](https://flipperzero.one/update) (recommended)
 3. Enable Bluetooth: Settings > Bluetooth > ON
 
-### 2. Get an OpenRouter API Key
+### 2. Get an API Key
+
+**Option A — OpenRouter** (recommended for beginners):
 1. Sign up at [openrouter.ai](https://openrouter.ai)
 2. Go to **Keys** > **Create Key**
 3. Copy the key (`sk-or-...`) — you'll paste this into Vesper
 4. Add $5-10 in credits to start (most conversations cost pennies)
+
+**Option B — MiniMax** (direct access):
+1. Sign up at [platform.minimax.io](https://platform.minimax.io)
+2. Create an API key in the console
+3. In Vesper Settings, select the **MiniMax** provider and paste the key
 
 ### 3. Build & Install
 
@@ -326,7 +346,8 @@ Vesper supports hands-free operation via Mentra smart glasses.
 V3SP3R/
 ├── app/src/main/java/com/vesper/flipper/
 │   ├── ai/                     # AI integration
-│   │   ├── OpenRouterClient.kt # LLM API, tool calling, JSON repair
+│   │   ├── OpenRouterClient.kt # OpenRouter LLM API, tool calling, JSON repair
+│   │   ├── LlmProvider.kt      # Provider catalog (OpenRouter, Gemini, OpenAI, xAI, Anthropic, MiniMax)
 │   │   ├── VesperAgent.kt      # Conversation orchestrator
 │   │   ├── VesperPrompts.kt    # System prompts
 │   │   ├── PayloadEngine.kt    # Payload generation
@@ -420,10 +441,11 @@ Selected actions are listed below. The [generated command schema](docs/execute_c
 <details>
 <summary><strong>AI not responding</strong></summary>
 
-1. Verify your OpenRouter API key in Settings
-2. Check your OpenRouter credit balance at [openrouter.ai](https://openrouter.ai)
+1. Verify your API key in Settings (OpenRouter or MiniMax, depending on your selected provider)
+2. Check your credit balance at [openrouter.ai](https://openrouter.ai) or [platform.minimax.io](https://platform.minimax.io)
 3. Check internet connection
 4. Try a different model — some may be temporarily unavailable
+5. Try switching providers (Settings > LLM Provider)
 </details>
 
 <details>
