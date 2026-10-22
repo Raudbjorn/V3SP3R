@@ -21,12 +21,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -231,7 +229,7 @@ class BleReconService @Inject constructor(
             pendingReads.remove(address to ch.uuid)
             throw IllegalStateException("readCharacteristic($uuid) refused by stack (service=$svc)")
         }
-        withTimeout(timeoutMs.coerceIn(500L, 60_000L)) { deferred.await() }
+        withBleOperationTimeout(timeoutMs.coerceIn(500L, 60_000L)) { deferred.await() }
     }
 
     suspend fun writeCharacteristic(
@@ -271,7 +269,7 @@ class BleReconService @Inject constructor(
             pendingWrites.remove(address to ch.uuid)
             throw IllegalStateException("writeCharacteristic($uuid) refused by stack")
         }
-        val ok = withTimeout(timeoutMs.coerceIn(500L, 60_000L)) { deferred.await() }
+        val ok = withBleOperationTimeout(timeoutMs.coerceIn(500L, 60_000L)) { deferred.await() }
         if (!ok) throw IllegalStateException("writeCharacteristic($uuid) failed")
     }
 
@@ -292,7 +290,7 @@ class BleReconService @Inject constructor(
         pendingDescriptorReads[address] = previous
         @SuppressLint("MissingPermission")
         check(gatt.readDescriptor(cccd)) { "Cannot read original notification configuration" }
-        val original = withTimeout(connectTimeoutMs.coerceIn(500L, 60_000L)) { previous.await() }.copyOf()
+        val original = withBleOperationTimeout(connectTimeoutMs.coerceIn(500L, 60_000L)) { previous.await() }.copyOf()
         require(original.size == 2) { "Invalid original notification configuration" }
         val cccdValue = if (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
             BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
@@ -339,7 +337,7 @@ class BleReconService @Inject constructor(
                 @Suppress("DEPRECATION")
                 gatt.writeDescriptor(descriptor)
             }
-            check(started && withTimeout(timeoutMs.coerceIn(500L, 60_000L)) { result.await() }) {
+            check(started && withBleOperationTimeout(timeoutMs.coerceIn(500L, 60_000L)) { result.await() }) {
                 "Notification descriptor write failed"
             }
         } finally { pendingDescriptors.remove(address, result) }
@@ -496,7 +494,7 @@ class BleReconService @Inject constructor(
             val gatt = device.connectGatt(context, false, callback)
                 ?: return@withBoundedGattQueue Result.failure(IllegalStateException("connectGatt returned null"))
             try {
-                withTimeout(timeoutMs.coerceIn(500L, 60_000L)) {
+                withBleOperationTimeout(timeoutMs.coerceIn(500L, 60_000L)) {
                     connected.await()
                     servicesReady.await()
                     @SuppressLint("MissingPermission")

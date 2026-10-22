@@ -5,16 +5,16 @@ import kotlinx.coroutines.Job
 
 /** Linearizes permission completion/start against a newer request or disconnect. */
 internal class UsbPermissionRequests {
-    class Ticket internal constructor(val id: Long)
+    class Ticket internal constructor(val id: Long, val mode: UsbSessionMode)
     private val lock = Any()
     private var current: Ticket? = null
     private var nextId = 0L
     private var connectionJob: Job? = null
     private var waiter: CompletableDeferred<Boolean>? = null
 
-    fun begin(): Ticket = synchronized(lock) {
+    fun begin(mode: UsbSessionMode = UsbSessionMode.RPC): Ticket = synchronized(lock) {
         cancelLocked()
-        Ticket(++nextId).also { current = it }
+        Ticket(++nextId, mode).also { current = it }
     }
 
     fun current(id: Long): Ticket? = synchronized(lock) { current?.takeIf { it.id == id } }

@@ -12,9 +12,9 @@ separate operations; a request to generate does not authorize execution.
 
 ## Supported chat workflow
 
-1. For BadUSB, call `forge_payload` with `payload_type="badusb"` and a
+1. For BadUSB, call `forge_payload` with `payload_type="bad_usb"` and a
    `prompt` containing the requested behavior and operating system. Other
-   supported types are `subghz`, `ir` and `nfc`; inspect the installed schema.
+   supported types are `sub_ghz`, `infrared` and `nfc`; inspect the installed schema.
 2. Read the returned content and explain its concrete effect. Treat model
    output as a draft. Check commands, paths, URLs, timing, keyboard layout,
    required application state and destructive effects against the request.

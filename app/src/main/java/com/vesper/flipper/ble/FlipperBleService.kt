@@ -74,6 +74,7 @@ class FlipperBleService : Service() {
     private var usbDeviceConnection: UsbDeviceConnection? = null
     private var connectedUsbDevice: UsbDevice? = null
     private var usbReadJob: Job? = null
+    private var usbBootstrapJob: Job? = null
     private val desktopBridgeConnectMutex = Mutex()
     private val desktopBridgeSession = DesktopBridgeSession()
     private val desktopBridgeSocket: Socket? get() = desktopBridgeSession.current()
@@ -138,6 +139,11 @@ class FlipperBleService : Service() {
     @Volatile
     private var activeTransport: CommandTransport = CommandTransport.NONE
     private val usbPermissionRequests = UsbPermissionRequests()
+    private val usbSessionLock = Any()
+    @Volatile private var usbSessionMode = UsbSessionMode.RPC
+
+    fun isUsbCliSessionSelected(): Boolean = activeTransport == CommandTransport.USB && usbSessionMode == UsbSessionMode.CLI
+    fun usesUsbCommandTransport(): Boolean = isUsbCommandTransportConnected()
     @Volatile
     private var lastBleActivityAtMs: Long = 0L
     @Volatile
@@ -593,8 +599,9 @@ class FlipperBleService : Service() {
     }
 
     /** Permission-only preparation is allowed while bound; all USB I/O waits for onStartCommand promotion. */
-    suspend fun connectUsbIfAvailable() {
-        val request = usbPermissionRequests.begin()
+    suspend fun connectUsbIfAvailable(mode: UsbSessionMode = UsbSessionMode.RPC) {
+        if (!UsbSessionPolicy.canStartFresh(isCommandTransportConnected(), _connectionState.value is ConnectionState.Connecting)) return
+        val request = usbPermissionRequests.begin(mode)
         var dispatched = false
         try {
             val manager = usbManager ?: run {
@@ -783,12 +790,21 @@ class FlipperBleService : Service() {
                 currentCoroutineContext().ensureActive()
                 runCatching { port.setDTR(true) }
                 runCatching { port.setRTS(true) }
-                primeUsbRpcSession(port)
+                val cliIdentity = if (ticket.mode == UsbSessionMode.CLI) {
+                    UsbCliHandshake.confirm(port) { transportLifecycle.active && usbPermissionRequests.isCurrent(ticket) }
+                } else {
+                    primeUsbRpcSession(port) { action ->
+                        usbPermissionRequests.startIfCurrent(ticket) { action(); true }
+                    }
+                    null
+                }
                 currentCoroutineContext().ensureActive()
                 check(transportLifecycle.active) { "Foreground transport stopped" }
 
                 val installed = transportLifecycle.whileActive {
                     usbPermissionRequests.startIfCurrent(ticket) {
+                      synchronized(usbSessionLock) {
+                        usbSessionMode = ticket.mode
                         currentUsbBaudRate = configuredBaudRate
                         usbSerialDriver = driver
                         usbSerialPort = port
@@ -796,7 +812,7 @@ class FlipperBleService : Service() {
                         connectedUsbDevice = device
                         activeTransport = CommandTransport.USB
                         flipperProtocol.onConnectionReset()
-                        startUsbReadLoop()
+                        startUsbReadLoop(port)
 
                         val deviceName = resolveUsbDeviceName(device)
                         _connectedDevice.value = FlipperDevice(
@@ -806,13 +822,20 @@ class FlipperBleService : Service() {
                             isConfirmedFlipper = true
                         )
                         _connectionState.value = ConnectionState.Connected("$deviceName (USB)")
+                        if (cliIdentity != null) flipperProtocol.confirmExplicitUsbCliSession(cliIdentity)
                         updateNotification()
 
-                        serviceScope.launch {
-                            validateUsbBaudWithRpcProbe(port)
-                            flipperProtocol.probeCliAvailability(force = true)
+                        if (ticket.mode == UsbSessionMode.RPC) {
+                            usbBootstrapJob?.cancel()
+                            usbBootstrapJob = serviceScope.launch {
+                                ensureCurrentUsbRpcPort(port)
+                                validateUsbBaudWithRpcProbe(port)
+                                ensureCurrentUsbRpcPort(port)
+                                flipperProtocol.probeCliAvailability(force = true)
+                            }
                         }
                         true
+                      }
                     }
                 } ?: false
                 if (!installed) throw CancellationException("USB request or foreground transport stopped")
@@ -843,59 +866,56 @@ class FlipperBleService : Service() {
         }
     }
 
-    private suspend fun primeUsbRpcSession(port: UsbSerialPort) {
-        flipperProtocol.onRpcDispatch()
+    /** All published-port bootstrap state changes are serialized with USB replacement. */
+    internal fun withCurrentUsbRpcPort(port: UsbSerialPort, action: () -> Unit): Boolean =
+        synchronized(usbSessionLock) {
+            if (activeTransport != CommandTransport.USB || usbSerialPort !== port || usbSessionMode != UsbSessionMode.RPC) false
+            else { action(); true }
+        }
+
+    private suspend fun ensureCurrentUsbRpcPort(port: UsbSerialPort) {
+        currentCoroutineContext().ensureActive()
+        if (!withCurrentUsbRpcPort(port) {}) throw CancellationException("USB RPC bootstrap superseded")
+    }
+
+    private suspend fun primeUsbRpcSession(
+        port: UsbSerialPort,
+        withOwner: (() -> Unit) -> Boolean
+    ) {
+        currentCoroutineContext().ensureActive()
+        if (!withOwner { flipperProtocol.onRpcDispatch() }) throw CancellationException("USB prime superseded")
         drainUsbInput(port, USB_RPC_PRIME_DRAIN_WINDOW_MS)
         USB_RPC_PRIME_COMMANDS.forEach { command ->
             currentCoroutineContext().ensureActive()
-            runCatching {
-                port.write(command.toByteArray(Charsets.UTF_8), USB_WRITE_TIMEOUT_MS.toInt())
-            }
+            if (!withOwner {}) throw CancellationException("USB prime superseded")
+            runCatching { port.write(command.toByteArray(Charsets.UTF_8), USB_WRITE_TIMEOUT_MS.toInt()) }
             delay(USB_RPC_PRIME_COMMAND_DELAY_MS)
         }
     }
 
     private suspend fun validateUsbBaudWithRpcProbe(port: UsbSerialPort) {
+        ensureCurrentUsbRpcPort(port)
         val currentBaud = currentUsbBaudRate
-        val initialProbe = flipperProtocol.probeRpcAvailability(
-            detail = if (currentBaud != null) {
-                "RPC ping responded after USB connect bootstrap (baud=$currentBaud)"
-            } else {
-                "RPC ping responded after USB connect bootstrap"
-            }
-        )
-        if (initialProbe.supportsRpc) {
-            return
-        }
-
-        val fallbackBauds = USB_BAUD_RATE_CANDIDATES.filter { it != currentBaud }
-        for (baud in fallbackBauds) {
-            if (activeTransport != CommandTransport.USB || usbSerialPort !== port) {
-                return
-            }
-
+        val initialProbe = flipperProtocol.probeRpcAvailability(detail = "RPC ping after USB bootstrap (baud=$currentBaud)")
+        ensureCurrentUsbRpcPort(port)
+        if (initialProbe.supportsRpc) return
+        for (baud in USB_BAUD_RATE_CANDIDATES.filter { it != currentBaud }) {
+            ensureCurrentUsbRpcPort(port)
             val reconfigured = runCatching {
-                port.setParameters(
-                    baud,
-                    USB_DATA_BITS,
-                    UsbSerialPort.STOPBITS_1,
-                    UsbSerialPort.PARITY_NONE
-                )
+                port.setParameters(baud, USB_DATA_BITS, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
             }.isSuccess
             if (!reconfigured) continue
-
-            currentUsbBaudRate = baud
+            ensureCurrentUsbRpcPort(port)
+            if (!withCurrentUsbRpcPort(port) { currentUsbBaudRate = baud }) throw CancellationException("USB baud update superseded")
             drainUsbInput(port, USB_RPC_BAUD_RETRY_DRAIN_WINDOW_MS)
-            primeUsbRpcSession(port)
-            flipperProtocol.onConnectionReset()
-
-            val probe = flipperProtocol.probeRpcAvailability(
-                detail = "RPC ping responded after USB baud fallback (baud=$baud)"
-            )
-            if (probe.supportsRpc) {
-                Log.i(TAG, "USB RPC probe recovered after baud fallback to $baud")
-                return
-            }
+            ensureCurrentUsbRpcPort(port)
+            primeUsbRpcSession(port) { action -> withCurrentUsbRpcPort(port, action) }
+            ensureCurrentUsbRpcPort(port)
+            if (!withCurrentUsbRpcPort(port) { flipperProtocol.onConnectionReset() }) throw CancellationException("USB reset superseded")
+            ensureCurrentUsbRpcPort(port)
+            val probe = flipperProtocol.probeRpcAvailability(detail = "RPC ping after USB baud fallback (baud=$baud)")
+            ensureCurrentUsbRpcPort(port)
+            if (probe.supportsRpc) return
         }
     }
 
@@ -1063,27 +1083,32 @@ class FlipperBleService : Service() {
         return if (isControlPacket) WRITE_NO_RESPONSE_CHUNK_DELAY_CONTROL_MS else WRITE_NO_RESPONSE_CHUNK_DELAY_MS
     }
 
-    private fun startUsbReadLoop() {
+    private fun startUsbReadLoop(port: UsbSerialPort) {
         usbReadJob?.cancel()
         usbReadJob = serviceScope.launch {
             val readBuffer = ByteArray(USB_READ_BUFFER_SIZE_BYTES)
-            while (isActive && activeTransport == CommandTransport.USB) {
-                val port = usbSerialPort ?: break
+            while (isActive && activeTransport == CommandTransport.USB && usbSerialPort === port) {
                 try {
                     val bytesRead = port.read(readBuffer, USB_READ_TIMEOUT_MS.toInt())
                     if (bytesRead > 0) {
                         val payload = readBuffer.copyOf(bytesRead)
-                        completePendingOperation(payload)
-                        flipperProtocol.processIncomingData(payload)
+                        synchronized(usbSessionLock) {
+                            if (isActive && activeTransport == CommandTransport.USB && usbSerialPort === port) {
+                                completePendingOperation(payload)
+                                flipperProtocol.processIncomingData(payload)
+                            }
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
                     Log.w(TAG, "USB read failed: ${t.message}")
-                    disconnectUsbTransport(
-                        setState = true,
-                        errorMessage = "USB transport error: ${t.message ?: "read failed"}"
-                    )
+                    synchronized(usbSessionLock) {
+                        if (isActive && activeTransport == CommandTransport.USB && usbSerialPort === port) {
+                            disconnectUsbTransport(setState = true, preserveRequest = true,
+                                errorMessage = "USB transport error: ${t.message ?: "read failed"}")
+                        }
+                    }
                     break
                 }
             }
@@ -1244,6 +1269,10 @@ class FlipperBleService : Service() {
         errorMessage: String? = null,
         preserveRequest: Boolean = false
     ) {
+        if (!preserveRequest) usbPermissionRequests.cancel()
+        synchronized(usbSessionLock) {
+        usbBootstrapJob?.cancel()
+        usbBootstrapJob = null
         usbReadJob?.cancel()
         usbReadJob = null
         runCatching { usbSerialPort?.close() }
@@ -1253,7 +1282,7 @@ class FlipperBleService : Service() {
         usbDeviceConnection = null
         connectedUsbDevice = null
         currentUsbBaudRate = null
-        if (!preserveRequest) usbPermissionRequests.cancel()
+        usbSessionMode = UsbSessionMode.RPC
         if (activeTransport == CommandTransport.USB) {
             activeTransport = CommandTransport.NONE
         }
@@ -1267,6 +1296,8 @@ class FlipperBleService : Service() {
             updateNotification()
             flipperProtocol.onConnectionReset()
         }
+    }
+
     }
 
     private fun disconnectDesktopBridgeTransport(
@@ -1562,14 +1593,19 @@ class FlipperBleService : Service() {
 
     /** USB-bound dispatch never switches to BLE if the active transport changes. */
     suspend fun sendUsbDataOnly(data: ByteArray): Boolean {
-        if (!isUsbCommandTransportConnected()) return false
-        return sendDataOverUsb(data, preferNoResponse = false)
+        if (!isUsbCliSessionSelected() || !flipperProtocol.isConfirmedUsbCliSession()) return false
+        return sendDataOverUsb(data, preferNoResponse = false, typedCli = true)
     }
 
     private suspend fun sendDataOverUsb(
         data: ByteArray,
-        preferNoResponse: Boolean
+        preferNoResponse: Boolean,
+        typedCli: Boolean = false
     ): Boolean {
+        if (!UsbSessionPolicy.allowsWrite(usbSessionMode, typedCli)) {
+            lastWriteFailureReason = "USB session mode does not permit this command; reconnect in the required mode"
+            return false
+        }
         val port = usbSerialPort ?: run {
             lastWriteFailureReason = "USB serial port unavailable"
             return false
@@ -1583,7 +1619,9 @@ class FlipperBleService : Service() {
                 try {
                     val chunks = data.toList().chunked(USB_WRITE_CHUNK_SIZE_BYTES)
                     chunks.forEachIndexed { index, chunk ->
-                        if (!isUsbCommandTransportConnected() || usbSerialPort !== port) {
+                        if (!isUsbCommandTransportConnected() || usbSerialPort !== port ||
+                            !UsbSessionPolicy.allowsWrite(usbSessionMode, typedCli) ||
+                            (typedCli && !flipperProtocol.isConfirmedUsbCliSession())) {
                             lastWriteFailureReason = "USB connection changed during write"
                             return@withContext false
                         }

@@ -20,6 +20,7 @@ class GeneratedToolContractTest {
         for ((name, specification) in args(generated)) {
             assertEquals(name, specification.jsonObject["type"], args(runtime).getValue(name).jsonObject["type"])
         }
+        assertEquals(args(generated).getValue("payload_type").jsonObject["enum"], args(runtime).getValue("payload_type").jsonObject["enum"])
         val native = AnthropicChatProtocol.encodeRequest(OpenRouterRequest("claude-test", emptyList(), tools=listOf(tool)))
             .getValue("tools").jsonArray.single().jsonObject.getValue("input_schema")
         assertEquals(runtime, native)

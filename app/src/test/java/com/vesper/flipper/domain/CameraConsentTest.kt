@@ -39,7 +39,7 @@ class CameraConsentTest {
                 on { autoApproveMedium } doReturn flowOf(true)
                 on { autoApproveHigh } doReturn flowOf(true)
             },
-            appCatalog = mock()
+            vulnTriage = mock(), appCatalog = mock()
         )
         executor.setPhotoCaptureCallback(PhotoCaptureCallback { prompt, timeout ->
             assertEquals("Read this label", prompt)

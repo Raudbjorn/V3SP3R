@@ -47,3 +47,15 @@ internal suspend fun <T> withRestoredBleSubscription(
         }
     }
 }
+
+internal class BleOperationTimeoutException : java.io.IOException(
+    "Phone BLE operation timed out; outcome may be unknown. Inspect the target before retrying."
+)
+
+/** Consume only this operation's deadline; enclosing cancellation must still propagate. */
+internal suspend fun <T> withBleOperationTimeout(timeoutMs: Long, block: suspend () -> T): T {
+    data class Completed<T>(val value: T)
+    val completed = withTimeoutOrNull(timeoutMs) { Completed(block()) }
+        ?: throw BleOperationTimeoutException()
+    return completed.value
+}

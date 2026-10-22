@@ -24,6 +24,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.atLeastOnce
@@ -60,6 +61,7 @@ class CommandExecutorTest {
             auditService = auditService,
             diffService = diffService,
             forgeEngine = mock(),
+            vulnTriage = mock(),
             settingsStore = settingsStore,
             appCatalog = appCatalog
         )
