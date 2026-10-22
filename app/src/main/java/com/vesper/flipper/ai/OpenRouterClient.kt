@@ -1128,8 +1128,8 @@ class OpenRouterClient {
             )
             CommandAction.GET_DEVICE_INFO -> emptyList()
             CommandAction.GET_STORAGE_INFO -> emptyList()
-            CommandAction.SEARCH_FAPHUB -> listOfNotNull(if (args.command.isNullOrBlank()) "query" else null)
-            CommandAction.INSTALL_FAPHUB_APP -> listOfNotNull(if (args.command.isNullOrBlank()) "app_id" else null)
+            CommandAction.SEARCH_FAPHUB -> listOfNotNull(if (args.command.isNullOrBlank()) "command" else null)
+            CommandAction.INSTALL_FAPHUB_APP -> listOfNotNull(if (args.command.isNullOrBlank()) "command" else null)
             CommandAction.PUSH_ARTIFACT -> listOfNotNull(
                 if (args.path.isNullOrBlank()) "path" else null,
                 if (args.artifactData.isNullOrBlank()) "artifact_data" else null
@@ -1218,9 +1218,9 @@ class OpenRouterClient {
             CommandAction.GET_DEVICE_INFO -> """{"action":"get_device_info","args":{}}"""
             CommandAction.GET_STORAGE_INFO -> """{"action":"get_storage_info","args":{}}"""
             CommandAction.SEARCH_FAPHUB ->
-                """{"action":"search_faphub","args":{"query":"edge"}}"""
+                """{"action":"search_faphub","args":{"command":"edge"}}"""
             CommandAction.INSTALL_FAPHUB_APP ->
-                """{"action":"install_faphub_app","args":{"app_id":"quac"}}"""
+                """{"action":"install_faphub_app","args":{"command":"quac"}}"""
             CommandAction.PUSH_ARTIFACT ->
                 """{"action":"push_artifact","args":{"path":"/ext/file.bin","artifact_data":"<base64>"}}"""
             CommandAction.EXECUTE_CLI ->
@@ -1511,14 +1511,6 @@ class OpenRouterClient {
                                         "Primary text argument. For execute_cli: raw CLI command; for search_faphub/search_resources: query; for install_faphub_app: app id; for run_runbook: runbook id; for browse_repo: repo id (if repo_id not set)."
                                     )
                                 )),
-                                "query" to JsonObject(mapOf(
-                                    "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Alias for search query")
-                                )),
-                                "app_id" to JsonObject(mapOf(
-                                    "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Alias for install_faphub_app app id/name")
-                                )),
                                 "key" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("GUI key: up/down/left/right/ok/back"))),
                                 "press_type" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("press/release/short/long/repeat; defaults short"))),
                                 "signal_id" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Nonnegative app signal id; USB CLI only"))),
@@ -1532,11 +1524,11 @@ class OpenRouterClient {
                                 )),
                                 "content" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Content to write to file. For install_faphub_app this may be a direct .fap download URL.")
+                                    "description" to JsonPrimitive("Content to write to file. Catalog installation does not accept a direct URL override.")
                                 )),
                                 "download_url" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Direct source URL for download_resource (from browse_repo results). Catalog installs use an exact app_id and verified firmware-compatible builds, not URL overrides.")
+                                    "description" to JsonPrimitive("Direct source URL for download_resource (from browse_repo results). Catalog installs use an exact application ID via command and verified firmware-compatible builds, not URL overrides.")
                                 )),
                                 "new_name" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
@@ -1584,15 +1576,15 @@ class OpenRouterClient {
                                 )),
                                 "frequency" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("integer"),
-                                    "description" to JsonPrimitive("Frequency in Hz for subghz_transmit (e.g. 433920000)")
+                                    "description" to JsonPrimitive("Reserved metadata; file-based SubGHz transmission uses the frequency stored in the file, not this field")
                                 )),
                                 "protocol" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Protocol name for subghz_transmit or rfid_emulate (e.g. 'RAW', 'Princeton', 'EM4100')")
+                                    "description" to JsonPrimitive("Reserved metadata; file-based transmit/emulation uses the protocol stored in the file, not this field")
                                 )),
                                 "address" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Address/UID for NFC/RFID emulation")
+                                    "description" to JsonPrimitive("Reserved metadata; file-based transmit/emulation uses the address stored in the file, not this field")
                                 )),
                                 "signal_name" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),

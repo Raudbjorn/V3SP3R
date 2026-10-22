@@ -39,8 +39,8 @@ Xtreme in `device_info`. Fresh installs of Momentum-2024+ report as
 UNAVAILABLE | PROBING | CLI_ONLY | RPC_ONLY | CLI_AND_RPC
 ```
 
-- `UNAVAILABLE` — the family can't be safely commanded (unknown
-  fingerprint + defensive default).
+- `UNAVAILABLE` — neither CLI nor RPC capability is currently available.
+  This is independent of whether the firmware family is recognized.
 - `PROBING` — Vesper is still fingerprinting; passthrough allowed
   optimistically.
 - `CLI_ONLY` — the CLI over BLE/USB is the only sanctioned route.
@@ -126,7 +126,9 @@ The parser looks at `device_info` output for:
 - `unleashed_version` present → `UNLEASHED`, confidence HIGH.
 - `rogue_master_*` present → `ROGUEMASTER`, confidence HIGH.
 - Only stock keys present → `OFFICIAL`, confidence HIGH.
-- Nothing parseable → `UNKNOWN`, transport `UNAVAILABLE`.
+- Nothing parseable → family `UNKNOWN`. Transport mode still follows the
+  observed CLI/RPC capabilities; a responding RPC session can be `RPC_ONLY`
+  even when no firmware identity is available.
 
 Multiple matches (should never happen in practice) resolve in the
 order above.
@@ -172,9 +174,12 @@ only). Not part of the production API.
 
 ## Gotchas
 
-- **`UNKNOWN` is not the same as OFFICIAL.** If fingerprinting fails,
-  Vesper defaults to `UNAVAILABLE`, not "assume Official". This is
-  intentional — we'd rather refuse than corrupt a fork.
+- **`UNKNOWN` is an identity label, not an execution block.**
+  `markRpcReady()` can establish RPC capability with a null firmware hint.
+  `refreshFirmwareCompatibility()` derives transport mode from the CLI/RPC
+  capability flags independently of family. An unknown family with RPC
+  available can still execute mapped commands; an unavailable transport
+  or an unsupported mapping is what prevents dispatch.
 - **`XTREME` maps to Momentum's route policy.** They share the same
   extended verb set.
 - **RPC preference is opinionated.** `subghz tx` prefers RPC because

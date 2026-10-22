@@ -9,7 +9,8 @@ internal class DatabaseConversion(
     private val export: (File, File) -> Unit,
     private val validate: (File) -> Unit,
     private val syncDirectory: () -> Unit,
-    private val checkpoint: (String) -> Unit = {}
+    private val checkpoint: (String) -> Unit = {},
+    private val verifyKey: (File) -> Unit
 ) {
     private val staged = File(source.path + ".encrypting")
     private val original = File(source.path + ".plaintext-backup")
@@ -25,6 +26,12 @@ internal class DatabaseConversion(
             return
         }
         if (!isPlaintext(source)) {
+            if (!hasArtifacts(staged) && !hasArtifacts(original)) {
+                // The conversion already completed. Authenticate a schema read, without scanning
+                // every stored page or modifying files on the ordinary open path.
+                verifyKey(source)
+                return
+            }
             validate(source) // A wrong/lost key must never delete or replace any file.
             remove(staged)
             remove(original)
@@ -47,6 +54,9 @@ internal class DatabaseConversion(
         syncDirectory()
         checkpoint("complete")
     }
+
+    private fun hasArtifacts(file: File): Boolean = file.exists() ||
+        listOf("-wal", "-shm", "-journal").any { File(file.path + it).exists() }
 
     private fun remove(file: File) {
         if (file.exists()) check(file.delete()) { "Cannot clean up database migration file" }

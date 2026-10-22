@@ -1,3 +1,5 @@
+import schema.GenerateExecuteCommandSchemaTask
+import schema.VerifyExecuteCommandSchemaTask
 import java.util.Properties
 
 plugins {
@@ -167,3 +169,36 @@ dependencies {
     // Diff utils
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
 }
+
+// Schema contract generated from the supported baseline actions.
+// ────────────────────────────────
+// Regenerate: ./gradlew :app:generateExecuteCommandSchema
+// Verify in sync (for CI): ./gradlew :app:verifyExecuteCommandSchema
+
+private val commandKt = rootProject.file(
+    "app/src/main/java/com/vesper/flipper/domain/model/Command.kt"
+)
+private val committedSchema = rootProject.file("docs/execute_command_schema.json")
+
+tasks.register<GenerateExecuteCommandSchemaTask>("generateExecuteCommandSchema") {
+    group = "vesper"
+    description = "Regenerate docs/execute_command_schema.json from CommandAction + arg-shape spec."
+    commandKtFile.set(commandKt)
+    outputFile.set(committedSchema)
+}
+
+tasks.register<VerifyExecuteCommandSchemaTask>("verifyExecuteCommandSchema") {
+    group = "verification"
+    description = "Fail if docs/execute_command_schema.json is out of sync with CommandAction."
+    commandKtFile.set(commandKt)
+    committedFile.set(committedSchema)
+    // Verify reads the same file generate writes. When both tasks run in one invocation,
+    // Gradle rightly demands an explicit ordering — verify checks the *committed* file,
+    // so it should always run before generate would rewrite it.
+
+}
+
+tasks.named("generateExecuteCommandSchema") { mustRunAfter("verifyExecuteCommandSchema") }
+tasks.named("check") { dependsOn("verifyExecuteCommandSchema") }
+
+tasks.named("preBuild") { dependsOn("verifyExecuteCommandSchema") }
