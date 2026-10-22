@@ -2038,14 +2038,6 @@ class FlipperProtocol @Inject constructor() {
             }
         }
         if (!ensureRpcAvailableLocked("RPC ping responded for direct GUI input request")) {
-            val bootstrapFallback = trySendGuiInputViaRpcBootstrapLocked(
-                service = service,
-                key = key,
-                inputType = inputType
-            )
-            if (bootstrapFallback != null) {
-                return@withCommandLock bootstrapFallback
-            }
             return@withCommandLock ProtocolResponse.Error(
                 "RPC transport is unavailable for direct GUI input events."
             )
@@ -2060,239 +2052,32 @@ class FlipperProtocol @Inject constructor() {
             null
         }
 
-        val canUsePressReleaseFlow = when (inputType) {
-            Gui.InputType.SHORT,
-            Gui.InputType.LONG,
-            Gui.InputType.REPEAT -> true
-            else -> false
+        if (GuiRemoteInput.backWouldRelock(key, unlockDetails == "desktop unlocked")) {
+            return@withCommandLock ProtocolResponse.Success("Desktop unlocked; Back suppressed to avoid relocking")
         }
-        if (canUsePressReleaseFlow) {
-            val pressSent = sendGuiInputEventFireAndForgetLocked(key, Gui.InputType.PRESS)
-            val actionSent = pressSent && sendGuiInputEventFireAndForgetLocked(key, inputType)
-            if (actionSent) {
-                val releaseSent = sendGuiInputEventFireAndForgetLocked(key, Gui.InputType.RELEASE)
-                if (releaseSent) {
-                    val details = buildString {
-                        append("GUI input sent: ")
-                        append(key.name)
-                        append('/')
-                        append(inputType.name)
-                        append(" (fast press/release no-ack)")
-                        if (!unlockDetails.isNullOrBlank()) {
-                            append("; ")
-                            append(unlockDetails)
-                        }
-                    }
-                    markRpcReady(details)
-                    return@withCommandLock ProtocolResponse.Success(details)
-                }
-
-                val releaseStatus = sendGuiInputEventStatusLocked(
-                    key = key,
-                    inputType = Gui.InputType.RELEASE,
-                    timeoutMs = RPC_REMOTE_RELEASE_TIMEOUT_MS
-                )
-                if (releaseStatus == Flipper.CommandStatus.OK ||
-                    releaseStatus == Flipper.CommandStatus.ERROR_NOT_IMPLEMENTED
-                ) {
-                    val details = buildString {
-                        append("GUI input sent: ")
-                        append(key.name)
-                        append('/')
-                        append(inputType.name)
-                        append(" (fast press/release)")
-                        if (!unlockDetails.isNullOrBlank()) {
-                            append("; ")
-                            append(unlockDetails)
-                        }
-                    }
-                    markRpcReady(details)
-                    return@withCommandLock ProtocolResponse.Success(details)
-                }
-            }
+        val sequence = GuiRemoteInput.complementarySequence(inputType)
+        if (sequence.isEmpty() || key == Gui.InputKey.UNRECOGNIZED) {
+            return@withCommandLock ProtocolResponse.Error("Unsupported GUI input")
         }
-
-        // Fallback path: try a single event with a small timeout for quick UI response.
-        val response = sendRpcMainAndAwaitResponse(timeoutMs = RPC_REMOTE_INPUT_ACK_TIMEOUT_MS) {
-            setGuiSendInputEventRequest(
-                Gui.SendInputEventRequest.newBuilder()
-                    .setKey(key)
-                    .setType(inputType)
-                    .build()
-            )
-        } ?: return@withCommandLock ProtocolResponse.Error(
-            "No RPC response for GUI input event (${key.name}/${inputType.name}). Input not confirmed."
-        )
-
-        if (response.commandStatus != Flipper.CommandStatus.OK) {
-            val appErrorSuffix = formatAppErrorSuffix(
-                requestAppErrorInfoLocked(timeoutMs = RPC_APP_ERROR_TIMEOUT_MS)
-            )
-            return@withCommandLock ProtocolResponse.Error(
-                "GUI input failed (${key.name}/${inputType.name}): ${response.commandStatus.name}$appErrorSuffix",
-                response.commandStatus.number
-            )
+        val failure = GuiInputDelivery.send(inputType) { step ->
+            sendGuiInputEventStatusLocked(key, step,
+                if (step == Gui.InputType.RELEASE) RPC_REMOTE_RELEASE_TIMEOUT_MS else RPC_REMOTE_INPUT_ACK_TIMEOUT_MS)
         }
-
-        val details = buildString {
-            append("GUI input sent: ")
-            append(key.name)
-            append('/')
-            append(inputType.name)
-            append(" (single-event acked)")
-            if (!unlockDetails.isNullOrBlank()) {
-                append("; ")
-                append(unlockDetails)
-            }
-        }
-        markRpcReady(details)
-        return@withCommandLock ProtocolResponse.Success(details)
+        if (failure != null) ProtocolResponse.Error(
+            "GUI input ${failure.step.name} not confirmed: ${failure.status?.name ?: "no acknowledgement"}"
+        ) else ProtocolResponse.Success("GUI input confirmed: ${key.name}/${inputType.name}")
     }
 
-    /**
-     * Low-latency remote input path.
-     * Sends GUI input immediately without waiting for protocol mutex/acks, then
-     * falls back to the strict RPC path when immediate delivery fails.
-     */
-    suspend fun sendGuiInputEventImmediate(
-        key: Gui.InputKey,
-        inputType: Gui.InputType = Gui.InputType.SHORT
-    ): ProtocolResponse {
-        val service = bleService
-            ?: return ProtocolResponse.Error("Flipper device service unavailable").also {
-                markCliUnavailable("Device service unavailable")
-            }
-        if (!ensureTransportConnected(service)) {
-            return ProtocolResponse.Error("Flipper command transport is not connected").also {
-                markCliUnavailable("Flipper command transport is not connected")
-            }
-        }
-        // Avoid interleaving immediate input packets with active raw collectors.
-        if (isRawCollectorActive()) {
-            return sendGuiInputEvent(key, inputType)
-        }
-        val nowMs = System.currentTimeMillis()
-        val fastPathReady = isRemoteFastPathReady(nowMs)
-        if (!fastPathReady) {
-            val bootstrapResponse = withTimeoutOrNull(RPC_REMOTE_BOOTSTRAP_LOCK_TIMEOUT_MS) {
-                commandMutex.withLock {
-                    trySendGuiInputViaRpcBootstrapLocked(service, key, inputType)
-                }
-            }
-            if (bootstrapResponse != null) {
-                return bootstrapResponse
-            }
-            // Avoid false-positive success when RPC session is not ready yet.
-            return sendGuiInputEvent(key, inputType)
-        }
-
-        val immediateSingleSent = sendGuiInputEventPacketImmediate(service, key, inputType)
-        val immediateSent = if (immediateSingleSent) {
-            true
-        } else {
-            when (inputType) {
-                Gui.InputType.SHORT,
-                Gui.InputType.LONG,
-                Gui.InputType.REPEAT -> {
-                    val pressSent = sendGuiInputEventPacketImmediate(service, key, Gui.InputType.PRESS)
-                    val actionSent = pressSent && sendGuiInputEventPacketImmediate(service, key, inputType)
-                    val releaseSent = actionSent && sendGuiInputEventPacketImmediate(service, key, Gui.InputType.RELEASE)
-                    actionSent && releaseSent
-                }
-                else -> false
-            }
-        }
-        val immediateFailureReason = if (immediateSent) {
-            null
-        } else {
-            service.consumeLastWriteFailureReason()
-        }
-
-        if (immediateSent) {
-            if (!fastPathReady) {
-                scheduleRemoteInputHealthRefresh()
-            }
-            return ProtocolResponse.Success(
-                if (immediateSingleSent) {
-                    "GUI input sent: ${key.name}/${inputType.name} (immediate single-event)"
-                } else {
-                    "GUI input sent: ${key.name}/${inputType.name} (immediate press/release)"
-                }
-            )
-        }
-
-        // Preserve reliability: if immediate path misses, run strict RPC path.
-        val strictResponse = sendGuiInputEvent(key, inputType)
-        if (strictResponse is ProtocolResponse.Error && !immediateFailureReason.isNullOrBlank()) {
-            return ProtocolResponse.Error(
-                "${strictResponse.message}. Immediate write path failed: $immediateFailureReason",
-                strictResponse.code
-            )
-        }
-        return strictResponse
-    }
-
-    private fun scheduleRemoteInputHealthRefresh() {
-        if (!remoteHealthRefreshInFlight.compareAndSet(false, true)) return
-        scope.launch {
-            try {
-                commandMutex.withLock {
-                    val rpcReady = ensureRpcAvailableLocked(
-                        "RPC ping refreshed after immediate remote input"
-                    )
-                    if (rpcReady && shouldProbeDesktopLockForRemoteInput(System.currentTimeMillis())) {
-                        maybeUnlockDesktopIfNeededLocked(
-                            lockProbeTimeoutMs = RPC_REMOTE_LOCK_TIMEOUT_MS,
-                            unlockTimeoutMs = RPC_REMOTE_UNLOCK_TIMEOUT_MS
-                        )
-                    }
-                }
-            } finally {
-                remoteHealthRefreshInFlight.set(false)
-            }
-        }
-    }
-
-    private suspend fun trySendGuiInputViaRpcBootstrapLocked(
-        service: FlipperBleService,
-        key: Gui.InputKey,
-        inputType: Gui.InputType
-    ): ProtocolResponse? {
-        val started = tryStartRpcSession()
-        if (!started) return null
-
-        delay(RPC_REMOTE_BOOTSTRAP_DELAY_MS)
-
-        val directSent = sendGuiInputEventPacketImmediate(service, key, inputType)
-        val sent = if (directSent) {
-            true
-        } else {
-            when (inputType) {
-                Gui.InputType.SHORT,
-                Gui.InputType.LONG,
-                Gui.InputType.REPEAT -> {
-                    val pressSent = sendGuiInputEventPacketImmediate(service, key, Gui.InputType.PRESS)
-                    val actionSent = pressSent && sendGuiInputEventPacketImmediate(service, key, inputType)
-                    val releaseSent = actionSent && sendGuiInputEventPacketImmediate(service, key, Gui.InputType.RELEASE)
-                    actionSent && releaseSent
-                }
-                else -> false
-            }
-        }
-        if (!sent) return null
-
-        markRpcReady("RPC session primed via start_rpc_session for GUI input")
-        return ProtocolResponse.Success(
-            "GUI input sent: ${key.name}/${inputType.name} (RPC bootstrap fallback)"
-        )
-    }
+    /** GUI events share the command lock and acknowledgement path. */
+    suspend fun sendGuiInputEventImmediate(key: Gui.InputKey, inputType: Gui.InputType = Gui.InputType.SHORT): ProtocolResponse =
+        sendGuiInputEvent(key, inputType)
 
     private suspend fun sendGuiInputEventStatusLocked(
         key: Gui.InputKey,
         inputType: Gui.InputType,
         timeoutMs: Long = RPC_APP_COMMAND_TIMEOUT_MS
     ): Flipper.CommandStatus? {
-        val response = sendRpcMainAndAwaitResponse(timeoutMs = timeoutMs) {
+        val response = sendRpcMainAndAwaitResponse(timeoutMs = timeoutMs, allowRetry = false) {
             setGuiSendInputEventRequest(
                 Gui.SendInputEventRequest.newBuilder()
                     .setKey(key)
@@ -2300,6 +2085,7 @@ class FlipperProtocol @Inject constructor() {
                     .build()
             )
         } ?: return null
+        if (key == Gui.InputKey.BACK) lastDesktopLockProbeAtMs = 0L
         return response.commandStatus
     }
 
@@ -2394,8 +2180,7 @@ class FlipperProtocol @Inject constructor() {
         }
 
         val isLocked = requestDesktopLockStatusLocked(timeoutMs = lockProbeTimeoutMs) ?: run {
-            desktopLockProbeSupported = false
-            lastDesktopLockProbeAtMs = now
+            // Timeouts must not cache an unsupported lock probe.
             return null
         }
         desktopLockProbeSupported = true
@@ -2416,13 +2201,10 @@ class FlipperProtocol @Inject constructor() {
         val response = sendRpcMainAndAwaitResponse(timeoutMs = timeoutMs) {
             setDesktopIsLockedRequest(Desktop.IsLockedRequest.getDefaultInstance())
         } ?: return null
-        if (response.commandStatus != Flipper.CommandStatus.OK) {
-            return null
-        }
-        return if (response.hasDesktopStatus()) {
-            response.desktopStatus.locked
-        } else {
-            null
+        return when (DesktopLockStatus.interpret(response.commandStatus, response.hasDesktopStatus(), response.desktopStatus.locked)) {
+            DesktopLockStatus.Reading.Locked -> true
+            DesktopLockStatus.Reading.Unlocked -> false
+            DesktopLockStatus.Reading.Unsupported -> null
         }
     }
 
@@ -3274,13 +3056,15 @@ class FlipperProtocol @Inject constructor() {
 
     private suspend fun sendRpcMainAndAwaitResponse(
         timeoutMs: Long = RPC_COMMAND_TIMEOUT_MS,
+        allowRetry: Boolean = true,
         build: Flipper.Main.Builder.() -> Unit
     ): Flipper.Main? {
-        return sendRpcMainAndCollectResponses(timeoutMs = timeoutMs, build = build).lastOrNull()
+        return sendRpcMainAndCollectResponses(timeoutMs = timeoutMs, allowRetry = allowRetry, build = build).lastOrNull()
     }
 
     private suspend fun sendRpcMainAndCollectResponses(
         timeoutMs: Long = RPC_COMMAND_TIMEOUT_MS,
+        allowRetry: Boolean = true,
         build: Flipper.Main.Builder.() -> Unit
     ): List<Flipper.Main> {
         lastRpcActivityAtMs = System.currentTimeMillis()
@@ -3295,6 +3079,7 @@ class FlipperProtocol @Inject constructor() {
             return firstAttempt
         }
 
+        if (!allowRetry) return emptyList()
         val restarted = tryStartRpcSession()
         if (!restarted) {
             return emptyList()

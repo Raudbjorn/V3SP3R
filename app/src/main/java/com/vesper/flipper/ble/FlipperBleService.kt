@@ -1471,14 +1471,13 @@ class FlipperBleService : Service() {
     }
 
     private fun updateOverflowCapacityFromBytes(bytes: ByteArray) {
-        if (bytes.size < OVERFLOW_VALUE_SIZE_BYTES) return
-        val remaining = java.nio.ByteBuffer.wrap(bytes.copyOfRange(0, OVERFLOW_VALUE_SIZE_BYTES)).int
-        remainingSerialBufferBytes = remaining.coerceAtLeast(0)
+        val remaining = SerialFlowControl.remainingBytes(bytes) ?: return
+        remainingSerialBufferBytes = remaining
     }
 
     private suspend fun waitForOverflowBudget(requiredBytes: Int): Boolean {
         val overflowCharacteristic = serialOverflowCharacteristic ?: return true
-        val deadline = System.currentTimeMillis() + OVERFLOW_WAIT_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + SerialFlowControl.waitTimeoutMs(requiredBytes, OVERFLOW_WAIT_TIMEOUT_MS)
 
         while (true) {
             val available = remainingSerialBufferBytes
