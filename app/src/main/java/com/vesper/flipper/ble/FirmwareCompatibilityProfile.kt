@@ -69,9 +69,8 @@ object FirmwareCompatibilityLayer {
 
         // A stale capability probe must not block a mapped operation on an RPC
         // transport. The bridge verifies the actual request/response at execution.
-        if (hasRpcMapping && profile.transportMode in setOf(
-                FirmwareTransportMode.RPC_ONLY, FirmwareTransportMode.CLI_AND_RPC
-            )) {
+        if (hasRpcMapping && (profile.transportMode == FirmwareTransportMode.RPC_ONLY ||
+                (profile.transportMode == FirmwareTransportMode.CLI_AND_RPC && !profile.supportsCli))) {
             return FirmwareCommandCompatibility(
                 supported = true,
                 route = FirmwareCommandRoute.RPC_APP_BRIDGE,

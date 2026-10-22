@@ -120,4 +120,11 @@ class FirmwareCompatibilityLayerTest {
         )
         assertFalse(result.supported)
     }
+    @Test fun `dual mode retains direct CLI for mapped commands without RPC preference`() {
+        val result = FirmwareCompatibilityLayer.assessCliCommand(
+            profile(FirmwareTransportMode.CLI_AND_RPC, cli = true, rpc = true), "loader open NFC", true
+        )
+        assertEquals(FirmwareCommandRoute.DIRECT_CLI, result.route)
+    }
+
 }

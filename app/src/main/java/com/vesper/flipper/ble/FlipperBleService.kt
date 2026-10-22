@@ -1796,6 +1796,10 @@ class FlipperBleService : Service() {
         return flipperProtocol.probeCliAvailability(force)
     }
 
+    fun usesBleCommandTransport(): Boolean = isBleCommandTransportConnected()
+
+    fun usesRpcOnlyCommandTransport(): Boolean = usesBleCommandTransport()
+
     fun isCommandTransportConnected(): Boolean {
         return isUsbCommandTransportConnected() || isBleCommandTransportConnected()
     }

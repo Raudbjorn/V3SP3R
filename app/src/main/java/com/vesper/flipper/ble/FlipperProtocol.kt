@@ -32,6 +32,8 @@ class FlipperProtocol @Inject constructor() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var bleService: FlipperBleService? = null
+    private val connectionEpoch = AtomicInteger()
+    private val rpcEvidenceLock = Any()
 
     private val responseBuffer = ByteArrayOutputStream()
     @Volatile
@@ -82,6 +84,11 @@ class FlipperProtocol @Inject constructor() {
     }
 
     fun onConnectionReset() {
+        synchronized(rpcEvidenceLock) {
+            connectionEpoch.incrementAndGet()
+            lastRpcActivityAtMs = 0L
+            lastVerifiedRpcActivityAtMs = 0L
+        }
         responseBuffer.reset()
         rawCliCollector = null
         firmwareProfile = FirmwareProfile.UNKNOWN
@@ -91,8 +98,6 @@ class FlipperProtocol @Inject constructor() {
         rpcStartCandidateCache.clear()
         rpcButtonArgCache.clear()
         lastRpcExecutionSnapshot = null
-        lastRpcActivityAtMs = 0L
-        lastVerifiedRpcActivityAtMs = 0L
         _cliStatus.value = CliCapabilityStatus(
             level = CliCapabilityLevel.UNKNOWN,
             checkedAtMs = System.currentTimeMillis(),
@@ -102,8 +107,11 @@ class FlipperProtocol @Inject constructor() {
         // once they complete. This prevents the UI from showing "transport
         // unavailable" during the brief window between connect and probe.
         _firmwareCompatibility.value = _firmwareCompatibility.value.copy(
-            transportMode = FirmwareTransportMode.PROBING,
-            notes = "Probing transport capabilities..."
+            transportMode = if (bleService?.isCommandTransportConnected() == true) FirmwareTransportMode.PROBING else FirmwareTransportMode.UNAVAILABLE,
+            supportsCli = false,
+            supportsRpc = false,
+            supportsRpcAppBridge = false,
+            notes = "Connection reset; capabilities require fresh transport evidence."
         )
 
         pendingRequest?.let { pending ->
@@ -702,6 +710,7 @@ class FlipperProtocol @Inject constructor() {
      * the device with the hourglass animation.
      */
     private suspend fun sendRpcWriteChunkedLocked(path: String, content: ByteArray): ProtocolResponse? {
+        val epoch = connectionEpoch.get()
         val commandId = nextRpcProbeCommandId()
         val totalChunks = (content.size + WRITE_CHUNK_SIZE - 1) / WRITE_CHUNK_SIZE
         val service = bleService ?: return ProtocolResponse.Error("BLE not connected")
@@ -712,6 +721,7 @@ class FlipperProtocol @Inject constructor() {
             var sendFailed = false
 
             for (chunkIndex in 0 until totalChunks) {
+                if (connectionEpoch.get() != epoch) return ProtocolResponse.Error("Connection changed during storage write")
                 val offset = chunkIndex * WRITE_CHUNK_SIZE
                 val end = minOf(offset + WRITE_CHUNK_SIZE, content.size)
                 val chunkData = content.copyOfRange(offset, end)
@@ -735,6 +745,7 @@ class FlipperProtocol @Inject constructor() {
                         setStorageWriteRequest(writeRequest)
                     }
                     val responseBytes = collectRawBinaryResponseAttempt(finalPacket, timeoutMs)
+                    if (connectionEpoch.get() != epoch) return ProtocolResponse.Error("Connection changed during storage write")
                     val responses = if (responseBytes.isNotEmpty()) {
                         findRpcMainMessages(responseBytes, commandId)
                     } else {
@@ -743,6 +754,7 @@ class FlipperProtocol @Inject constructor() {
                     if (responses.isEmpty()) {
                         lastFailure = ProtocolResponse.Error("No RPC response for storage write (chunked): $path")
                     } else {
+                        if (!recordVerifiedRpcResponse(epoch)) return ProtocolResponse.Error("Connection changed during storage write")
                         val status = responses
                             .firstOrNull { it.commandStatus != Flipper.CommandStatus.OK }
                             ?.commandStatus
@@ -2370,6 +2382,13 @@ class FlipperProtocol @Inject constructor() {
         return sent
     }
 
+    private fun recordVerifiedRpcResponse(expectedEpoch: Int): Boolean = synchronized(rpcEvidenceLock) {
+        if (connectionEpoch.get() != expectedEpoch) return@synchronized false
+        lastRpcActivityAtMs = System.currentTimeMillis()
+        lastVerifiedRpcActivityAtMs = lastRpcActivityAtMs
+        true
+    }
+
     private fun isRemoteFastPathReady(nowMs: Long): Boolean {
         // Capability flags can also be set optimistically by legacy bootstrap paths.
         // Require a correlated response; successful RPC probes update this same clock.
@@ -3316,8 +3335,9 @@ class FlipperProtocol @Inject constructor() {
         commandId: Int,
         timeoutMs: Long
     ): List<Flipper.Main> {
+        val epoch = connectionEpoch.get()
         val responseBytes = collectRawBinaryResponseAttempt(request, timeoutMs)
-        if (responseBytes.isEmpty()) return emptyList()
+        if (connectionEpoch.get() != epoch || responseBytes.isEmpty()) return emptyList()
         val collected = findRpcMainMessages(responseBytes, commandId).toMutableList()
         if (collected.isEmpty()) {
             return emptyList()
@@ -3337,10 +3357,8 @@ class FlipperProtocol @Inject constructor() {
             if (tailResponses.isEmpty()) break
             collected += tailResponses
         }
-        if (collected.isNotEmpty()) {
-            lastRpcActivityAtMs = System.currentTimeMillis()
-            lastVerifiedRpcActivityAtMs = lastRpcActivityAtMs
-        }
+        if (connectionEpoch.get() != epoch) return emptyList()
+        if (collected.isNotEmpty() && !recordVerifiedRpcResponse(epoch)) return emptyList()
         return collected
     }
 
@@ -3625,7 +3643,11 @@ class FlipperProtocol @Inject constructor() {
     private fun refreshFirmwareCompatibility() {
         val cli = _cliStatus.value
         val family = resolveFirmwareFamily(cli.firmwareHint)
+        val connected = bleService?.isCommandTransportConnected() == true
         val mode = when {
+            !connected -> FirmwareTransportMode.UNAVAILABLE
+            bleService?.usesRpcOnlyCommandTransport() == true -> FirmwareTransportMode.RPC_ONLY
+            !cli.supportsCli && lastVerifiedRpcActivityAtMs > 0L -> FirmwareTransportMode.RPC_ONLY
             cli.supportsCli && cli.supportsRpc -> FirmwareTransportMode.CLI_AND_RPC
             cli.supportsCli -> FirmwareTransportMode.CLI_ONLY
             cli.supportsRpc -> FirmwareTransportMode.RPC_ONLY
