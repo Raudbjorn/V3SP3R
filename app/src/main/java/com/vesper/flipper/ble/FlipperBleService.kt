@@ -239,6 +239,10 @@ class FlipperBleService : Service() {
             // Permissions can be revoked between the preflight and Android's check.
             stopSelf()
             return false
+        } catch (_: IllegalStateException) {
+            // The app can lose foreground-start eligibility before promotion executes.
+            stopSelf()
+            return false
         }
         return true
     }
