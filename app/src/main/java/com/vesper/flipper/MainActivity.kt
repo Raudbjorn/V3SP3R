@@ -39,7 +39,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsStore: SettingsStore
 
     private val essentialPermissions = com.vesper.flipper.ble.BlePermissionPolicy.required(Build.VERSION.SDK_INT)
-    private val optionalPermissions = com.vesper.flipper.ble.BlePermissionPolicy.optional(Build.VERSION.SDK_INT)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -64,13 +63,13 @@ class MainActivity : ComponentActivity() {
 
     private fun checkAndRequestPermissions() {
         if (com.vesper.flipper.ble.BlePermissionPolicy.hasPermissions(this)) startBleService()
-        val missingPermissions = (essentialPermissions + optionalPermissions).filter {
+        val missingPermissions = essentialPermissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
         if (missingPermissions.isNotEmpty()) {
-            // Keep the coarse/fine pair together even when coarse was granted earlier.
-            permissionLauncher.launch((essentialPermissions + optionalPermissions).toTypedArray())
+            // Optional consent belongs to the feature that needs it, not each BLE launch.
+            permissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
 
