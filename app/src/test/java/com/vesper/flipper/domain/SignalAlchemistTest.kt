@@ -44,8 +44,11 @@ class SignalAlchemistTest {
 
     @Test
     fun `import rejects non raw or malformed content`() {
-        assertNull(SignalAlchemist.importSubGhzRaw("Protocol: Princeton\nKey: 00 00"))
-        assertNull(SignalAlchemist.importSubGhzRaw("Protocol: RAW\nRAW_Data: 500 -500"))
+        // Each case is a complete RAW document except for the one rule under test.
+        assertNull(SignalAlchemist.importSubGhzRaw(rawFile(protocol = "Princeton")))
+        assertNull(SignalAlchemist.importSubGhzRaw(rawFile(data = "abc def ghi")))
+        assertNull(SignalAlchemist.importSubGhzRaw(rawFile(data = "500")))
+        assertNotNull(SignalAlchemist.importSubGhzRaw(rawFile()))
     }
 
     @Test
@@ -54,8 +57,22 @@ class SignalAlchemistTest {
             layers = sampleProject().layers.map { it.copy(volume = 0f) }
         )
 
-        assertTrue(SignalAlchemist.synthesize(project).all { it != 0 })
+        val timings = SignalAlchemist.synthesize(project)
+        assertTrue(timings.isNotEmpty())
+        assertTrue(timings.all { it != 0 })
     }
+
+    private fun rawFile(
+        protocol: String = "RAW",
+        data: String = "500 -500 1000 -500 500 -1000"
+    ) = """
+        Filetype: Flipper SubGhz RAW File
+        Version: 1
+        Frequency: 315000000
+        Preset: FuriHalSubGhzPresetOok270Async
+        Protocol: $protocol
+        RAW_Data: $data
+    """.trimIndent()
 
     private fun sampleProject() = AlchemyProject(
         name = "Test Signal",
