@@ -10,37 +10,26 @@ import org.mockito.kotlin.mock
 /** MiniMax provider behaviour adapted from upstream PR #74 (elder-plinius/V3SP3R). */
 class MiniMaxProviderTest {
     private val client = OpenRouterClient(mock())
-    private fun strip(content: String) = OpenRouterClient.stripThinkingTags(content)
-
-    @Test fun `strip thinking tags - single block`() {
-        assertEquals("Here is my response.", strip("<think>Let me analyze this request...</think>Here is my response."))
+    @Test fun `only MiniMax asks for reasoning outside content`() {
+        val messages = listOf(OpenRouterMessage.text("user", "hello"))
+        for (provider in LlmProvider.entries) {
+            val request = client.limitedRequest(provider, provider.defaultModel, messages, tools = null, toolChoice = null, maxTokens = 64)
+            assertEquals(provider.id, if (provider == LlmProvider.MINIMAX) true else null, request.reasoningSplit)
+        }
     }
-    @Test fun `strip thinking tags - multiline block`() {
-        val input = "<think>\nStep 1: Check the file system\nStep 2: Look for SubGHz captures\n</think>\nI found 3 SubGHz captures on your Flipper."
-        assertEquals("I found 3 SubGHz captures on your Flipper.", strip(input))
+    @Test fun `split reasoning never reaches content or the stream`() = kotlinx.coroutines.runBlocking {
+        val sse = listOf(
+            """{"id":"x","model":"MiniMax-M2.7","choices":[{"delta":{"reasoning_content":"plan the listing","reasoning_details":[{"type":"reasoning.text","text":"plan the listing"}]}}]}""",
+            """{"choices":[{"delta":{"content":"Here are your SubGHz captures."},"finish_reason":"stop"}]}"""
+        ).joinToString("") { "data: $it\n\n" } + "data: [DONE]\n\n"
+        val deltas = mutableListOf<String>()
+        val raw = ChatStreamReader(false).read(okio.Buffer().writeUtf8(sse)) { if (it is ChatStreamEvent.TextDelta) deltas += it.text }
+        assertEquals(listOf("Here are your SubGHz captures."), deltas)
+        assertEquals("Here are your SubGHz captures.", (client.parseResponse(raw) as ChatCompletionResult.Success).content)
     }
-    @Test fun `strip thinking tags - content without tags is untouched`() {
-        assertEquals("  no tags, whitespace kept  ", strip("  no tags, whitespace kept  "))
-        assertEquals("", strip(""))
-    }
-    @Test fun `strip thinking tags - multiple blocks and literal angle brackets`() {
-        assertEquals("Response part 1. Response part 2.", strip("<think>First</think>Response part 1. <think>Second</think>Response part 2."))
-        assertEquals("The file format is <IR signals file>.", strip("<think>reasoning</think>The file format is <IR signals file>."))
-    }
-
-    @Test fun `parsed responses drop inline reasoning`() {
-        val result = client.parseResponse("""{"id":"x","model":"MiniMax-M2.7","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"<think>The user wants to list files</think>Here are your SubGHz captures."}}]}""")
-        assertEquals("Here are your SubGHz captures.", (result as ChatCompletionResult.Success).content)
-    }
-    @Test fun `reasoning-only response is a visible error`() {
-        val result = client.parseResponse("""{"id":"x","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"<think>All reasoning, no output</think>"}}]}""")
-        assertTrue(result is ChatCompletionResult.Error)
-    }
-    @Test fun `reasoning plus tool call keeps the tool call`() {
-        val result = client.parseResponse("""{"id":"x","choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"<think>list it</think>","tool_calls":[{"id":"call_001","type":"function","function":{"name":"execute_command","arguments":"{\"action\":\"list_directory\",\"args\":{\"path\":\"/ext/subghz\"}}"}}]}}]}""")
-        val success = result as ChatCompletionResult.Success
-        assertEquals("", success.content)
-        assertEquals("call_001", success.toolCalls!!.single().id)
+    @Test fun `literal think markup in an answer is preserved`() {
+        val result = client.parseResponse("""{"id":"x","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Wrap it as <think>notes</think> in the template."}}]}""")
+        assertEquals("Wrap it as <think>notes</think> in the template.", (result as ChatCompletionResult.Success).content)
     }
 
     @Test fun `catalog resolves and stays within MiniMax`() {

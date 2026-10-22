@@ -4,7 +4,7 @@ Six separate configurations are available: OpenRouter, Gemini, OpenAI, xAI, Anth
 
 OpenAI-compatible requests choose the correct URL, credential, attribution headers and token-limit field. Model fallback remains within the selected provider. OpenRouter remains the default provider. Speech chooses the provider's backend and voice set, and Anthropic correctly reports that speech is unavailable.
 
-MiniMax uses the OpenAI-compatible endpoint at `api.minimax.io`; its M2 models are text-only (no image description) and speech is unavailable. Inline `<think>…</think>` reasoning is stripped from response content for every provider. The provider was adapted from [upstream PR #74](https://github.com/elder-plinius/V3SP3R/pull/74), whose standalone client is superseded by the shared protocol path.
+MiniMax uses the OpenAI-compatible endpoint at `api.minimax.io`; its M2 models are text-only (no image description) and speech is unavailable. MiniMax requests set `reasoning_split: true` so reasoning arrives outside `content` and never streams into the chat; reasoning is not sent back on later turns. The provider was adapted from [upstream PR #74](https://github.com/elder-plinius/V3SP3R/pull/74), whose standalone client is superseded by the shared protocol path.
 
 Anthropic chat uses its native Messages API with provider-specific authentication, tool blocks, tool results, and image encoding. Anthropic speech remains unavailable. [Native Anthropic PR #11](https://github.com/Raudbjorn/V3SP3R/pull/11) supplies this implementation.
 

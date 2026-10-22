@@ -242,7 +242,7 @@ Get your MiniMax API key at [platform.minimax.io](https://platform.minimax.io).
 |------|-------|
 | **Flipper Zero** | [shop.flipperzero.one](https://shop.flipperzero.one) |
 | **Android device** | Android 8.0+ (API 26), Bluetooth required |
-| **LLM API key** | [OpenRouter](https://openrouter.ai) (200+ models) or [MiniMax](https://platform.minimax.io) (direct) |
+| **LLM API key** | One of: [OpenRouter](https://openrouter.ai) (200+ models), [Google Gemini](https://aistudio.google.com/apikey), [OpenAI](https://platform.openai.com/api-keys), [xAI](https://console.x.ai), [Anthropic](https://console.anthropic.com) or [MiniMax](https://platform.minimax.io) |
 
 ### 1. Prep Your Flipper
 1. Charge it up (USB-C)
@@ -441,8 +441,8 @@ Selected actions are listed below. The [generated command schema](docs/execute_c
 <details>
 <summary><strong>AI not responding</strong></summary>
 
-1. Verify your API key in Settings (OpenRouter or MiniMax, depending on your selected provider)
-2. Check your credit balance at [openrouter.ai](https://openrouter.ai) or [platform.minimax.io](https://platform.minimax.io)
+1. Verify the API key for your selected provider in Settings (each provider stores its own key)
+2. Check your credit balance or quota in that provider's console (see the **LLM API key** row under [Requirements](#requirements))
 3. Check internet connection
 4. Try a different model — some may be temporarily unavailable
 5. Try switching providers (Settings > LLM Provider)
