@@ -172,19 +172,16 @@ class FlipperBleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START_FOREGROUND -> startForegroundService()
-            ACTION_STOP -> {
-                stopSelf()
-                return START_NOT_STICKY
-            }
-            else -> {
-                // START_STICKY restarts with a null intent after the system kills the
-                // service. We must call startForeground() promptly or Android 12+ will
-                // throw ForegroundServiceDidNotStartInTimeException and crash the app.
-                startForegroundService()
-            }
+        // Recheck on sticky restart and after permission revocation, before promotion.
+        if (intent?.action != ACTION_STOP && !BlePermissionPolicy.hasPermissions(this)) {
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (!startForegroundService()) return START_NOT_STICKY
         return START_STICKY
     }
 
@@ -198,7 +195,9 @@ class FlipperBleService : Service() {
     private fun initializeBluetooth() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
-        bleScanner = bluetoothAdapter?.bluetoothLeScanner
+        bleScanner = if (BlePermissionPolicy.hasPermissions(this)) {
+            runCatching { bluetoothAdapter?.bluetoothLeScanner }.getOrNull()
+        } else null
     }
 
     private fun initializeUsb() {
@@ -227,9 +226,21 @@ class FlipperBleService : Service() {
         usbReceiverRegistered = false
     }
 
-    private fun startForegroundService() {
+    private fun startForegroundService(): Boolean {
         val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (_: SecurityException) {
+            // Permissions can be revoked between the preflight and Android's check.
+            stopSelf()
+            return false
+        }
+        return true
     }
 
     private fun createNotification(): Notification {
@@ -297,7 +308,16 @@ class FlipperBleService : Service() {
             .build()
 
         try {
-            bleScanner?.startScan(flipperFilters, scanSettings, scanCallback)
+            // Binding may have created the service before the user granted permissions.
+            bleScanner = bluetoothAdapter?.bluetoothLeScanner
+            val scanner = bleScanner ?: run {
+                _connectionState.value = ConnectionState.Error("Bluetooth scanner unavailable")
+                return
+            }
+            scanner.startScan(flipperFilters, scanSettings, scanCallback)
+        } catch (_: SecurityException) {
+            _connectionState.value = ConnectionState.Error("Bluetooth permission required")
+            return
         } catch (e: IllegalStateException) {
             _connectionState.value = ConnectionState.Error("Failed to start BLE scan: ${e.message}")
             return
@@ -2190,15 +2210,7 @@ class FlipperBleService : Service() {
         }
     }
 
-    private fun hasBluetoothPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
-                    ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-        } else {
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED &&
-                    ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED
-        }
-    }
+    private fun hasBluetoothPermissions(): Boolean = BlePermissionPolicy.hasPermissions(this)
 
     private fun resolveScanDeviceName(result: ScanResult): String {
         return result.scanRecord?.deviceName?.takeIf { it.isNotBlank() }
@@ -2501,21 +2513,26 @@ class FlipperBleService : Service() {
         private val KNOWN_FLIPPER_USB_PRODUCT_IDS = setOf(0x5740, 0x5741)
 
         fun startService(context: Context) {
+            if (!BlePermissionPolicy.hasPermissions(context)) return
             val intent = Intent(context, FlipperBleService::class.java).apply {
                 action = ACTION_START_FOREGROUND
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+                try {
+                    context.startForegroundService(intent)
+                } catch (_: SecurityException) {
+                    return
+                } catch (_: IllegalStateException) {
+                    // Background starts may be prohibited; retry when the UI is visible.
+                    return
+                }
             } else {
                 context.startService(intent)
             }
         }
 
         fun stopService(context: Context) {
-            val intent = Intent(context, FlipperBleService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, FlipperBleService::class.java))
         }
     }
 }

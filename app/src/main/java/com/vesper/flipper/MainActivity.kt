@@ -39,26 +39,15 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsStore: SettingsStore
 
-    private val requiredPermissions = buildList {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            add(Manifest.permission.BLUETOOTH_SCAN)
-            add(Manifest.permission.BLUETOOTH_CONNECT)
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        } else {
-            add(Manifest.permission.BLUETOOTH)
-            add(Manifest.permission.BLUETOOTH_ADMIN)
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-    }.toTypedArray()
+    private val essentialPermissions = com.vesper.flipper.ble.BlePermissionPolicy.required(Build.VERSION.SDK_INT)
+    private val optionalPermissions = if (Build.VERSION.SDK_INT >= 33) {
+        listOf(Manifest.permission.POST_NOTIFICATIONS)
+    } else emptyList()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
+    ) {
+        if (com.vesper.flipper.ble.BlePermissionPolicy.hasPermissions(this)) {
             startBleService()
         }
     }
@@ -77,13 +66,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        val missingPermissions = requiredPermissions.filter {
+        if (com.vesper.flipper.ble.BlePermissionPolicy.hasPermissions(this)) startBleService()
+        val missingPermissions = (essentialPermissions + optionalPermissions).filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (missingPermissions.isEmpty()) {
-            startBleService()
-        } else {
+        if (missingPermissions.isNotEmpty()) {
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
