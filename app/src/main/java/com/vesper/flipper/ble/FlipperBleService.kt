@@ -1274,6 +1274,15 @@ class FlipperBleService : Service() {
         }
     }
 
+    /** Legacy/text bytes never follow a reconnect onto a BLE RPC transport. */
+    suspend fun sendLegacyData(data: ByteArray): Boolean {
+        if (!usesUsbCommandTransport()) {
+            lastWriteFailureReason = "Legacy/text commands require the original USB transport"
+            return false
+        }
+        return sendDataOverUsb(data, preferNoResponse = false)
+    }
+
     private suspend fun sendDataOverUsb(
         data: ByteArray,
         preferNoResponse: Boolean
@@ -1288,6 +1297,10 @@ class FlipperBleService : Service() {
             timeoutReason = "USB write queue busy (timeout waiting for writer lock)"
         ) {
             withContext(Dispatchers.IO) {
+                if (activeTransport != CommandTransport.USB || usbSerialPort !== port) {
+                    lastWriteFailureReason = "USB connection changed while waiting to write"
+                    return@withContext false
+                }
                 try {
                     val chunks = data.toList().chunked(USB_WRITE_CHUNK_SIZE_BYTES)
                     chunks.forEachIndexed { index, chunk ->
@@ -1786,6 +1799,8 @@ class FlipperBleService : Service() {
     suspend fun probeCliCapability(force: Boolean = false): CliCapabilityStatus {
         return flipperProtocol.probeCliAvailability(force)
     }
+
+    fun usesUsbCommandTransport(): Boolean = isUsbCommandTransportConnected()
 
     fun usesBleCommandTransport(): Boolean = activeTransport == CommandTransport.BLE
 

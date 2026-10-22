@@ -116,7 +116,7 @@ class FlipperProtocol @Inject constructor() {
                 continue
             }
 
-            val sent = service.sendData(data)
+            val sent = service.sendLegacyData(data)
             if (!sent) {
                 val reason = service.consumeLastWriteFailureReason()
                 val detail = if (reason.isNullOrBlank()) "" else ": $reason"
@@ -415,7 +415,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun legacyTransportFallback(block: suspend () -> ProtocolResponse): ProtocolResponse {
-        if (bleService?.usesRpcOnlyCommandTransport() == true) {
+        if (bleService?.usesUsbCommandTransport() != true) {
             return ProtocolResponse.Error("RPC transport did not respond. Unlock the Flipper and reconnect; no text CLI commands were sent.")
         }
         return block()
@@ -1403,9 +1403,9 @@ class FlipperProtocol @Inject constructor() {
     }
 
     /**
-     * Send a CLI command to the Flipper.
-     * This sends commands in a format the Flipper CLI understands.
-     * Note: Requires Flipper firmware that supports CLI on the active transport.
+     * Routes mapped commands through the RPC bridge on RPC-only transports.
+     * Commands without an RPC mapping fail there; USB CLI-compatible sessions
+     * retain direct text command handling. Text/legacy writes never target BLE.
      */
     suspend fun sendCliCommand(command: String): ProtocolResponse {
         val normalizedCommand = normalizeCliCommand(command)
@@ -1674,7 +1674,7 @@ class FlipperProtocol @Inject constructor() {
             }
             if (service.usesRpcOnlyCommandTransport()) return@withCommandLock false
             val data = "$text\r\n".toByteArray(Charsets.UTF_8)
-            val sent = service.sendData(data)
+            val sent = service.sendLegacyData(data)
             if (!sent) {
                 markCliUnavailable("Failed to send CLI data over active transport")
             }
@@ -3186,7 +3186,7 @@ class FlipperProtocol @Inject constructor() {
             if (service == null) {
                 return ""
             }
-            val sent = service.sendData(payload)
+            val sent = service.sendLegacyData(payload)
             if (!sent) {
                 return ""
             }
@@ -3361,7 +3361,7 @@ class FlipperProtocol @Inject constructor() {
             "start_rpc_session\n"
         )
         sessionCommands.forEach { command ->
-            val sent = service.sendData(command.toByteArray(Charsets.UTF_8))
+            val sent = service.sendLegacyData(command.toByteArray(Charsets.UTF_8))
             if (sent) {
                 lastRpcActivityAtMs = System.currentTimeMillis()
                 return true
@@ -3386,7 +3386,7 @@ class FlipperProtocol @Inject constructor() {
             "stop_rpc_session\n"
         )
         stopCommands.forEach { command ->
-            val sent = service.sendData(command.toByteArray(Charsets.UTF_8))
+            val sent = service.sendLegacyData(command.toByteArray(Charsets.UTF_8))
             if (sent) {
                 lastRpcActivityAtMs = System.currentTimeMillis()
                 return true
