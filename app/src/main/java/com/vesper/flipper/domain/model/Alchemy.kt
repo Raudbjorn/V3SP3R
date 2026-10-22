@@ -36,6 +36,7 @@ enum class ForgeStatus {
     BLUEPRINT,      // AI generated, not yet forged
     FORGING,        // Being written to Flipper
     FORGED,         // Successfully deployed
+    PENDING,        // Held by the risk model awaiting user approval
     FAILED          // Failed to deploy
 }
 
@@ -263,8 +264,7 @@ enum class ModulationType(
     OOK_650("OOK 650kHz", "FuriHalSubGhzPresetOok650Async", "On-Off Keying, standard"),
     FSK_238("2FSK 2.38kHz", "FuriHalSubGhzPreset2FSKDev238Async", "Frequency Shift Keying"),
     FSK_476("2FSK 4.76kHz", "FuriHalSubGhzPreset2FSKDev476Async", "FSK wider deviation"),
-    GFSK("GFSK", "FuriHalSubGhzPresetGFSK", "Gaussian FSK"),
-    MSK("MSK", "FuriHalSubGhzPresetMSK", "Minimum Shift Keying"),
+    FSK_12K("2FSK 1.27kHz", "FuriHalSubGhzPreset2FSKDev12KAsync", "FSK narrow deviation"),
     CUSTOM("Custom RAW", "FuriHalSubGhzPresetCustom", "Raw timing data")
 }
 
@@ -471,7 +471,7 @@ object SignalAlchemist {
             val value = line.substringAfter(':').trim()
             if (key == "RAW_Data") {
                 if (value.isEmpty()) return null
-                for (token in value.splitToSequence(Regex("\\s+"))) {
+                for (token in value.splitToSequence(Regex("[\\s,]+")).filter { it.isNotEmpty() }) {
                     val timing = token.toIntOrNull() ?: return null
                     if (timing == 0 || timing.toLong() !in -MAX_PULSE_MICROS.toLong()..MAX_PULSE_MICROS.toLong()) return null
                     if (timings.size >= MAX_RAW_PULSES) return null

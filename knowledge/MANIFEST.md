@@ -120,7 +120,14 @@ name = filename stem. Root-level files use topic `_root`; for example,
   because they're addressable.
 - **Cross-link liberally.** Use markdown links across topics —
   `search_docs` is substring-only, so discoverability rides on
-  explicit references.
+  explicit references. Cross-references must be relative markdown
+  links, never backticked flat filenames. A flat name matches no file
+  on disk, so an MCP client following one gets `unknown_topic`.
+  Write the target as a relative link from the page you are editing —
+  from a topic page the path climbs one level, from MANIFEST it does
+  not. See [`legal/README`](legal/README.md) for a reference link that
+  resolves from here.
+  `test_corpus_links.py::test_backticked_prose_refs_resolve` enforces this.
 - **Legal & safety notes** on every capability doc. Link to
   [`legal/README`](legal/README.md).
 - **Absolute dates.** Any doc that dates a firmware feature or

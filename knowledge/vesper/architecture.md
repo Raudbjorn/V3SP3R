@@ -2,7 +2,7 @@
 
 Vesper (V3SP3R) is an Android app that turns a Flipper Zero into an AI-driven hardware lab. This document captures the overall architecture and, in particular, **the data-flow boundary between on-device logic and the remote AI model.**
 
-> If you don't yet know what a Flipper Zero is, start with `flipper-hardware.md`. If you're new to the firmware ecosystem, `firmware-families.md` names the four families this architecture supports.
+> If you don't yet know what a Flipper Zero is, start with [`flipper-hardware/README.md`](../flipper-hardware/README.md). If you're new to the firmware ecosystem, [`firmware/families.md`](../firmware/families.md) names the four families this architecture supports.
 
 ## The Overall Pattern
 
@@ -246,12 +246,12 @@ The app communicates with Flipper Zero over BLE using the device's serial profil
 
 The five steps above are the transport. The `com.vesper.flipper.ble` package also owns a set of first-class types that the Ops Center and command pipeline depend on:
 
-- **`FirmwareCompatibilityProfile`** — Per-firmware capability matrix. On connect, Vesper probes the device firmware string and picks the profile that matches (Official, Momentum, Unleashed, RogueMaster, Xtreme). Each profile declares which CLI verbs are wired, which app names are launchable, and which `.sub` / `.ir` / `.nfc` schema quirks the parser should tolerate. Commands issued against an unsupported profile fail fast with a firmware-mismatch error instead of a silent no-op. See `firmware-compatibility-profile.md` for the routing decisions and `firmware-families.md` for the ecosystem overview.
+- **`FirmwareCompatibilityProfile`** — Per-firmware capability matrix. On connect, Vesper probes the device firmware string and picks the profile that matches (Official, Momentum, Unleashed, RogueMaster, Xtreme). Each profile declares which CLI verbs are wired, which app names are launchable, and which `.sub` / `.ir` / `.nfc` schema quirks the parser should tolerate. Commands issued against an unsupported profile fail fast with a firmware-mismatch error instead of a silent no-op. See [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md) for the routing decisions and [`firmware/families.md`](../firmware/families.md) for the ecosystem overview.
 - **`CliCapabilityStatus`** — Live readiness tracker for the CLI transport. Ops Center's "CLI" pill reads directly from this: `UNKNOWN` → `PROBING` → `READY` / `DEGRADED` / `UNAVAILABLE`. `EXECUTE_CLI` refuses to send when not `READY`.
 - **`CommandPipelineAutotuneStatus`** — Autotune measures per-frame BLE MTU and observed round-trip latency, then adjusts chunk sizes and pacing on the FlipperProtocol side to minimise dropped frames on flaky links (long distance, congested spectrum, older firmware BLE stacks). The status object is what surfaces "Autotune: converged / running / disabled" in Ops Center.
 - **`ConnectionDiagnosticsReport`** — Snapshot returned by the Ops Center "Diagnostics" runbook. Bundles the current profile, CLI status, autotune status, last N BLE errors, and RSSI samples. Also emitted alongside connection failures so the audit log records *why* a command errored, not just that it did.
 - **`BleServiceManager`** / **`BleReconService`** — Manage a *second* BLE role: acting as central against an arbitrary target device (not the Flipper) for the recon actions `ble_scan_targets`, `ble_enumerate`, `ble_read_char`, `ble_write_char`, `ble_subscribe`. Kept separate from `FlipperBleService` so the Flipper transport keeps its dedicated connection.
-- **`MarauderBridge`** — Serial-over-BLE wrapper for the WiFi Marauder companion firmware. Used by pwnagotchi / WiFi flows to shell into Marauder commands through the Flipper's GPIO UART. See `marauder-overview.md` for what Marauder does, `marauder-wiring.md` for the physical connection, and `marauder-commands.md` for the CLI catalog.
+- **`MarauderBridge`** — Serial-over-BLE wrapper for the WiFi Marauder companion firmware. Used by pwnagotchi / WiFi flows to shell into Marauder commands through the Flipper's GPIO UART. See [`marauder/README.md`](../marauder/README.md) for what Marauder does, [`marauder/wiring.md`](../marauder/wiring.md) for the physical connection, and [`marauder/commands.md`](../marauder/commands.md) for the CLI catalog.
 
 ## Feature Surfaces
 
@@ -261,7 +261,7 @@ The README lists each user-facing surface. This section is the mapping from thos
 - **Purpose:** hand-authored / visually-edited SubGHz, IR, and NFC signal construction with real-time preview before writing anything to the Flipper.
 - **Backing domain services:** `ForgeEngine` (waveform assembly, file-format templating), `ForgeValidator` (schema + safety checks).
 - **Screens:** Alchemy Lab screen in `ui/screen/`.
-- **Commands invoked:** `WRITE_FILE` to persist to `/ext/subghz/…` etc., `PUSH_ARTIFACT` for direct storage push, `SUBGHZ_TRANSMIT` / `IR_TRANSMIT` for live playback.
+- **Commands invoked:** `WRITE_FILE` to persist to `/ext/subghz/…` etc., `PUSH_ARTIFACT` for direct storage push. Alchemy Lab does not transmit.
 
 ### Payload Lab — AI-generated payloads
 - **Purpose:** LLM-authored BadUSB / SubGHz / IR / NFC payloads with the "validate before ship" pattern — nothing lands on the device until `ForgeValidator` accepts the output.
@@ -335,11 +335,11 @@ The one thing to be aware of when copying: **tool results are where sensitive de
 
 ## See also
 
-- `index.md` — corpus table of contents.
-- `flipper-hardware.md` — the physical device this architecture drives.
-- `firmware-compatibility-profile.md` — how the transport layer picks a routing profile.
-- `firmware-families.md` — the four firmwares the profile table covers.
-- `campaigns.md` — proposed campaign functionality and its implementation limits.
-- `labs.md` — Alchemy / Payload Lab UX.
-- `mcp.md` — the MCP server that reads this corpus.
-- `legal-and-safety.md` — the enforcement backdrop for `RiskAssessor`.
+- [`MANIFEST.md`](../MANIFEST.md) — corpus table of contents.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — the physical device this architecture drives.
+- [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md) — how the transport layer picks a routing profile.
+- [`firmware/families.md`](../firmware/families.md) — the four firmwares the profile table covers.
+- [`vesper/campaigns.md`](campaigns.md) — proposed campaign functionality and its implementation limits.
+- [`vesper/labs.md`](labs.md) — Alchemy / Payload Lab UX.
+- [`vesper/mcp.md`](mcp.md) — the MCP server that reads this corpus.
+- [`legal/README.md`](../legal/README.md) — the enforcement backdrop for `RiskAssessor`.

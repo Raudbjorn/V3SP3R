@@ -6,11 +6,11 @@
 ## What it is
 
 Marauder's CLI is a plain-text command interface over UART at 115 200
-8N1 (see `marauder-firmware.md` for framing details). Commands are
+8N1 (see [`marauder/firmware.md`](firmware.md) for framing details). Commands are
 one line, arguments are short flags, output is line-oriented text.
 
 The exact command set varies by Marauder release (see the version
-notes in `marauder-firmware.md`). This doc reflects **mainline
+notes in [`marauder/firmware.md`](firmware.md)). This doc reflects **mainline
 2025-Q3 releases**; earlier versions may lack some verbs. When in
 doubt, `help` on your board is authoritative.
 
@@ -52,7 +52,7 @@ Selected AP: aa:bb:cc:dd:ee:ff (CoffeeShop) ch6
 ### Attack
 
 Active injection. **Illegal to run against networks you don't own or
-have written authorization for.** See `legal-and-safety.md`.
+have written authorization for.** See [`legal/README.md`](../legal/README.md).
 
 | Command                       | What it does                                                             |
 |-------------------------------|--------------------------------------------------------------------------|
@@ -227,15 +227,15 @@ regulated under intentional-interference statutes (US FCC 47 CFR
 15.5), computer-misuse acts (many jurisdictions), and
 telecommunications-fraud statutes. Every command in the Attack section
 carries real prosecution risk if used without authorization. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `marauder-overview.md` — the capabilities summary.
-- `marauder-firmware.md` — CLI framing, version history.
-- `marauder-wiring.md` — the UART path from Flipper to ESP32.
+- [`marauder/README.md`](README.md) — the capabilities summary.
+- [`marauder/firmware.md`](firmware.md) — CLI framing, version history.
+- [`marauder/wiring.md`](wiring.md) — the UART path from Flipper to ESP32.
 - `skill-wifi-attack` (slice 6.6) — methodology.
-- `legal-and-safety.md` — 802.11 attack legal posture.
+- [`legal/README.md`](../legal/README.md) — 802.11 attack legal posture.
 
 ---
 *Attribution:* JustCallMeKoko ESP32Marauder release notes + wiki, help

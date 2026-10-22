@@ -177,7 +177,7 @@ Use the emulator for the inner loop (UI changes, chat + tool-calling flows, data
 
 ## See also
 
-- `architecture.md` — what the app does once it builds.
-- `flipper-firmware-build.md` — building Flipper firmware (separate toolchain).
-- `mcp.md` — running the MCP server the Android app links against.
-- `index.md` — corpus table of contents.
+- [`vesper/architecture.md`](architecture.md) — what the app does once it builds.
+- [`development/firmware-build.md`](../development/firmware-build.md) — building Flipper firmware (separate toolchain).
+- [`vesper/mcp.md`](mcp.md) — running the MCP server the Android app links against.
+- [`MANIFEST.md`](../MANIFEST.md) — corpus table of contents.

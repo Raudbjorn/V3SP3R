@@ -102,7 +102,7 @@ builds. Examples:
 - `select -a <index>` — select target from a list.
 - `attack -t deauth` — start a deauth attack against selection.
 
-See `marauder-commands.md` for the full catalog.
+See [`marauder/commands.md`](commands.md) for the full catalog.
 
 ### Output
 
@@ -180,15 +180,15 @@ action set (when it lands) will document what Vesper actually wires up.
 
 Marauder firmware itself is not illegal to possess or install. Running
 its offensive verbs against networks you don't own is. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `marauder-overview.md` — the big picture.
-- `marauder-wiring.md` — physical wiring.
-- `marauder-commands.md` — the full command catalog.
-- `flipper-cli.md` — Flipper-side `power otg_on`.
-- `firmware-momentum.md` — Momentum's built-in Marauder companion app.
+- [`marauder/README.md`](README.md) — the big picture.
+- [`marauder/wiring.md`](wiring.md) — physical wiring.
+- [`marauder/commands.md`](commands.md) — the full command catalog.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — Flipper-side `power otg_on`.
+- [`firmware/momentum.md`](../firmware/momentum.md) — Momentum's built-in Marauder companion app.
 
 ---
 *Attribution:* JustCallMeKoko ESP32Marauder release notes

@@ -13,7 +13,7 @@ flavors of the tool:
   firmware + all in-tree apps + assets + `.tgz` bundling.
 - **`uFBT`** (micro-fbt) — a lightweight standalone wrapper for
   building **just apps** against a prebuilt SDK. Pip-installable.
-  See `flipper-fap-apps.md`.
+  See [`development/fap-apps.md`](fap-apps.md).
 
 Every firmware family (Official, Momentum, Unleashed, RogueMaster) uses
 the same tool. Their trees diverge in patches on top of the base.
@@ -87,7 +87,7 @@ Momentum inherits the Official structure, then adds:
 - **`applications/external/`** — Momentum-specific apps not in
   upstream. This includes the Marauder companion, SubBrute, extra
   NFC / iButton tools, `js_app` (the JavaScript runner — see
-  `flipper-js-runner.md`), and more.
+  [`development/js-runner.md`](js-runner.md)), and more.
 - **`applications/system/`** — patched system apps.
 - **`applications/plugins/`** — plugin apps (subghz decoders, NFC
   parsers, etc.).
@@ -158,7 +158,7 @@ public fork. To publish your own:
 2. Patch what you want.
 3. Publish release `.tgz`s tagged with your fork's identifier.
 4. Optionally: add your fork to `FirmwareCompatibilityProfile.kt` in
-   Vesper (see `firmware-compatibility-profile.md`) — extend the enum,
+   Vesper (see [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md)) — extend the enum,
    add a profile row, ship a matching parser rule.
 
 ## Capabilities and limits
@@ -191,15 +191,15 @@ public fork. To publish your own:
 Building firmware is not itself regulated. Publishing a fork that
 removes region locks (or including region-unlocked builds in a
 `.tgz`) may be legally sensitive in some jurisdictions. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `firmware-families.md` — the four upstreams you'd fork from.
-- `firmware-momentum.md` — Momentum's specific tree.
-- `firmware-updating.md` — flashing `.tgz` / `.dfu` results.
-- `flipper-fap-apps.md` — building individual apps with uFBT.
-- `flipper-cli.md` — testing built firmware over USB.
+- [`firmware/families.md`](../firmware/families.md) — the four upstreams you'd fork from.
+- [`firmware/momentum.md`](../firmware/momentum.md) — Momentum's specific tree.
+- [`firmware/updating.md`](../firmware/updating.md) — flashing `.tgz` / `.dfu` results.
+- [`development/fap-apps.md`](fap-apps.md) — building individual apps with uFBT.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — testing built firmware over USB.
 
 ---
 *Attribution:* Flipper-Devices firmware repo README, uFBT

@@ -4,7 +4,7 @@ The **Labs** tab is Vesper's payload-authoring workshop. It has three sub-surfac
 
 - **Alchemy Lab** — one screen that generates any Flipper file type from a natural-language prompt, plus a "vault" browser of everything you've captured or crafted.
 - **Payload Lab** — a specialized 3-step wizard for the two families where staged generation shines: **BadUSB** scripts and **Evil Portal** HTML pages.
-- **Campaigns** — autonomous multi-phase engagements. Covered separately in [`campaigns.md`](campaigns.md).
+- **Campaigns** — autonomous multi-phase engagements. Covered separately in [[`vesper/campaigns.md`](campaigns.md)](campaigns.md).
 
 This doc covers the two payload labs.
 
@@ -25,7 +25,7 @@ Neither lab bypasses Vesper's risk model — everything they write to the Flippe
 
 ## The safety flow, in one place
 
-Both labs write files to the Flipper, and Alchemy Lab can transmit / execute what it generates. Every one of those actions is classified into a **risk level** before it runs:
+Both labs write files to the Flipper. Alchemy Lab only writes — it has no transmit or execute path — while Payload Lab can also execute what it generates on a connected computer. Every one of those actions is classified into a **risk level** before it runs:
 
 | Risk | What it covers | What you see |
 |------|----------------|--------------|
@@ -37,7 +37,7 @@ Both labs write files to the Flipper, and Alchemy Lab can transmit / execute wha
 Two settings under **Settings** can loosen the interactive flow if you trust the workflow you're running:
 
 - **Auto-approve MEDIUM** — MEDIUM actions run without the tap. Diffs are still shown; you just don't have to confirm.
-- **Auto-approve HIGH** — HIGH actions run without the double-tap. (Autonomous campaigns are planned separately; see [`campaigns.md`](campaigns.md).)
+- **Auto-approve HIGH** — HIGH actions run without the double-tap. (Autonomous campaigns are planned separately; see [[`vesper/campaigns.md`](campaigns.md)](campaigns.md).)
 
 **Approval boundary:** the AI can author a HIGH-risk payload in the labs. This reference does not guarantee a prompt or human release for every Labs action. `autoApproveHigh` governs actions handled by `CommandExecutor`; direct Labs dispatch is outside that guarantee.
 
@@ -118,7 +118,7 @@ Each stage has its own AI prompt and shows its own progress indicator, so you ca
 - **Portal types:** WiFi login, Social media, Corporate, Banking, Custom
 - **Built-in templates:** Generic WiFi Login, Google-style Login, Corporate VPN, Hotel WiFi Portal
 - Output is a self-contained HTML page with a form that POSTs to your configurable capture endpoint (default `/capture`)
-- **Delivery:** the HTML is written to the Flipper; actually hosting the captive portal is the WiFi devboard / companion firmware's job, not Vesper's — see `marauder-overview.md` and `marauder-commands.md`
+- **Delivery:** the HTML is written to the Flipper; actually hosting the captive portal is the WiFi devboard / companion firmware's job, not Vesper's — see [`marauder/README.md`](../marauder/README.md) and [`marauder/commands.md`](../marauder/commands.md)
 
 ### Photo attachment
 
@@ -153,5 +153,5 @@ Audit coverage depends on the execution path. Commands handled by `CommandExecut
 
 ## See also
 
-- [`campaigns.md`](campaigns.md) — the third Labs sub-surface (autonomous multi-phase engagements).
-- [`architecture.md`](architecture.md) — deeper detail on the risk model and how approvals are enforced.
+- [[`vesper/campaigns.md`](campaigns.md)](campaigns.md) — the third Labs sub-surface (autonomous multi-phase engagements).
+- [[`vesper/architecture.md`](architecture.md)](architecture.md) — deeper detail on the risk model and how approvals are enforced.

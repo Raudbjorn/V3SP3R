@@ -88,7 +88,7 @@ Momentum JS API reference at the time of writing.
 | Portability              | Firmware-family-specific ABI                  | Version/module-dependent on Official and forks |
 | Debugging                | fap crashes hard; SWD needed                  | JS exceptions surface as dialogs               |
 | Ecosystem                | FapHub (thousands of apps)                    | Smaller; user-shared scripts                   |
-| Sandboxing               | None (see `flipper-fap-apps.md`)              | Runtime-enforced (bounded API)                 |
+| Sandboxing               | None (see [`development/fap-apps.md`](fap-apps.md))              | Runtime-enforced (bounded API)                 |
 
 Use `.fap` when you need low-latency loops (bit-banging, real-time
 protocol reversal), full API access, or want to publish to FapHub.
@@ -158,16 +158,16 @@ Use `.js` for scripting, one-off automation, and non-C developers.
 The JS runner can command SubGHz TX, NFC emulate, and GPIO writes —
 same as `.fap` apps and CLI verbs. The scripting layer offers no legal
 distinction; the underlying capability is what matters. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `firmware-momentum.md` — Momentum specifically ships this runtime.
-- `firmware-families.md` — which forks include it.
-- `flipper-fap-apps.md` — the C-based alternative.
-- `flipper-storage.md` — where `.js` files live.
-- `flipper-cli.md` — `js` CLI verb (check installed firmware).
-- `flipper-firmware-build.md` — where `js_app` lives in the tree.
+- [`firmware/momentum.md`](../firmware/momentum.md) — Momentum specifically ships this runtime.
+- [`firmware/families.md`](../firmware/families.md) — which forks include it.
+- [`development/fap-apps.md`](fap-apps.md) — the C-based alternative.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — where `.js` files live.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `js` CLI verb (check installed firmware).
+- [`development/firmware-build.md`](firmware-build.md) — where `js_app` lives in the tree.
 
 ---
 *Attribution:* Momentum `applications/external/js_app/` sources,

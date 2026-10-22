@@ -17,7 +17,7 @@ and still ubiquitous in Eastern European apartment building intercoms.
 
 The Flipper reads them via the **1-Wire pin (pin 7 on the GPIO header,
 also mirrored to the on-board iButton contact)** — see
-`flipper-gpio-pinout.md`. It can read, save, emulate, and write
+[`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md). It can read, save, emulate, and write
 compatible blanks.
 
 ## How it works
@@ -56,7 +56,7 @@ original disc.
 ### Writing
 
 Some blanks (RW1990, TM2004) are writable DS1990A clones. The Flipper's
-`ibutton write` verb (see `flipper-cli.md`) writes a saved key onto a
+`ibutton write` verb (see [`flipper-cli/README.md`](../flipper-cli/README.md)) writes a saved key onto a
 blank. Once written, the blank behaves like the original.
 
 ## File format
@@ -118,7 +118,7 @@ Data: 01 A1 B2 C3 D4 E5 F6 07
   update firmware.
 - **Some "iButton keys" in the wild are actually 125 kHz RFID fobs**
   disguised as pucks. If the Flipper can't read on 1-Wire, try RFID
-  (`rfid-lf-overview.md`).
+  ([`rfid/README.md`](../rfid/README.md)).
 - **CRC mismatch on DS1990A reads** — the app rejects reads with wrong
   CRC. Usually indicates bad contact rather than a bad key; try again.
 
@@ -126,15 +126,15 @@ Data: 01 A1 B2 C3 D4 E5 F6 07
 
 Duplicating access tokens for buildings you don't have authorization
 for is a criminal offense in most jurisdictions. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `flipper-hardware.md` — the iButton contact hardware.
-- `flipper-gpio-pinout.md` — pin 7 (1-Wire) details.
-- `flipper-cli.md` — `ibutton` verbs.
-- `flipper-storage.md` — `/ext/ibutton/`.
-- `rfid-lf-overview.md` — the 125 kHz counterpart.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — the iButton contact hardware.
+- [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md) — pin 7 (1-Wire) details.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `ibutton` verbs.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/ibutton/`.
+- [`rfid/README.md`](../rfid/README.md) — the 125 kHz counterpart.
 
 ---
 *Attribution:* Dallas Semiconductor / Maxim Integrated DS1990A

@@ -34,7 +34,7 @@ top-level verb list.
 ### Category structure
 
 Verbs are grouped by category. The exact set varies by firmware family
-(see `firmware-families.md`), but the categories are stable:
+(see [`firmware/families.md`](../firmware/families.md)), but the categories are stable:
 
 | Category      | Purpose                                        |
 |---------------|------------------------------------------------|
@@ -72,7 +72,7 @@ The ones an assistant will name repeatedly:
 - `device_info` — canonical way to identify a Flipper. Prints firmware
   family (`hardware_name`, `firmware_commit`), HW rev, `radio_stack`,
   unique 96-bit chip ID, battery %, temperature. `FirmwareCompatibilityProfile`
-  parses this — see `firmware-compatibility-profile.md`.
+  parses this — see [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md).
 - `date` — current RTC time.
 
 **Power**
@@ -151,7 +151,7 @@ The ones an assistant will name repeatedly:
 
 - **CLI is not sandboxed.** Anything typed runs with full firmware
   privilege. Vesper's transport allowlists verbs specifically because of
-  this (see `architecture.md`).
+  this (see [`vesper/architecture.md`](../vesper/architecture.md)).
 - **Some verbs are RX-preferred, some are TX-preferred.** The CLI
   reflects that — `subghz rx` streams for `duration_ms`, but `subghz tx`
   fires-and-forgets. Assistants should not "keep polling for output".
@@ -213,7 +213,7 @@ is JSON, not markdown, so it doesn't appear in `list_topics`).
   `/ext/badusb/`, then `badusb /ext/badusb/mypayload.txt`.
 - **Emergency reboot:** hold BACK for ~10 s (physical), or `power reboot`.
 - **Recover from a soft-brick:** `power reboot2dfu` and reflash via
-  qFlipper. See `firmware-updating.md`.
+  qFlipper. See [`firmware/updating.md`](../firmware/updating.md).
 
 ## Gotchas
 
@@ -230,26 +230,29 @@ is JSON, not markdown, so it doesn't appear in `list_topics`).
   cause dropped bytes; use sparingly.
 - CLI verbs vary by firmware version; Official 1.0+ supports JavaScript.
   Detect firmware with `device_info` first — see
-  `firmware-compatibility-profile.md`.
+  [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md).
 
 ## Legal & safety notes
 
 `subghz tx*`, `nfc emulate`, `rfid emulate`, `ibutton emulate`, and
 `badusb` are the tripwires. Even reading (`nfc detect`) in some
 jurisdictions is regulated when the target isn't yours. See
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `flipper-hardware.md` — the MCU behind these verbs.
-- `firmware-families.md` — verb availability by firmware.
-- `firmware-compatibility-profile.md` — how Vesper decides what to send.
-- `flipper-gpio-pinout.md` — `gpio` verb + pin numbering.
-- `subghz-overview.md`, `nfc-overview.md`, `ir-overview.md`,
-  `rfid-lf-overview.md`, `ibutton-overview.md` — per-radio commands.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — the MCU behind these verbs.
+- [`firmware/families.md`](../firmware/families.md) — verb availability by firmware.
+- [`firmware/compatibility-profile.md`](../firmware/compatibility-profile.md) — how Vesper decides what to send.
+- [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md) — `gpio` verb + pin numbering.
+- [`subghz/README.md`](../subghz/README.md), [`nfc/README.md`](../nfc/README.md), [`ir/README.md`](../ir/README.md),
+  [`rfid/README.md`](../rfid/README.md), [`ibutton/README.md`](../ibutton/README.md) — per-radio commands.
 
 ---
 *Attribution:* Flipper-Devices CLI reference
 (<https://docs.flipper.net/development/cli>), Momentum command
 additions (Momentum GitHub repo `applications/main/cli/`).
 Retrieved 2025-Q3.
+Written as of 2026-10-22 against V3SP3R 338e935 and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28. Sourced by reading
+firmware and app source, not from a run on hardware.

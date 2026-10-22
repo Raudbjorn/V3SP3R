@@ -146,7 +146,7 @@ Each fork's tradeoff:
 - **Recover a soft-brick:** hold LEFT+BACK on power-on → DFU mode →
   `dfu-util` a known-good `firmware.dfu`.
 - **Recover a hard-brick:** SWD via a DAP-Link on GPIO pins 10/11/12;
-  `openocd` + full flash write. See `flipper-gpio-pinout.md`.
+  `openocd` + full flash write. See [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md).
 - **Restage a stuck update:** delete `/ext/update/*.tgz` and retry.
 
 ## Gotchas
@@ -172,18 +172,21 @@ Each fork's tradeoff:
 
 Choosing a firmware with region unlocks removed enables you to *break*
 FCC/ETSI rules; flashing the firmware itself is not illegal. See
-`legal-and-safety.md` for the "capability vs. legality" distinction.
+[`legal/README.md`](../legal/README.md) for the "capability vs. legality" distinction.
 
 ## See also
 
-- `firmware-families.md` — which one to pick.
-- `firmware-momentum.md` — Momentum-specific install flow details.
-- `firmware-compatibility-profile.md` — how Vesper reacts post-update.
-- `flipper-storage.md` — `/ext/update/` layout.
-- `flipper-hardware.md` — DFU boot procedure.
-- `flipper-gpio-pinout.md` — SWD pins for hard-brick recovery.
+- [`firmware/families.md`](families.md) — which one to pick.
+- [`firmware/momentum.md`](momentum.md) — Momentum-specific install flow details.
+- [`firmware/compatibility-profile.md`](compatibility-profile.md) — how Vesper reacts post-update.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/update/` layout.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — DFU boot procedure.
+- [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md) — SWD pins for hard-brick recovery.
 
 ---
 *Attribution:* Flipper-Devices Updater docs
 (<https://docs.flipper.net/basics/firmware-update>), Momentum
 release notes, `dfu-util` documentation. Retrieved 2025-Q3.
+Written as of 2026-10-22 against V3SP3R 338e935 and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28. Sourced by reading
+firmware and app source, not from a run on hardware.

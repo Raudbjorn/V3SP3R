@@ -50,7 +50,7 @@ Every fork inherits the upstream Flipper-Devices base and then patches
 The **base radio stack (BLE, USB, IPCC, FURI kernel)** is identical
 across all four. Compatibility with the Vesper app is therefore mostly
 a matter of *which CLI verbs exist* — see
-`firmware-compatibility-profile.md`.
+[`firmware/compatibility-profile.md`](compatibility-profile.md).
 
 ### Feature compatibility matrix
 
@@ -71,7 +71,7 @@ Rough summary. Not a substitute for `device_info` at runtime.
 | Auto-OTG on devboard detect                | No       | Yes        | No        | Partial     |
 
 **⭐ Momentum is the primary M0MA target.** When we say "the firmware"
-without qualification, we mean Momentum. See `firmware-momentum.md`.
+without qualification, we mean Momentum. See [`firmware/momentum.md`](momentum.md).
 
 ### How Vesper detects which one is running
 
@@ -80,7 +80,7 @@ reads `device_info` on connect and matches strings to a `FirmwareFamily`
 enum: `UNKNOWN | OFFICIAL | MOMENTUM | UNLEASHED | ROGUEMASTER | XTREME`.
 Each family maps to a *transport mode* (CLI-only, RPC-only, both) and a
 route policy for potentially-dangerous commands. See
-`firmware-compatibility-profile.md` for the exact mechanics.
+[`firmware/compatibility-profile.md`](compatibility-profile.md) for the exact mechanics.
 
 ## Capabilities and limits
 
@@ -92,7 +92,7 @@ route policy for potentially-dangerous commands. See
   GPIO header regardless of firmware.
 - Region unlocks are jurisdictionally illegal to *use* in most
   countries. Flashing the firmware isn't the crime; TXing outside the
-  legal window is. See `legal-and-safety.md`.
+  legal window is. See [`legal/README.md`](../legal/README.md).
 - Forks lag Official on radio-stack updates by weeks. If Flipper-Devices
   ships a BLE fix, Momentum absorbs it in a follow-up release, not the
   same day.
@@ -108,7 +108,7 @@ route policy for potentially-dangerous commands. See
      `/ext/update/` and boot the on-device Updater.
   4. On first boot, Momentum recreates the standard `/ext/` tree —
      your `/ext/subghz`, `/ext/nfc` etc. captures are preserved.
-- **Verify what's running:** connect via `flipper-cli.md`,
+- **Verify what's running:** connect via [`flipper-cli/README.md`](../flipper-cli/README.md),
   `device_info`. Look at `hardware_name`, `firmware_commit`, and
   Momentum-specific keys like `momentum_firmware_commit`.
 - **Roll back:** flash the Official `.tgz` the same way. Your `/ext/`
@@ -116,7 +116,7 @@ route policy for potentially-dangerous commands. See
   orphaned but not harmful).
 - **Add a new fork to Vesper's profile table:** edit
   `FirmwareCompatibilityProfile.kt` (see
-  `firmware-compatibility-profile.md`), extend the enum, ship a
+  [`firmware/compatibility-profile.md`](compatibility-profile.md)), extend the enum, ship a
   matching profile row.
 
 ## Gotchas
@@ -142,15 +142,15 @@ route policy for potentially-dangerous commands. See
 Choosing a firmware family is a legal choice as well as a technical one.
 Region unlocks let the Flipper *technically* TX on prohibited bands;
 using them may violate FCC 47 CFR Part 15 (US), ETSI SRD rules (EU),
-or equivalents elsewhere. See `legal-and-safety.md`.
+or equivalents elsewhere. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `firmware-momentum.md` — the primary M0MA target, in depth.
-- `firmware-compatibility-profile.md` — how Vesper picks a profile.
-- `firmware-updating.md` — flashing, DFU, brick recovery.
-- `flipper-cli.md` — verbs whose availability varies by family.
-- `legal-and-safety.md` — region policy consequences.
+- [`firmware/momentum.md`](momentum.md) — the primary M0MA target, in depth.
+- [`firmware/compatibility-profile.md`](compatibility-profile.md) — how Vesper picks a profile.
+- [`firmware/updating.md`](updating.md) — flashing, DFU, brick recovery.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — verbs whose availability varies by family.
+- [`legal/README.md`](../legal/README.md) — region policy consequences.
 
 ---
 *Attribution:* Flipper-Devices firmware repo

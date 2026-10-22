@@ -60,10 +60,10 @@ The 5V rail is disabled at boot. To enable:
 
 - **GUI:** Settings → Power → 5V on GPIO → ON.
 - **CLI:** `power otg_on` (`power otg_off` to disable). See
-  `flipper-cli.md`.
+  [`flipper-cli/README.md`](../flipper-cli/README.md).
 - **Auto:** some firmwares auto-enable OTG when a specific expansion
   board is detected. Momentum in particular has an add-on manifest
-  system (`flipper-fap-apps.md` cross-refs this).
+  system ([`development/fap-apps.md`](../development/fap-apps.md) cross-refs this).
 
 If you attach a Marauder devboard and the ESP32 refuses to boot, the
 first thing to check is that OTG is on.
@@ -109,7 +109,7 @@ mechanism for multiplexing; the pinout is single-ended.
   `power info`.
 - **Verify pins from CLI:** `gpio` (list state), `gpio set <pin> 1`,
   `gpio set <pin> 0`. Silkscreen names apply (`pa7`, `pb2`, etc.).
-- **Wire a Marauder devboard:** see `marauder-wiring.md` for the exact
+- **Wire a Marauder devboard:** see [`marauder/wiring.md`](../marauder/wiring.md) for the exact
   mapping (TX↔RX cross, GND, 3V3, boot pin).
 - **Recover a bricked Flipper:** attach DAP-Link on pins 10/11/12, use
   `openocd` or ST's tools to reflash over SWD.
@@ -133,18 +133,21 @@ mechanism for multiplexing; the pinout is single-ended.
 
 None specific to the GPIO header — plugging boards in is not itself a
 regulated activity. What you *run* on those boards may be; see
-`legal-and-safety.md`.
+[`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `flipper-hardware.md` — the MCU and radios these pins connect to.
-- `flipper-gpio-extensions.md` — commonly attached boards, in more depth.
-- `marauder-wiring.md` — Wi-Fi devboard wiring specifics.
-- `flipper-cli.md` — `gpio` and `power` verbs.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — the MCU and radios these pins connect to.
+- [`flipper-gpio/extensions.md`](extensions.md) — commonly attached boards, in more depth.
+- [`marauder/wiring.md`](../marauder/wiring.md) — Wi-Fi devboard wiring specifics.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `gpio` and `power` verbs.
 
 ---
 *Attribution:* Flipper-Devices GPIO documentation
 (<https://docs.flipper.net/gpio-and-modules>), STM32WB55RG reference
 manual (RM0434). Retrieved 2025-Q3.
+Written as of 2026-10-22 against V3SP3R 338e935 and
+Momentum-Firmware-CN CN-Clipper 5efbb3f28. Sourced by reading
+firmware and app source, not from a run on hardware.
 
 Pin numbering checked against the [official F7 GPIO resource table](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/targets/f7/furi_hal/furi_hal_resources.c); pin 1 is 5V and pin 17 is PB14 / 1-Wire.

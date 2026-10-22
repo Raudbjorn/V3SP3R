@@ -37,8 +37,8 @@ Every AI-initiated action is classified before execution:
 | Level | Behavior | Examples |
 |-------|----------|---------|
 | **Low** | Auto-execute | `list_directory`, `read_file`, `get_device_info` |
-| **Medium** | Show diff, require approval | `write_file`, `execute_cli`, `ir_transmit` |
-| **High** | Double-tap confirmation | `delete`, `subghz_transmit`, `badusb_execute` |
+| **Medium** | Show diff, require approval | `write_file`, `execute_cli`, `ir_transmit`, `subghz_transmit` |
+| **High** | Double-tap confirmation | `delete`, `badusb_execute` |
 | **Blocked** | Requires explicit unlock | System paths, firmware areas |
 
 ### Input Validation

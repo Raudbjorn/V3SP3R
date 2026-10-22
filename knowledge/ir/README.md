@@ -80,7 +80,7 @@ candidate codes until the target reacts.
   replay. IR app handles raw fine; standard protocols get an easier
   UX.
 - **Send via CLI:** `ir tx /ext/infrared/tvpower.ir` (see
-  `flipper-cli.md`).
+  [`flipper-cli/README.md`](../flipper-cli/README.md)).
 - **Reset an IR-controlled projector:** capture manufacturer codes,
   script the sequence.
 
@@ -108,14 +108,14 @@ candidate codes until the target reacts.
 
 IR itself is unregulated. Using an IR blaster to disable displays or
 kiosks you don't own may still be a criminal offense in many
-jurisdictions. See `legal-and-safety.md`.
+jurisdictions. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `signal-formats-ir.md` — the `.ir` file format.
-- `flipper-hardware.md` — TX LED + RX diode physical layout.
-- `flipper-cli.md` — `ir tx` / `ir rx` verbs.
-- `flipper-storage.md` — `/ext/infrared/` layout.
+- [`ir/ir-format.md`](ir-format.md) — the `.ir` file format.
+- [`flipper-hardware/README.md`](../flipper-hardware/README.md) — TX LED + RX diode physical layout.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `ir tx` / `ir rx` verbs.
+- [`flipper-storage/README.md`](../flipper-storage/README.md) — `/ext/infrared/` layout.
 
 ---
 *Attribution:* Flipper-Devices Infrared docs

@@ -149,7 +149,7 @@ Discord attachments.
   [flipper-cli.md](../flipper-cli/README.md)).
 - **Build your own:** `ufbt bootstrap`, `ufbt`, `ufbt launch`.
 - **Debug crashes:** logs at `log` level; hard-fault info via SWD
-  (see `flipper-gpio-pinout.md`).
+  (see [`flipper-gpio/pinout.md`](../flipper-gpio/pinout.md)).
 
 ## Gotchas
 
@@ -174,7 +174,7 @@ Discord attachments.
 TXes SubGHz without region checks, emulates NFC without user prompt,
 or brute-forces access credentials is legal to *possess* but the
 usage is regulated the same as the built-in firmware's equivalent.
-See `legal-and-safety.md`.
+See [`legal/README.md`](../legal/README.md).
 
 ## See also
 

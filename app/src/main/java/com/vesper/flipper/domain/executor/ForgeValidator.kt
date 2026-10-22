@@ -1,5 +1,6 @@
 package com.vesper.flipper.domain.executor
 
+import com.vesper.flipper.domain.model.ModulationType
 import com.vesper.flipper.domain.model.PayloadType
 
 /**
@@ -26,7 +27,7 @@ object ForgeValidator {
             PayloadType.RFID -> validateRfid(content)
             PayloadType.BAD_USB -> validateBadUsb(content)
             PayloadType.IBUTTON -> validateIButton(content)
-            PayloadType.UNKNOWN -> ValidationResult(true, warnings = listOf("Unknown type, skipping validation"))
+            PayloadType.UNKNOWN -> ValidationResult(false, errors = listOf("Unknown payload type — refusing to validate content"))
         }
     }
 
@@ -61,15 +62,7 @@ object ForgeValidator {
             errors.add("Missing 'Preset:' field")
         } else {
             val presetValue = preset.substringAfter(":").trim()
-            val validPresets = listOf(
-                "FuriHalSubGhzPresetOok270Async",
-                "FuriHalSubGhzPresetOok650Async",
-                "FuriHalSubGhzPreset2FSKDev238Async",
-                "FuriHalSubGhzPreset2FSKDev476Async",
-                "FuriHalSubGhzPresetGFSK",
-                "FuriHalSubGhzPresetMSK",
-                "FuriHalSubGhzPresetCustom"
-            )
+            val validPresets = ModulationType.entries.map { it.flipperPreset }
             if (presetValue !in validPresets) {
                 warnings.add("Preset '$presetValue' is non-standard. Valid: ${validPresets.joinToString(", ")}")
             }

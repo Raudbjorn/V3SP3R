@@ -171,5 +171,5 @@ include an automatic `mcp-python.yml` workflow.
 ## See also
 
 - [`../MANIFEST.md`](../MANIFEST.md) — the corpus this server exposes.
-- [`architecture.md`](architecture.md) — where the MCP fits in the Vesper transport pipeline.
-- [`app-build-process.md`](app-build-process.md) — the Android side that consumes the same schema.
+- [[`vesper/architecture.md`](architecture.md)](architecture.md) — where the MCP fits in the Vesper transport pipeline.
+- [[`vesper/app-build-process.md`](app-build-process.md)](app-build-process.md) — the Android side that consumes the same schema.

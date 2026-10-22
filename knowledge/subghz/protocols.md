@@ -13,8 +13,8 @@ waveform. If one matches, the resulting `.sub` file gets a `Protocol:`
 field and a `Key:`; if none match, the file gets `RAW_Data`.
 
 This doc walks the families the decoder covers. For the physics/radio
-side, see `subghz-overview.md`. For the file format, see
-`signal-formats-sub.md`.
+side, see [`subghz/README.md`](README.md). For the file format, see
+[`subghz/sub-format.md`](sub-format.md).
 
 ## How it works — protocol reference
 
@@ -201,15 +201,15 @@ value directly.
 TXing on any of these protocols outside licensed use — and cloning /
 replaying / brute-forcing credentials against systems you don't own — is
 regulated by RF law and by access-control / computer-fraud law
-respectively. See `legal-and-safety.md`.
+respectively. See [`legal/README.md`](../legal/README.md).
 
 ## See also
 
-- `subghz-overview.md` — the radio physics side.
-- `signal-formats-sub.md` — how these show up in `.sub` files.
+- [`subghz/README.md`](README.md) — the radio physics side.
+- [`subghz/sub-format.md`](sub-format.md) — how these show up in `.sub` files.
 - `skill-signal-analysis` (slice 6.6) — capture-to-decode methodology.
-- `firmware-families.md` — decoder additions per firmware.
-- `flipper-cli.md` — `subghz decode_raw` etc.
+- [`firmware/families.md`](../firmware/families.md) — decoder additions per firmware.
+- [`flipper-cli/README.md`](../flipper-cli/README.md) — `subghz decode_raw` etc.
 
 ---
 *Attribution:* Flipper-Devices protocol source
