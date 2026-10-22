@@ -31,6 +31,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vesper.flipper.domain.model.*
 import com.vesper.flipper.ui.theme.*
+import com.vesper.flipper.ui.components.ApprovalDialog
 import com.vesper.flipper.ui.viewmodel.AlchemyLabViewModel
 
 @Composable
@@ -49,7 +50,9 @@ fun AlchemyLabScreen(
     val isLoadingVault by viewModel.isLoadingVault.collectAsState()
     val vaultStats by viewModel.vaultStats.collectAsState()
     val message by viewModel.message.collectAsState()
+    val pendingApproval by viewModel.pendingApproval.collectAsState()
     var confirmSave by remember { mutableStateOf(false) }
+    var confirmDeploy by remember { mutableStateOf(false) }
     val project by viewModel.project.collectAsState()
     val waveformPreview by viewModel.waveformPreview.collectAsState()
     val selectedLayerIndex by viewModel.selectedLayerIndex.collectAsState()
@@ -124,9 +127,22 @@ fun AlchemyLabScreen(
                     exit = shrinkVertically() + fadeOut()
                 ) {
                     currentBlueprint?.let { bp ->
+                        if (confirmDeploy) {
+                            AlertDialog(onDismissRequest = { confirmDeploy = false },
+                                title = { Text("Deploy AI-generated file?") },
+                                text = {
+                                    Text(
+                                        "Writes ${bp.generatedCode.length} bytes to ${bp.flipperPath}. " +
+                                            "This content was written by an AI model and has not been reviewed by you. " +
+                                            "It will overwrite the file if one exists at that path."
+                                    )
+                                },
+                                confirmButton = { TextButton(onClick = { confirmDeploy = false; viewModel.deployBlueprint() }) { Text("Deploy") } },
+                                dismissButton = { TextButton(onClick = { confirmDeploy = false }) { Text("Cancel") } })
+                        }
                         BlueprintCard(
                             blueprint = bp,
-                            onDeploy = { viewModel.deployBlueprint() },
+                            onDeploy = { confirmDeploy = true },
                             canOpenInEditor = viewModel.canOpenBlueprintInEditor(bp),
                             onOpenInEditor = { viewModel.openBlueprintInEditor() },
                             onEditSection = { viewModel.editBlueprintSection(it) },
@@ -263,6 +279,13 @@ fun AlchemyLabScreen(
                 text = { Text("Writes the current project under /ext/subghz. An existing Alchemy file with this name will be replaced. This does not transmit the signal.") },
                 confirmButton = { TextButton(onClick = { confirmSave = false; viewModel.saveToFlipper() }) { Text("Save") } },
                 dismissButton = { TextButton(onClick = { confirmSave = false }) { Text("Cancel") } })
+        }
+        pendingApproval?.let { approval ->
+            ApprovalDialog(
+                approval = approval,
+                onApprove = { viewModel.approvePendingWrite(approval.id) },
+                onReject = { viewModel.rejectPendingWrite(approval.id) }
+            )
         }
         if (showExportDialog) {
             ExportDialog(
@@ -481,6 +504,7 @@ private fun BlueprintCard(
                         ForgeStatus.BLUEPRINT -> { Icon(Icons.Default.RocketLaunch, null); Spacer(modifier = Modifier.width(8.dp)); Text("Deploy", fontWeight = FontWeight.Bold) }
                         ForgeStatus.FORGING -> { CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp); Spacer(modifier = Modifier.width(8.dp)); Text("Deploying...") }
                         ForgeStatus.FORGED -> { Icon(Icons.Default.CheckCircle, null); Spacer(modifier = Modifier.width(8.dp)); Text("Deployed!") }
+                        ForgeStatus.PENDING -> { Icon(Icons.Default.Shield, null); Spacer(modifier = Modifier.width(8.dp)); Text("Awaiting approval") }
                         ForgeStatus.FAILED -> { Icon(Icons.Default.Error, null); Spacer(modifier = Modifier.width(8.dp)); Text("Failed") }
                     }
                 }

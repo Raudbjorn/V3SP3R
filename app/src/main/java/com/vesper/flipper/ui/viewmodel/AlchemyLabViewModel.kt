@@ -3,7 +3,9 @@ package com.vesper.flipper.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vesper.flipper.ble.FlipperFileSystem
+import com.vesper.flipper.domain.executor.CommandExecutor
 import com.vesper.flipper.domain.executor.ForgeEngine
+import com.vesper.flipper.domain.executor.ForgeValidator
 import com.vesper.flipper.domain.model.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -14,7 +16,8 @@ import kotlin.random.Random
 @HiltViewModel
 class AlchemyLabViewModel @Inject constructor(
     private val fileSystem: FlipperFileSystem,
-    private val forgeEngine: ForgeEngine
+    private val forgeEngine: ForgeEngine,
+    private val commandExecutor: CommandExecutor
 ) : ViewModel() {
 
     // ═══════════════════════════════════════════════════════
@@ -35,6 +38,67 @@ class AlchemyLabViewModel @Inject constructor(
 
     private val _forgeError = MutableStateFlow<String?>(null)
     val forgeError: StateFlow<String?> = _forgeError.asStateFlow()
+
+    // Validation from the last forge() — deploy refuses to write without a passing result.
+    private val _forgeValidation = MutableStateFlow<ForgeValidator.ValidationResult?>(null)
+    val forgeValidation: StateFlow<ForgeValidator.ValidationResult?> = _forgeValidation.asStateFlow()
+
+    // Risk-model approval for Alchemy writes only. currentApproval is a shared
+    // singleton — a chat-agent approval must not pop Alchemy's dialog, and
+    // approving it here would fail the session check in consumeApproval.
+    val pendingApproval: StateFlow<PendingApproval?> = commandExecutor.currentApproval
+        .map { it?.takeIf { a -> a.originSessionId == ALCHEMY_SESSION } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private fun settleBlueprintAfterApproval(result: CommandResult) {
+        val current = _currentBlueprint.value ?: return
+        if (current.status != ForgeStatus.PENDING) return
+        _currentBlueprint.value = if (result.success) {
+            current.copy(status = ForgeStatus.FORGED)
+        } else {
+            current.copy(status = ForgeStatus.FAILED)
+        }
+    }
+
+    fun approvePendingWrite(approvalId: String) {
+        viewModelScope.launch {
+            val result = commandExecutor.approve(approvalId, ALCHEMY_SESSION)
+            settleBlueprintAfterApproval(result)
+            _message.value = if (result.success) {
+                "Write approved${result.data?.bytesWritten?.let { " ($it bytes)" } ?: ""}"
+            } else {
+                "Write failed: ${result.error}"
+            }
+            if (result.success) loadVault()
+        }
+    }
+
+    fun rejectPendingWrite(approvalId: String) {
+        viewModelScope.launch {
+            commandExecutor.reject(approvalId, ALCHEMY_SESSION)
+            _currentBlueprint.value?.let {
+                if (it.status == ForgeStatus.PENDING) {
+                    _currentBlueprint.value = it.copy(status = ForgeStatus.BLUEPRINT)
+                }
+            }
+            _message.value = "Write rejected — nothing was written"
+        }
+    }
+
+    /**
+     * Single write path for Alchemy. Every write goes through CommandExecutor so the risk
+     * model, permission scope, and audit log apply exactly as they do for the agent.
+     */
+    private suspend fun writeViaRiskModel(path: String, content: String, justification: String): CommandResult =
+        commandExecutor.execute(
+            ExecuteCommand(
+                action = CommandAction.WRITE_FILE,
+                args = CommandArgs(path = path, content = content),
+                justification = justification,
+                expectedEffect = "Overwrite $path with ${content.length} bytes"
+            ),
+            ALCHEMY_SESSION,
+        )
 
     // ═══════════════════════════════════════════════════════
     // THE WORKBENCH — Visual Editor State
@@ -126,6 +190,7 @@ class AlchemyLabViewModel @Inject constructor(
                 val result = forgeEngine.forge(input)
                 val blueprint = result.blueprint
                 _currentBlueprint.value = blueprint
+                _forgeValidation.value = result.validation
                 _forgeHistory.value = listOf(blueprint) + _forgeHistory.value.take(9)
 
                 if (result.validation.warnings.isNotEmpty()) {
@@ -141,6 +206,7 @@ class AlchemyLabViewModel @Inject constructor(
                 _forgeError.value = "Forge failed: ${e.message}"
                 val fallback = forgeEngine.fallback(input)
                 _currentBlueprint.value = fallback.blueprint
+                _forgeValidation.value = fallback.validation
             } finally {
                 _isForging.value = false
             }
@@ -149,6 +215,13 @@ class AlchemyLabViewModel @Inject constructor(
 
     fun deployBlueprint() {
         val blueprint = _currentBlueprint.value ?: return
+
+        // AI-authored content is never deployed unvalidated.
+        val validation = _forgeValidation.value
+        if (validation == null || !validation.valid) {
+            _message.value = "Deploy blocked: ${validation?.errors?.joinToString("; ") ?: "content was never validated"}"
+            return
+        }
 
         viewModelScope.launch {
             _currentBlueprint.value = blueprint.copy(status = ForgeStatus.FORGING)
@@ -160,16 +233,29 @@ class AlchemyLabViewModel @Inject constructor(
                     fileSystem.createDirectory(dirPath)
                 }
 
-                val result = fileSystem.writeFile(blueprint.flipperPath, blueprint.generatedCode)
+                val content = validation.sanitizedContent ?: blueprint.generatedCode
+                val result = writeViaRiskModel(
+                    path = blueprint.flipperPath,
+                    content = content,
+                    justification = "Deploy AI-generated ${blueprint.payloadType.displayName} payload to the Flipper",
+                )
                 // Re-read current blueprint to avoid overwriting edits made during deploy
                 val current = _currentBlueprint.value ?: blueprint
-                if (result.isSuccess) {
-                    _currentBlueprint.value = current.copy(status = ForgeStatus.FORGED)
-                    _message.value = "Forged to ${blueprint.flipperPath}"
-                    loadVault() // Refresh vault to show new loot
-                } else {
-                    _currentBlueprint.value = current.copy(status = ForgeStatus.FAILED)
-                    _message.value = "Deploy failed: ${result.exceptionOrNull()?.message}"
+                when {
+                    result.success -> {
+                        _currentBlueprint.value = current.copy(status = ForgeStatus.FORGED)
+                        _message.value = "Forged to ${blueprint.flipperPath}"
+                        loadVault() // Refresh vault to show new loot
+                    }
+                    result.requiresConfirmation -> {
+                        // Risk model is holding the write; the dialog resolves it.
+                        _currentBlueprint.value = current.copy(status = ForgeStatus.PENDING)
+                        _message.value = "Approval required before writing ${blueprint.flipperPath}"
+                    }
+                    else -> {
+                        _currentBlueprint.value = current.copy(status = ForgeStatus.FAILED)
+                        _message.value = "Deploy failed: ${result.error}"
+                    }
                 }
             } catch (e: Exception) {
                 val current = _currentBlueprint.value ?: blueprint
@@ -200,7 +286,7 @@ class AlchemyLabViewModel @Inject constructor(
     fun importRaw(content: String) {
         val imported = SignalAlchemist.importSubGhzRaw(content)
         if (imported == null) {
-            _message.value = "Invalid RAW file: use version 1, a standard preset, 280–930 MHz, and at most 16,384 nonzero pulses (1 MiB)"
+            _message.value = "Cannot import: needs Filetype/Version 1/Protocol RAW, a standard preset (GFSK/MSK are not Flipper presets — re-create this signal in Alchemy Lab), 280–930 MHz, and at most 16,384 nonzero pulses (1 MiB)"
             return
         }
         _project.value = imported
@@ -221,6 +307,7 @@ class AlchemyLabViewModel @Inject constructor(
 
     fun clearBlueprint() {
         _currentBlueprint.value = null
+        _forgeValidation.value = null
         _forgeInput.value = ""
     }
 
@@ -265,12 +352,18 @@ class AlchemyLabViewModel @Inject constructor(
         viewModelScope.launch {
             _isSaving.value = true
             try {
-                val result = fileSystem.writeFile(loot.path, _editContent.value)
-                if (result.isSuccess) {
+                val result = writeViaRiskModel(
+                    path = loot.path,
+                    content = _editContent.value,
+                    justification = "Save edits to ${loot.name} from the Alchemy workbench",
+                )
+                if (result.success) {
                     _message.value = "Saved ${loot.name}"
                     _editingLoot.value = null
+                } else if (result.requiresConfirmation) {
+                    _message.value = "Approval required to save ${loot.name}"
                 } else {
-                    _message.value = "Save failed: ${result.exceptionOrNull()?.message}"
+                    _message.value = "Save failed: ${result.error}"
                 }
             } catch (e: Exception) {
                 _message.value = "Save error: ${e.message}"
@@ -380,10 +473,19 @@ class AlchemyLabViewModel @Inject constructor(
 
                 val content = fileSystem.readFile(loot.path)
                 if (content.isSuccess) {
-                    val writeResult = fileSystem.writeFile(newPath, content.getOrDefault(""))
-                    if (writeResult.isSuccess) {
-                        _message.value = "Duplicated as $newName"
-                        loadVault()
+                    val writeResult = writeViaRiskModel(
+                        path = newPath,
+                        content = content.getOrDefault(""),
+                        justification = "Duplicate loot file $newName",
+                    )
+                    when {
+                        writeResult.success -> {
+                            _message.value = "Duplicated as $newName"
+                            loadVault()
+                        }
+                        writeResult.requiresConfirmation ->
+                            _message.value = "Approval required to duplicate $newName"
+                        else -> _message.value = "Duplicate failed: ${writeResult.error}"
                     }
                 }
             } catch (e: Exception) {
@@ -461,9 +563,16 @@ class AlchemyLabViewModel @Inject constructor(
                 val filename = _project.value.name.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(32)
                 val path = "/ext/subghz/alchemy_$filename.sub"
                 fileSystem.createDirectory(path.substringBeforeLast("/"))
-                val result = fileSystem.writeFile(path, content)
-                if (result.isSuccess) { _message.value = "Saved to $path"; _showExportDialog.value = false }
-                else _message.value = "Failed to save: ${result.exceptionOrNull()?.message}"
+                val result = writeViaRiskModel(
+                    path = path,
+                    content = content,
+                    justification = "Export Alchemy signal to $path on the Flipper",
+                )
+                when {
+                    result.success -> { _message.value = "Saved to $path"; _showExportDialog.value = false }
+                    result.requiresConfirmation -> _message.value = "Approval required to save $path"
+                    else -> _message.value = "Failed to save: ${result.error}"
+                }
             } catch (e: Exception) { _message.value = "Error: ${e.message}" }
             finally { _isSaving.value = false }
         }
@@ -503,6 +612,8 @@ class AlchemyLabViewModel @Inject constructor(
     }
 
     companion object {
+        const val ALCHEMY_SESSION = "alchemy-lab"
+
         fun formatFrequency(hz: Long): String = when {
             hz >= 1_000_000_000 -> String.format(java.util.Locale.US, "%.3f GHz", hz / 1_000_000_000.0)
             hz >= 1_000_000 -> String.format(java.util.Locale.US, "%.3f MHz", hz / 1_000_000.0)
