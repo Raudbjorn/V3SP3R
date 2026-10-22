@@ -136,6 +136,25 @@ class FlipperProtocol @Inject constructor() {
     @Volatile
     private var lastRpcActivityAtMs: Long = 0L
 
+    // Capabilities describe firmware history; this records the currently observed session.
+    private enum class CommandSessionMode { UNKNOWN, CLI, RPC }
+    @Volatile private var observedCommandSessionMode = CommandSessionMode.UNKNOWN
+
+    internal fun onRpcDispatch() { observedCommandSessionMode = CommandSessionMode.UNKNOWN }
+    private fun isRpcSessionControl(command: String) = command.lineSequence().any { line ->
+        val token = line.trim().takeWhile { !it.isWhitespace() }.lowercase()
+        token == "start_rpc_session" || token == "stop_rpc_session"
+    }
+    private fun noteCliResponse(command: String, response: String) {
+        if (isRpcSessionControl(command)) onRpcDispatch() else markCliReady(response)
+    }
+
+    fun isConfirmedUsbCliSession(): Boolean {
+        val status = _cliStatus.value
+        return isRawCliTransportConnected() && status.level == CliCapabilityLevel.READY &&
+            status.supportsCli && observedCommandSessionMode == CommandSessionMode.CLI
+    }
+
     private var currentRequestId: UInt = 0u
 
     private val _responseFlow = MutableSharedFlow<ProtocolResponse>(extraBufferCapacity = 64,
@@ -159,6 +178,8 @@ class FlipperProtocol @Inject constructor() {
         }
     }
 
+    fun isRawCliTransportConnected(): Boolean = bleService?.isRawCliTransportConnected() == true
+
     fun setBleService(service: FlipperBleService) {
         this.bleService = service
     }
@@ -166,6 +187,7 @@ class FlipperProtocol @Inject constructor() {
     fun onConnectionReset() = synchronized(ingressStateLock) {
         connectionEpoch.incrementAndGet()
         ingressFailure = null
+        observedCommandSessionMode = CommandSessionMode.UNKNOWN
         responseBuffer.reset()
         rawCliCollector = null
         rawBinaryCollector = null
@@ -207,6 +229,7 @@ class FlipperProtocol @Inject constructor() {
                 continue
             }
 
+            onRpcDispatch()
             val sent = service.sendData(data)
             if (!sent) {
                 val reason = service.consumeLastWriteFailureReason()
@@ -908,6 +931,7 @@ class FlipperProtocol @Inject constructor() {
                         setHasNext(true)
                         setStorageWriteRequest(writeRequest)
                     }
+                    onRpcDispatch()
                     val sent = service.sendData(packet)
                     if (!sent) {
                         lastFailure = ProtocolResponse.Error("BLE send failed during chunked write at chunk ${chunkIndex + 1}/$totalChunks: $path")
@@ -1563,6 +1587,30 @@ class FlipperProtocol @Inject constructor() {
         )
     }
 
+    /** Loader operations may have side effects: never replay an uncertain USB write. */
+    suspend fun sendLoaderCommandOnce(command: String): ProtocolResponse = withProtocolCommandLock(
+        operation = "USB loader command",
+        onTimeout = { ProtocolResponse.Error("Loader command pipeline busy") }
+    ) {
+        if (!isConfirmedUsbCliSession()) {
+            return@withProtocolCommandLock ProtocolResponse.Error("Loader commands require confirmed USB CLI-only mode; BLE RPC is unsupported")
+        }
+        val response = collectRawCliResponseAttempt(
+            "$command\r\n".toByteArray(Charsets.UTF_8), RAW_CLI_TIMEOUT_MS, usbOnly = true
+        )
+        val content = response.lineSequence()
+            .map { it.trim().removePrefix(">:").trim() }
+            .filter { it.isNotBlank() && it != command.trim() && it != ">" }
+            .joinToString("\n")
+        if (content.isBlank() || !isLikelyCliText(content)) {
+            ProtocolResponse.Error("Loader command outcome unconfirmed; inspect device before retrying")
+        } else if (content.lineSequence().any { Regex("(?i)^error(?:\\b|:)").containsMatchIn(it) }) {
+            ProtocolResponse.Error("Loader command failed: ${content.take(220)}")
+        } else {
+            normalizeCliResponse(command, ProtocolResponse.FileContent(content))
+        }
+    }
+
     /**
      * Send a CLI command to the Flipper.
      * This sends commands in a format the Flipper CLI understands.
@@ -1582,10 +1630,8 @@ class FlipperProtocol @Inject constructor() {
             val response = sendSingleCliCommand(variant)
             val normalizedResponse = normalizeCliResponse(variant, response)
             learnFirmwareProfile(normalizedResponse)
-            val responseText = extractResponseText(normalizedResponse)
-            if (responseText.isNotBlank()) {
-                markCliReady(responseText)
-            }
+            // Only the raw response/probe path may confirm CLI. A local error or RPC
+            // bridge result is not evidence that the current transport is in CLI mode.
 
             if (index < commandVariants.lastIndex && shouldRetryWithNextVariant(variant, normalizedResponse)) {
                 attemptMessages.add("${variant}: ${summarizeResponse(normalizedResponse)}")
@@ -1835,6 +1881,7 @@ class FlipperProtocol @Inject constructor() {
             }
             if (service.usesRpcOnlyCommandTransport()) return@withCommandLock false
             val data = "$text\r\n".toByteArray(Charsets.UTF_8)
+            if (isRpcSessionControl(text)) onRpcDispatch()
             val sent = service.sendData(data)
             if (!sent) {
                 markCliUnavailable("Failed to send CLI data over active transport")
@@ -1973,7 +2020,8 @@ class FlipperProtocol @Inject constructor() {
         }
 
         val current = _cliStatus.value
-        if (current.level == CliCapabilityLevel.READY && current.supportsCli) {
+        if (current.level == CliCapabilityLevel.READY && current.supportsCli &&
+            observedCommandSessionMode == CommandSessionMode.CLI) {
             return current
         }
 
@@ -1983,7 +2031,7 @@ class FlipperProtocol @Inject constructor() {
 
         val nowMs = System.currentTimeMillis()
         if (current.supportsRpc &&
-            !current.supportsCli &&
+            observedCommandSessionMode != CommandSessionMode.CLI &&
             (nowMs - lastRpcActivityAtMs) in 0..RPC_SESSION_STOP_GUARD_WINDOW_MS
         ) {
             return markRpcReady(
@@ -2867,7 +2915,8 @@ class FlipperProtocol @Inject constructor() {
                     baseCandidates = listOf(appName),
                     customOverride = null
                 ),
-                appArgs = remainingArgs.ifBlank { RPC_APP_START_ARGUMENT },
+                // Interactive launches must not implicitly request headless RPC mode.
+                appArgs = remainingArgs,
                 buttonArgsCandidates = listOf(""),
                 triggerOkPress = false
             )
@@ -3006,7 +3055,7 @@ class FlipperProtocol @Inject constructor() {
 
         val responseText = collectRawCliResponse("$command\r\n", RAW_CLI_TIMEOUT_MS)
         if (responseText.isNotBlank() && isLikelyCliText(responseText)) {
-            markCliReady(responseText)
+            noteCliResponse(command, responseText)
             return@withProtocolCommandLock ProtocolResponse.FileContent(responseText.trim())
         }
 
@@ -3019,7 +3068,7 @@ class FlipperProtocol @Inject constructor() {
                 if (recovered.level == CliCapabilityLevel.READY && recovered.supportsCli) {
                     val retriedResponse = collectRawCliResponse("$command\r\n", RAW_CLI_TIMEOUT_MS)
                     if (retriedResponse.isNotBlank() && isLikelyCliText(retriedResponse)) {
-                        markCliReady(retriedResponse)
+                        noteCliResponse(command, retriedResponse)
                         return@withProtocolCommandLock ProtocolResponse.FileContent(retriedResponse.trim())
                     }
                 }
@@ -3068,10 +3117,12 @@ class FlipperProtocol @Inject constructor() {
         return ""
     }
 
-    private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long): String {
+    private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long, usbOnly: Boolean = false): String {
         ingressFailure?.let { throw ResponseCollectionException(it) }
         // Firmware probes must also avoid mixing textual CLI and active RPC streaming.
         if (screenFrameRouting) return ""
+        val command = payload.toString(Charsets.UTF_8).trim()
+        if (isRpcSessionControl(command)) onRpcDispatch()
         val collector = RawCliCollector()
         synchronized(ingressStateLock) {
             ingressFailure?.let { throw ResponseCollectionException(it) }
@@ -3082,7 +3133,7 @@ class FlipperProtocol @Inject constructor() {
             if (service == null) {
                 return ""
             }
-            val sent = service.sendData(payload)
+            val sent = if (usbOnly) service.sendUsbDataOnly(payload) else service.sendData(payload)
             if (!sent) {
                 return ""
             }
@@ -3105,6 +3156,7 @@ class FlipperProtocol @Inject constructor() {
         payload: ByteArray, timeoutMs: Long, allowWriteRetry: Boolean = true
     ): ByteArray {
         ingressFailure?.let { throw ResponseCollectionException(it) }
+        onRpcDispatch()
         val collector = RawBinaryCollector()
         synchronized(ingressStateLock) {
             ingressFailure?.let { throw ResponseCollectionException(it) }
@@ -3236,6 +3288,7 @@ class FlipperProtocol @Inject constructor() {
         timeoutMs: Long,
         allowWriteRetry: Boolean = true
     ): List<Flipper.Main> {
+        onRpcDispatch()
         val collector = RawBinaryCollector()
         val epoch = synchronized(ingressStateLock) {
             ingressFailure?.let { throw ResponseCollectionException(it) }
@@ -3279,7 +3332,11 @@ class FlipperProtocol @Inject constructor() {
             if (collected.lastOrNull()?.hasNext == true) {
                 throw ResponseCollectionException("RPC response incomplete before deadline")
             }
-            if (collected.isNotEmpty()) lastRpcActivityAtMs = System.currentTimeMillis()
+            if (collected.isNotEmpty()) synchronized(ingressStateLock) {
+                ensureGeneration()
+                observedCommandSessionMode = CommandSessionMode.RPC
+                lastRpcActivityAtMs = System.currentTimeMillis()
+            }
             collected
         } finally {
             synchronized(ingressStateLock) { if (rawBinaryCollector === collector) rawBinaryCollector = null }
@@ -3287,6 +3344,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private suspend fun tryStartRpcSession(): Boolean {
+        onRpcDispatch()
         val service = bleService ?: return false
         if (service.usesRpcOnlyCommandTransport()) return false
         val sessionCommands = listOf(
@@ -3423,6 +3481,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private fun markCliReady(rawOutput: String): CliCapabilityStatus {
+        observedCommandSessionMode = CommandSessionMode.CLI
         val output = rawOutput.trim()
         val previous = _cliStatus.value
         val status = CliCapabilityStatus(
@@ -3444,6 +3503,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private fun markRpcReady(detail: String): CliCapabilityStatus {
+        observedCommandSessionMode = CommandSessionMode.RPC
         val previous = _cliStatus.value
         val status = CliCapabilityStatus(
             level = CliCapabilityLevel.READY,
@@ -3460,6 +3520,7 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private fun markCliUnavailable(reason: String): CliCapabilityStatus {
+        observedCommandSessionMode = CommandSessionMode.UNKNOWN
         val status = CliCapabilityStatus(
             level = CliCapabilityLevel.UNAVAILABLE,
             checkedAtMs = System.currentTimeMillis(),
