@@ -9,7 +9,7 @@ import org.junit.Test
 import org.mockito.kotlin.*
 
 class RemoteActionsTest {
-    @Test fun `confirmed USB CLI returns loader list output`() = runBlocking {
+    @Test fun `confirmed USB CLI returns loader list output`() = runBlocking<Unit> {
         val protocol: FlipperProtocol = mock()
         val fs = FlipperFileSystem(protocol, mock())
         whenever(protocol.isRawCliTransportConnected()).thenReturn(true)
@@ -21,7 +21,7 @@ class RemoteActionsTest {
         assertEquals("NFC\nInfrared", fs.executeLoaderControl("list").getOrThrow())
     }
 
-    @Test fun `input errors return failure without attempting CLI duplicate`() = runBlocking {
+    @Test fun `input errors return failure without attempting CLI duplicate`() = runBlocking<Unit> {
         val protocol: FlipperProtocol = mock()
         val fs = FlipperFileSystem(protocol, mock())
         whenever(protocol.sendGuiInputEvent(Gui.InputKey.BACK, Gui.InputType.SHORT))
@@ -31,7 +31,7 @@ class RemoteActionsTest {
         assertTrue(result.exceptionOrNull()!!.message!!.contains("No acknowledgement"))
         verify(protocol, never()).sendCliCommand(any())
     }
-    @Test fun `invalid input and unavailable raw CLI fail explicitly`() = runBlocking {
+    @Test fun `invalid input and unavailable raw CLI fail explicitly`() = runBlocking<Unit> {
         val protocol: FlipperProtocol = mock()
         val fs = FlipperFileSystem(protocol, mock())
         assertTrue(fs.sendInputEvent("back; power off").isFailure)
