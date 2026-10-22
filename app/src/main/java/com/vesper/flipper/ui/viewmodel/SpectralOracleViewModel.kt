@@ -3,37 +3,19 @@ package com.vesper.flipper.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vesper.flipper.ble.FlipperFileSystem
-import com.vesper.flipper.data.SettingsStore
+import com.vesper.flipper.ai.OpenRouterClient
+import kotlinx.coroutines.CancellationException
 import com.vesper.flipper.domain.model.*
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.UnknownHostException
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
 class SpectralOracleViewModel @Inject constructor(
     private val fileSystem: FlipperFileSystem,
-    private val settingsStore: SettingsStore
+    private val chatClient: OpenRouterClient
 ) : ViewModel() {
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS) // Long timeout for analysis
-        .build()
-
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
 
     // Available signals for analysis
     private val _availableSignals = MutableStateFlow<List<SignalCapture>>(emptyList())
@@ -145,6 +127,7 @@ class SpectralOracleViewModel @Inject constructor(
                 _analysisProgress.value = "Analysis complete"
 
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _error.value = "Analysis failed: ${e.message}"
             } finally {
                 _isAnalyzing.value = false
@@ -174,68 +157,14 @@ class SpectralOracleViewModel @Inject constructor(
         }
     }
 
-    private suspend fun performAIAnalysis(request: SignalIntelRequest): OracleAnalysisResult =
-        withContext(Dispatchers.IO) {
-            val apiKey = settingsStore.apiKey.first()
-                ?: throw Exception("API key not configured")
+    private suspend fun performAIAnalysis(request: SignalIntelRequest): OracleAnalysisResult {
+        // The shared client captures provider, credential and protocol together for every request.
+        val response = chatClient.chatSimple(OraclePrompts.buildAnalysisPrompt(request))
+            ?: throw IllegalStateException("The selected provider could not complete signal analysis")
+        return parseAIResponse(response, request)
+    }
 
-            val model = settingsStore.selectedModel.first()
-            val prompt = OraclePrompts.buildAnalysisPrompt(request)
-
-            val requestBody = """
-            {
-                "model": "$model",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are Spectral Oracle, an elite RF signals intelligence AI. Provide detailed, technical analysis of captured RF signals. Always structure your response clearly with sections for: PROTOCOL IDENTIFICATION, VULNERABILITIES, EXPLOITS, THREAT ASSESSMENT, and RECOMMENDATIONS."
-                    },
-                    {
-                        "role": "user",
-                        "content": ${json.encodeToString(kotlinx.serialization.serializer(), prompt)}
-                    }
-                ],
-                "max_tokens": 4000,
-                "temperature": 0.3
-            }
-            """.trimIndent()
-
-            val httpRequest = Request.Builder()
-                .url("https://openrouter.ai/api/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
-                .addHeader("Content-Type", "application/json")
-                .addHeader("HTTP-Referer", "https://vesper.flipper.app")
-                .addHeader("X-Title", "Vesper Spectral Oracle")
-                .post(requestBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            try {
-                val response = client.newCall(httpRequest).execute()
-                val responseBody = response.body?.string()
-                    ?: throw Exception("Empty response from AI")
-
-                if (!response.isSuccessful) {
-                    throw Exception("API error: ${response.code}")
-                }
-
-                parseAIResponse(responseBody, request)
-            } catch (_: UnknownHostException) {
-                throw Exception(
-                    "Cannot resolve openrouter.ai (DNS/network issue). Verify internet access, disable broken Private DNS/VPN, then retry."
-                )
-            }
-        }
-
-    private fun parseAIResponse(responseBody: String, request: SignalIntelRequest): OracleAnalysisResult {
-        // Extract the AI message content
-        val contentRegex = """"content"\s*:\s*"(.*?)(?<!\\)"""".toRegex(RegexOption.DOT_MATCHES_ALL)
-        val match = contentRegex.find(responseBody)
-        val aiResponse = match?.groupValues?.get(1)
-            ?.replace("\\n", "\n")
-            ?.replace("\\\"", "\"")
-            ?.replace("\\\\", "\\")
-            ?: responseBody
-
+    private fun parseAIResponse(aiResponse: String, request: SignalIntelRequest): OracleAnalysisResult {
         // Parse structured sections from AI response
         val sections = parseResponseSections(aiResponse)
 

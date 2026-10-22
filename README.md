@@ -56,7 +56,7 @@ Direct control over all Flipper subsystems:
 ### Multimodal Input
 - **Voice input** — Speak commands using on-device speech recognition
 - **Photo analysis** — Snap a picture of a remote, a device label, or anything — the AI sees what you see
-- **Text-to-speech** — AI responses read aloud via OpenRouter TTS
+- **Text-to-speech** — AI responses use the selected provider’s speech backend: OpenRouter audio, OpenAI speech, Gemini TTS, or xAI TTS; Anthropic has no speech endpoint
 - **Smart glasses** — Hands-free voice + camera via Mentra glasses bridge
 
 ### Ops Center
@@ -112,7 +112,7 @@ Every action the AI takes is logged:
 
 ## Recommended AI Models
 
-Vesper works with any model on [OpenRouter](https://openrouter.ai). For the best experience:
+Vesper supports provider-specific configurations for OpenRouter, OpenAI, Gemini, xAI and Anthropic. Use models with tool support for device commands; see [provider settings](docs/provider-settings.md) for protocol and speech availability. For the default OpenRouter configuration:
 
 | Model | Why Use It | Speed | Cost |
 |-------|-----------|-------|------|
@@ -173,7 +173,7 @@ Install via USB debugging or transfer the APK to your phone.
 
 ### 4. First Launch
 1. **Grant permissions** — Bluetooth, Location (required for BLE scanning), Notifications
-2. **Add your API key** — Settings > paste your OpenRouter key
+2. **Add your API key** — Settings > select your provider and enter that provider’s API key (OpenRouter is the default)
 3. **Connect** — Device tab > Scan > tap your Flipper
 4. **Go** — Chat tab > start talking to your Flipper
 
