@@ -220,7 +220,9 @@ data class DeviceInfo(
     @SerialName("battery_level")
     val batteryLevel: Int,
     @SerialName("is_charging")
-    val isCharging: Boolean
+    val isCharging: Boolean,
+    val firmwareTarget: String? = null,
+    val firmwareApi: String? = null
 )
 
 @Serializable

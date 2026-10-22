@@ -794,6 +794,10 @@ class FlipperFileSystem @Inject constructor(
     }
 
     private fun parseCliDeviceInfo(content: String): DeviceInfo {
+        val values = content.lineSequence().mapNotNull { line ->
+            Regex("^([A-Za-z0-9_.]+)\\s*[:=]\\s*(.+)$").find(line.trim())
+                ?.let { it.groupValues[1] to it.groupValues[2].trim() }
+        }.toMap()
         val firmware = Regex(
             "(?im)^(?:firmware(?:_version)?|version|fw)\\s*[:=]\\s*([^\\r\\n]+)$"
         ).find(content)
@@ -818,7 +822,11 @@ class FlipperFileSystem @Inject constructor(
             firmwareVersion = firmware,
             hardwareVersion = "unknown",
             batteryLevel = batteryLevel.coerceIn(0, 100),
-            isCharging = isCharging
+            isCharging = isCharging,
+            firmwareTarget = values["firmware_target"]?.let { "f" + it.removePrefix("f") },
+            firmwareApi = (values["firmware_api_major"] ?: values["firmware_api.major"])?.let { major ->
+                (values["firmware_api_minor"] ?: values["firmware_api.minor"])?.let { minor -> "$major.$minor" }
+            }
         )
     }
 
