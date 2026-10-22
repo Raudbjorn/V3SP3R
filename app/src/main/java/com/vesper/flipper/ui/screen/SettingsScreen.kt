@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vesper.flipper.data.SettingsStore
+import com.vesper.flipper.ui.components.ModelPicker
 import com.vesper.flipper.domain.model.Permission
 import com.vesper.flipper.ui.theme.*
 import com.vesper.flipper.ui.viewmodel.SettingsViewModel
@@ -116,54 +117,17 @@ fun SettingsScreen(
                         }
                     }
                     Text(
-                        text = "Tool calls auto-fallback across multiple models; if it still fails, pick a different model and retry.",
+                        text = "Recognized model availability or tool-use errors try another model. If a response cannot help, choose a different model and retry.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    var modelExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(
-                        expanded = modelExpanded,
-                        onExpandedChange = { modelExpanded = it }
-                    ) {
-                        OutlinedTextField(
-                            value = viewModel.getModelDisplayName(state.selectedModel),
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Model (OpenRouter)") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(),
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded)
-                            },
-                            supportingText = { Text(state.selectedModel) },
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        ExposedDropdownMenu(
-                            expanded = modelExpanded,
-                            onDismissRequest = { modelExpanded = false }
-                        ) {
-                            availableModels.forEach { model ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(model.displayName)
-                                            Text(
-                                                model.id,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.setSelectedModel(model.id)
-                                        modelExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    ModelPicker(
+                        models = availableModels,
+                        selectedId = state.selectedModel,
+                        selectedName = viewModel.getModelDisplayName(state.selectedModel),
+                        onSelect = viewModel::setSelectedModel
+                    )
 
                     Spacer(modifier = Modifier.height(12.dp))
 

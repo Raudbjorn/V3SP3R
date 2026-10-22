@@ -531,7 +531,7 @@ class OpenRouterClient @Inject constructor(
     /**
      * Parse and validate the API response.
      */
-    private fun parseResponse(responseBody: String): ChatCompletionResult {
+    internal fun parseResponse(responseBody: String): ChatCompletionResult {
         return try {
             val root = try {
                 json.parseToJsonElement(responseBody).jsonObject
@@ -574,7 +574,6 @@ class OpenRouterClient @Inject constructor(
             val toolCalls = rawToolCalls?.mapNotNull { tc ->
                 // Validate tool call structure — reject blanks but log them
                 if (tc.id.isBlank() || tc.function.name.isBlank()) {
-                    Log.w(TAG, "Dropping malformed tool call: id='${tc.id}' name='${tc.function.name}' args='${tc.function.arguments.take(100)}'")
                     null
                 } else {
                     ToolCall(
@@ -585,10 +584,16 @@ class OpenRouterClient @Inject constructor(
                 }
             }?.take(MAX_TOOL_CALLS_PER_RESPONSE)
 
-            // Warn if model sent tool calls but all were malformed
-            if (!rawToolCalls.isNullOrEmpty() && toolCalls.isNullOrEmpty()) {
-                Log.e(TAG, "Model sent ${rawToolCalls.size} tool call(s) but ALL were malformed and dropped. " +
-                    "This likely means the response was not parsed correctly.")
+            if (!rawToolCalls.isNullOrEmpty() && rawToolCalls.size != toolCalls?.size) {
+                return ChatCompletionResult.Error("Model returned malformed or excessive tool calls. Retry the request.")
+            }
+            if (content.isBlank() && toolCalls.isNullOrEmpty()) {
+                val reason = when (choice.finishReason) {
+                    "content_filter", "safety", "blocklist" -> "The provider declined this request."
+                    "length" -> "The model reached its output limit before producing a response."
+                    else -> "The model returned an empty response."
+                }
+                return ChatCompletionResult.Error(reason + " Retry or check the model in Settings.")
             }
 
             ChatCompletionResult.Success(
@@ -1444,11 +1449,8 @@ class OpenRouterClient @Inject constructor(
         )
 
         private val TOOL_USE_FALLBACK_MODELS = listOf(
-            "nousresearch/hermes-4-405b",
             "anthropic/claude-sonnet-4.5",
             "openai/gpt-oss-120b",
-            "x-ai/grok-4-fast",
-            "cohere/command-a"
         )
 
         private val KNOWN_NON_TOOL_MODELS = setOf(

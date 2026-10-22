@@ -3,6 +3,7 @@ package com.vesper.flipper.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vesper.flipper.data.ModelInfo
+import com.vesper.flipper.data.ModelPickerChoices
 import com.vesper.flipper.data.OpenRouterModelCatalog
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.CommandAction
@@ -50,7 +51,13 @@ class SettingsViewModel @Inject constructor(
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
     private val _availableModels = MutableStateFlow(SettingsStore.FALLBACK_MODELS)
-    val availableModels: StateFlow<List<ModelInfo>> = _availableModels.asStateFlow()
+    val availableModels: StateFlow<List<ModelInfo>> = combine(_availableModels, _state) { models, settings ->
+        ModelPickerChoices.retainSelection(models, settings.selectedModel)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        ModelPickerChoices.retainSelection(SettingsStore.FALLBACK_MODELS, SettingsStore.DEFAULT_MODEL)
+    )
 
     private val _isRefreshingModels = MutableStateFlow(false)
     val isRefreshingModels: StateFlow<Boolean> = _isRefreshingModels.asStateFlow()
@@ -197,12 +204,9 @@ class SettingsViewModel @Inject constructor(
 
         viewModelScope.launch {
             _isRefreshingModels.value = true
-            openRouterModelCatalog.fetchLatestByManufacturer()
+            openRouterModelCatalog.fetchToolModels()
                 .onSuccess { models ->
-                    val merged = (
-                            models + SettingsStore.FALLBACK_MODELS.filter { it.id == SettingsStore.DEFAULT_MODEL }
-                            ).distinctBy { it.id }
-                    _availableModels.value = merged
+                    _availableModels.value = models.distinctBy { it.id }
                 }
                 .onFailure {
                     _availableModels.value = SettingsStore.FALLBACK_MODELS
@@ -212,7 +216,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun getModelDisplayName(modelId: String): String {
-        val displayList = (_availableModels.value + SettingsStore.FALLBACK_MODELS).distinctBy { it.id }
+        val displayList = ModelPickerChoices.retainSelection(_availableModels.value, modelId)
         return SettingsStore.getModelDisplayName(modelId, displayList)
     }
 
