@@ -247,3 +247,23 @@ async def test_describe_action_no_risk_field_leak():
     result = await schema.describe_action("get_device_info")
     assert result["ok"] is True
     assert "risk" not in result["data"]
+
+
+@pytest.mark.parametrize(
+    ("action", "expected", "obsolete"),
+    [
+        ("vibro_control", {"enabled": "boolean"}, {"state"}),
+        ("led_control", {"red": "integer", "green": "integer", "blue": "integer"}, {"color"}),
+        ("forge_payload", {"prompt": "string"}, {"payload_spec"}),
+    ],
+)
+async def test_describe_action_matches_executor_argument_contract(action, expected, obsolete):
+    """Model-facing keys must preserve off/RGB/payload intent accepted by Android."""
+    from vesper_mcp.tools import schema
+
+    result = await schema.describe_action(action)
+    assert result["ok"] is True
+    args = result["data"]["args"]
+    for key, kind in expected.items():
+        assert args[key]["type"] == kind
+    assert not obsolete.intersection(args)
