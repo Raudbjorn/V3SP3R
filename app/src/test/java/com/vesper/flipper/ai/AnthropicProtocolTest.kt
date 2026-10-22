@@ -37,6 +37,7 @@ class AnthropicProtocolTest {
         val message = result["choices"]!!.jsonArray[0].jsonObject["message"]!!.jsonObject
         assertEquals("checking", message["content"]!!.jsonPrimitive.content)
         assertEquals("t1", message["tool_calls"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(15, Json.decodeFromString<OpenRouterResponse>(result.toString()).usage!!.totalTokens)
         assertEquals(15, result["usage"]!!.jsonObject["total_tokens"]!!.jsonPrimitive.int)
     }
     @Test(expected=IllegalArgumentException::class) fun `empty native response is rejected`() {

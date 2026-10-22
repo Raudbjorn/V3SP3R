@@ -66,10 +66,12 @@ internal class ChatStreamReader(private val native: Boolean) {
             put("id", id); put("model", model); put("stop_reason", stop); put("usage", usage)
             put("content", JsonArray(blocks.values.toList()))
         }.toString() else buildJsonObject {
-            put("id", id); put("model", model); put("usage", usage)
+            put("id", id); put("model", model)
+            if (usage.isNotEmpty()) put("usage", usage)
             put("choices", buildJsonArray { add(buildJsonObject {
                 put("finish_reason", stop)
                 put("message", buildJsonObject {
+                    put("role", "assistant")
                     put("content", text.toString())
                     if (tools.isNotEmpty()) put("tool_calls", JsonArray(tools.map { (index, tool) ->
                         JsonObject(tool + ("function" to JsonObject(tool["function"]!!.jsonObject +

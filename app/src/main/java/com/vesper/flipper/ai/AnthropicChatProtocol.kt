@@ -21,7 +21,7 @@ object AnthropicChatProtocol : ChatProtocol {
 
     internal fun encodeRequest(request: OpenRouterRequest): JsonObject = buildJsonObject {
         put("model", request.model)
-        put("max_tokens", maxOf(request.maxTokens ?: request.maxCompletionTokens ?: 4096, request.thinkingBudget + 4096))
+        put("max_tokens", maxOf(request.maxTokens ?: request.maxCompletionTokens ?: 4096, if (request.thinkingBudget > 0) request.thinkingBudget + 4096 else 1))
         put("stream", request.stream)
         if (request.thinkingBudget > 0) put("thinking", buildJsonObject {
             put("type", "enabled"); put("budget_tokens", request.thinkingBudget)
@@ -133,6 +133,8 @@ object AnthropicChatProtocol : ChatProtocol {
                 })
             }) })
             root["usage"]?.jsonObject?.let { usage -> put("usage", buildJsonObject {
+                put("prompt_tokens", usage["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0)
+                put("completion_tokens", usage["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0)
                 put("total_tokens", (usage["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0) +
                     (usage["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0))
             }) }

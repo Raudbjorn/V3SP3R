@@ -49,6 +49,7 @@ class ChatStreamTest {
         val raw = ChatStreamReader(false).read(sse("""{"model":"gpt","choices":[{"delta":{"content":"Hello"}}]}""", "[DONE]")) {}
         val message = Json.parseToJsonElement(raw).jsonObject["choices"]!!.jsonArray[0].jsonObject["message"]!!.jsonObject
         assertEquals("Hello", message["content"]!!.jsonPrimitive.content)
+        assertEquals("assistant", Json.decodeFromString<OpenRouterResponse>(raw).choices.first().message.role)
     }
     @Test fun `compatible tool fragments must form complete JSON before completion`() = runBlocking {
         val first = """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t","function":{"name":"execute_command","arguments":"{\"action\":"}}]}}]}"""
