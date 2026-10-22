@@ -24,6 +24,8 @@ For an additional transfer/readback check, explicitly add:
 -Pandroid.testInstrumentationRunnerArguments.writeReadback=true
 ```
 
-This writes a uniquely named `/ext/vesper-acceptance-<UUID>.txt` file and compares every byte read back. It never overwrites an existing user file. The scratch file remains for inspection and can be deleted manually. Run with the Flipper charged and its SD card mounted. Record Android version, firmware version, transport, and the test output when reporting results.
+This writes a uniquely named `/ext/vesper-acceptance-<UUID>.bin` file and compares every byte read back. It never overwrites an existing user file. The scratch file remains for inspection and can be deleted manually. Run with the Flipper charged and its SD card mounted. Record Android version, firmware version, transport, and the test output when reporting results.
 
 This harness derives from [ckumar1's pinned maintenance revision](https://github.com/ckumar1/V3SP3R/tree/261824dfe8e178e4b2cc000867c796299b20b15c). Building the test APK or passing JVM tests does not establish physical-device acceptance.
+
+The opt-in transfer contains every byte value across 8 KiB, including zero and high-bit bytes, so readback checks binary fidelity rather than only text. Device-info checks reject blank, unknown, or placeholder firmware versions.

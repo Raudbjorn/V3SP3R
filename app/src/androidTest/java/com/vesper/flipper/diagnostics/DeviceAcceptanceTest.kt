@@ -40,14 +40,21 @@ class DeviceAcceptanceTest {
             check(state is ConnectionState.Connected) { "Connection failed: $state" }
         }
 
+        suspend fun assertDeviceIdentity() {
+            val info = withTimeout(30_000) { files.getDeviceInfo().getOrThrow() }
+            assertTrue("Device must report a real firmware version", info.firmwareVersion.isNotBlank() &&
+                !info.firmwareVersion.equals("unknown", ignoreCase = true) && info.firmwareVersion != "0.0.0")
+        }
+
         try {
             connect()
-            withTimeout(30_000) { files.getDeviceInfo().getOrThrow() }
+            assertDeviceIdentity()
             withTimeout(30_000) { files.listDirectory("/ext/apps").getOrThrow() }
             if (args.getString("writeReadback") == "true") {
                 // New UUID path; never overwrite user files and retain the test file for inspection.
-                val scratch = "/ext/vesper-acceptance-${UUID.randomUUID()}.txt"
-                val bytes = "Vesper maintenance acceptance test\n".repeat(256).toByteArray()
+                val scratch = "/ext/vesper-acceptance-${UUID.randomUUID()}.bin"
+                // Exercise every byte value across multiple transport packets.
+                val bytes = ByteArray(8_192) { (it and 0xff).toByte() }
                 withTimeout(90_000) {
                     files.writeFileBytes(scratch, bytes).getOrThrow()
                     assertArrayEquals(bytes, files.readFileBytes(scratch).getOrThrow())
@@ -56,7 +63,7 @@ class DeviceAcceptanceTest {
             withContext(Dispatchers.Main) { service.disconnect() }
             withTimeout(10_000) { service.connectionState.first { it !is ConnectionState.Connected } }
             connect()
-            withTimeout(30_000) { files.getDeviceInfo().getOrThrow() }
+            assertDeviceIdentity()
             withTimeout(30_000) { files.listDirectory("/ext/apps").getOrThrow() }
         } finally {
             withContext(Dispatchers.Main) { service.disconnect() }
