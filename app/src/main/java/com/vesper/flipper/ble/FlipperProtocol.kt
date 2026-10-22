@@ -2719,13 +2719,19 @@ class FlipperProtocol @Inject constructor() {
     }
 
     private fun parseRpcCommandPlan(command: String): RpcCommandPlan? {
+        // App choice is part of the assessed action, never an option hidden in its arguments.
+        if (parseCommandArguments(command).any { token ->
+                val option = token.lowercase()
+                option == "--app" || option == "--app-name" ||
+                    option.startsWith("--app=") || option.startsWith("--app-name=")
+            }) return null
         val normalized = command.trim().replace(Regex("\\s+"), " ")
         val badUsbTail = Regex(
             "^badusb(?:\\s+(?:run|start))?\\s+(.+)$",
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
         val badUsbParsedArgs = badUsbTail?.let(::parseCommandArguments).orEmpty()
-        val (badUsbAppOverride, badUsbArgs) = extractAppOverrideAndArgs(badUsbParsedArgs)
+        val badUsbArgs = badUsbParsedArgs
         val badUsbPath = badUsbArgs.firstOrNull()
         if (!badUsbPath.isNullOrBlank()) {
             return RpcCommandPlan(
@@ -2739,8 +2745,7 @@ class FlipperProtocol @Inject constructor() {
                         "BAD USB",
                         "Bad USB App",
                         "Bad USB Keyboard"
-                    ),
-                    customOverride = badUsbAppOverride
+                    )
                 ),
                 appArgs = RPC_APP_START_ARGUMENT,
                 filePath = badUsbPath,
@@ -2754,7 +2759,7 @@ class FlipperProtocol @Inject constructor() {
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
         val subGhzParsedArgs = subGhzTail?.let(::parseCommandArguments).orEmpty()
-        val (subGhzAppOverride, subGhzArgs) = extractAppOverrideAndArgs(subGhzParsedArgs)
+        val subGhzArgs = subGhzParsedArgs
         val subGhzPath = subGhzArgs.firstOrNull()
         if (!subGhzPath.isNullOrBlank()) {
             return RpcCommandPlan(
@@ -2769,8 +2774,7 @@ class FlipperProtocol @Inject constructor() {
                         "Sub-GHz Tx",
                         "SubGHz Tx",
                         "Sub-GHz App"
-                    ),
-                    customOverride = subGhzAppOverride
+                    )
                 ),
                 appArgs = RPC_APP_START_ARGUMENT,
                 filePath = subGhzPath,
@@ -2784,7 +2788,7 @@ class FlipperProtocol @Inject constructor() {
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
         val irParsedArgs = irTail?.let(::parseCommandArguments).orEmpty()
-        val (irAppOverride, irArgs) = extractAppOverrideAndArgs(irParsedArgs)
+        val irArgs = irParsedArgs
         val irPath = irArgs.firstOrNull()
         val irSignal = irArgs.drop(1).joinToString(" ").trim().takeIf { it.isNotBlank() }
         if (!irPath.isNullOrBlank()) {
@@ -2806,8 +2810,7 @@ class FlipperProtocol @Inject constructor() {
                         "InfraredTx",
                         "Infrared TX",
                         "IR Tx"
-                    ),
-                    customOverride = irAppOverride
+                    )
                 ),
                 appArgs = RPC_APP_START_ARGUMENT,
                 filePath = irPath,
@@ -2828,7 +2831,7 @@ class FlipperProtocol @Inject constructor() {
             ?.trim()
             .orEmpty()
         val bleSpamParsedArgs = parseCommandArguments(bleSpamTail)
-        val (bleSpamAppOverride, bleSpamArgsTokens) = extractAppOverrideAndArgs(bleSpamParsedArgs)
+        val bleSpamArgsTokens = bleSpamParsedArgs
         val bleSpamArgs = bleSpamArgsTokens.joinToString(" ").trim()
         if (bleSpamCommand.matches(normalized)) {
             return RpcCommandPlan(
@@ -2840,8 +2843,7 @@ class FlipperProtocol @Inject constructor() {
                         "BLE Spam App",
                         "BLE Spammer",
                         "Bluetooth LE Spam"
-                    ),
-                    customOverride = bleSpamAppOverride
+                    )
                 ),
                 appArgs = bleSpamArgs.ifBlank { RPC_APP_START_ARGUMENT },
                 buttonArgsCandidates = listOf("", "OK", "ok"),
@@ -2861,7 +2863,7 @@ class FlipperProtocol @Inject constructor() {
             ?.trim()
             .orEmpty()
         val bleScanParsedArgs = parseCommandArguments(bleScanTail)
-        val (bleScanAppOverride, bleScanArgsTokens) = extractAppOverrideAndArgs(bleScanParsedArgs)
+        val bleScanArgsTokens = bleScanParsedArgs
         val bleScanArgs = bleScanArgsTokens.joinToString(" ").trim()
         if (bleScanCommand.matches(normalized)) {
             return RpcCommandPlan(
@@ -2871,8 +2873,7 @@ class FlipperProtocol @Inject constructor() {
                         "BLE Scan",
                         "BLE Scanner App",
                         "Bluetooth Scanner"
-                    ),
-                    customOverride = bleScanAppOverride
+                    )
                 ),
                 appArgs = bleScanArgs.ifBlank { RPC_APP_START_ARGUMENT },
                 buttonArgsCandidates = listOf("", "SCAN", "scan", "OK", "ok"),
@@ -2885,13 +2886,12 @@ class FlipperProtocol @Inject constructor() {
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
         val nfcParsedArgs = nfcTail?.let(::parseCommandArguments).orEmpty()
-        val (nfcAppOverride, nfcArgs) = extractAppOverrideAndArgs(nfcParsedArgs)
+        val nfcArgs = nfcParsedArgs
         val nfcPath = nfcArgs.firstOrNull()
         if (!nfcPath.isNullOrBlank()) {
             return RpcCommandPlan(
                 appCandidates = buildRpcAppCandidates(
-                    baseCandidates = listOf("NFC", "Nfc", "NFC App"),
-                    customOverride = nfcAppOverride
+                    baseCandidates = listOf("NFC", "Nfc", "NFC App")
                 ),
                 appArgs = RPC_APP_START_ARGUMENT,
                 filePath = nfcPath,
@@ -2905,7 +2905,7 @@ class FlipperProtocol @Inject constructor() {
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
         val rfidParsedArgs = rfidTail?.let(::parseCommandArguments).orEmpty()
-        val (rfidAppOverride, rfidArgs) = extractAppOverrideAndArgs(rfidParsedArgs)
+        val rfidArgs = rfidParsedArgs
         val rfidPath = rfidArgs.firstOrNull()
         if (!rfidPath.isNullOrBlank()) {
             return RpcCommandPlan(
@@ -2916,8 +2916,7 @@ class FlipperProtocol @Inject constructor() {
                         "RFID",
                         "LFRFID",
                         "RFID App"
-                    ),
-                    customOverride = rfidAppOverride
+                    )
                 ),
                 appArgs = RPC_APP_START_ARGUMENT,
                 filePath = rfidPath,
@@ -2931,7 +2930,7 @@ class FlipperProtocol @Inject constructor() {
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
         val iButtonParsedArgs = iButtonTail?.let(::parseCommandArguments).orEmpty()
-        val (iButtonAppOverride, iButtonArgs) = extractAppOverrideAndArgs(iButtonParsedArgs)
+        val iButtonArgs = iButtonParsedArgs
         val iButtonPath = iButtonArgs.firstOrNull()
         if (!iButtonPath.isNullOrBlank()) {
             return RpcCommandPlan(
@@ -2940,8 +2939,7 @@ class FlipperProtocol @Inject constructor() {
                         "iButton",
                         "IButton",
                         "iButton App"
-                    ),
-                    customOverride = iButtonAppOverride
+                    )
                 ),
                 appArgs = RPC_APP_START_ARGUMENT,
                 filePath = iButtonPath,
@@ -2957,17 +2955,12 @@ class FlipperProtocol @Inject constructor() {
         ).find(normalized)?.groupValues?.getOrNull(1)
         if (!loaderTail.isNullOrBlank()) {
             val loaderParsedArgs = parseCommandArguments(loaderTail)
-            val (loaderAppOverride, loaderArgsTokens) = extractAppOverrideAndArgs(loaderParsedArgs)
-            val appName = loaderAppOverride ?: loaderArgsTokens.firstOrNull() ?: loaderTail.trim()
-            val remainingArgs = if (loaderAppOverride != null) {
-                loaderArgsTokens.joinToString(" ").trim()
-            } else {
-                loaderArgsTokens.drop(1).joinToString(" ").trim()
-            }
+            val loaderArgsTokens = loaderParsedArgs
+            val appName = loaderArgsTokens.firstOrNull() ?: loaderTail.trim()
+            val remainingArgs = loaderArgsTokens.drop(1).joinToString(" ").trim()
             return RpcCommandPlan(
                 appCandidates = buildRpcAppCandidates(
-                    baseCandidates = listOf(appName),
-                    customOverride = null
+                    baseCandidates = listOf(appName)
                 ),
                 appArgs = remainingArgs.ifBlank { RPC_APP_START_ARGUMENT },
                 buttonArgsCandidates = listOf(""),
@@ -2978,43 +2971,8 @@ class FlipperProtocol @Inject constructor() {
         return null
     }
 
-    private fun extractAppOverrideAndArgs(tokens: List<String>): Pair<String?, List<String>> {
-        if (tokens.isEmpty()) return null to emptyList()
-        val cleaned = mutableListOf<String>()
-        var appOverride: String? = null
-        var index = 0
-
-        while (index < tokens.size) {
-            val token = tokens[index]
-            val normalized = token.lowercase()
-            when {
-                normalized == "--app" || normalized == "--app-name" -> {
-                    val candidate = tokens.getOrNull(index + 1)?.trim()
-                    if (!candidate.isNullOrBlank()) {
-                        appOverride = candidate
-                        index += 2
-                        continue
-                    }
-                }
-                normalized.startsWith("--app=") || normalized.startsWith("--app-name=") -> {
-                    val candidate = token.substringAfter('=', "").trim()
-                    if (candidate.isNotBlank()) {
-                        appOverride = candidate
-                        index += 1
-                        continue
-                    }
-                }
-            }
-            cleaned += token
-            index += 1
-        }
-
-        return appOverride to cleaned
-    }
-
     private fun buildRpcAppCandidates(
-        baseCandidates: List<String>,
-        customOverride: String?
+        baseCandidates: List<String>
     ): List<String> {
         val allCandidates = linkedSetOf<String>()
 
@@ -3031,7 +2989,6 @@ class FlipperProtocol @Inject constructor() {
             allCandidates += candidate.uppercase()
         }
 
-        addCandidate(customOverride)
         baseCandidates.forEach(::addCandidate)
         return allCandidates.toList()
     }

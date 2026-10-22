@@ -4,20 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Closes the app-side half of "manage apps / transmit / write scripts over BLE".
- *
- * The chain is: the model asks for an action -> CommandExecutor builds a CLI
- * command string (pinned by CommandExecutorHardwareTest) -> that string must have
- * an RPC mapping so it can run over BLE, where there is no text CLI -> the RPC
- * bridge sends an AppStartRequest (execution path read and verified sound).
- *
- * This test pins the middle link: every command string the executor produces for
- * a hardware action resolves to an RPC mapping AND, on RPC-only firmware, routes
- * via the RPC app bridge rather than being refused. With this, the only unproven
- * link left is the physical Flipper acting on the AppStartRequest — which needs
- * the real device over BLE and cannot be exercised in a unit test.
- */
+/** Selected command-construction and routing regressions; physical execution is unverified. */
 class HardwareCommandRoutingTest {
 
     private val protocol = FlipperProtocol()
@@ -34,13 +21,14 @@ class HardwareCommandRoutingTest {
         confidence = 0.3f
     )
 
-    /** Exactly the strings CommandExecutor builds for each hardware action. */
+    /** Representative mapped hardware commands, including optional arguments. */
     private val hardwareCommands = listOf(
         "loader open NFC",                       // launch_app
         "loader open Sub-GHz",                   // launch_app
-        "loader open NFC",             // launch_app + args
+        "loader open NFC /ext/nfc/demo.nfc",       // launch_app + args
         "subghz tx /ext/subghz/garage.sub",      // subghz_transmit
         "ir tx /ext/infrared/tv.ir",             // ir_transmit
+        "ir tx /ext/infrared/tv.ir Power",       // ir_transmit + signal
         "nfc emulate /ext/nfc/badge.nfc",        // nfc_emulate
         "rfid emulate /ext/lfrfid/card.rfid",    // rfid_emulate
         "ibutton emulate /ext/ibutton/key.ibtn", // ibutton_emulate
@@ -48,7 +36,7 @@ class HardwareCommandRoutingTest {
     )
 
     @Test
-    fun `every hardware command has an RPC mapping`() {
+    fun `selected hardware commands have RPC mappings`() {
         for (command in hardwareCommands) {
             assertTrue(
                 "\"$command\" must map to an RPC plan, or it cannot run over BLE",
@@ -58,7 +46,7 @@ class HardwareCommandRoutingTest {
     }
 
     @Test
-    fun `every hardware command routes via the RPC bridge on RPC-only firmware`() {
+    fun `selected hardware commands route via RPC on RPC-only firmware`() {
         for (command in hardwareCommands) {
             val assessment = FirmwareCompatibilityLayer.assessCliCommand(
                 profile = rpcOnly,
@@ -79,11 +67,13 @@ class HardwareCommandRoutingTest {
 
     @Test
     fun `launch_app resolves the correct Flipper app for common names`() {
-        // The app-candidate list is what the AppStartRequest tries; if "NFC" did not
-        // map to the NFC app, launching would silently open the wrong thing.
-        assertTrue(protocol.hasRpcAppCommandMapping("loader open NFC"))
-        assertTrue(protocol.hasRpcAppCommandMapping("loader open Sub-GHz"))
-        assertTrue(protocol.hasRpcAppCommandMapping("loader open Infrared"))
-        assertTrue(protocol.hasRpcAppCommandMapping("loader open Bad USB"))
+        val parse = FlipperProtocol::class.java.getDeclaredMethod("parseRpcCommandPlan", String::class.java)
+            .apply { isAccessible = true }
+        for (name in listOf("NFC", "Sub-GHz", "Infrared", "Bad USB")) {
+            val plan = requireNotNull(parse.invoke(protocol, "loader open \"$name\""))
+            val candidates = plan.javaClass.getDeclaredField("appCandidates").apply { isAccessible = true }
+                .get(plan) as List<*>
+            assertEquals(name, candidates.first())
+        }
     }
 }
