@@ -752,7 +752,14 @@ class OpenRouterClient {
 
         // Fast-path: strict decoding when the model follows schema perfectly.
         runCatching {
-            return ParsedCommand(command = json.decodeFromString<ExecuteCommand>(trimmedArguments))
+            val decoded = json.decodeFromString<ExecuteCommand>(trimmedArguments)
+            if (decoded.action in setOf(CommandAction.BLE_ENUMERATE, CommandAction.BLE_READ_CHAR,
+                    CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE)) {
+                val missing = missingRequiredArgs(decoded.action, decoded.args)
+                if (missing.isNotEmpty()) return ParsedCommand(error =
+                    "Missing required BLE argument(s): ${missing.joinToString()}. Example: ${requiredArgsExample(decoded.action)}")
+            }
+            return ParsedCommand(command = decoded)
         }
 
         // Attempt to repair common JSON malformations from LLMs before fallback parsing.
@@ -859,6 +866,7 @@ class OpenRouterClient {
                 }
             }
 
+            fun doubleArg(name: String): Double? = (argsObject[name]?.jsonPrimitive ?: root[name]?.jsonPrimitive)?.contentOrNull?.toDoubleOrNull()
             val args = CommandArgs(
                 key = stringArg("key"),
                 pressType = stringArg("press_type", "pressType"),
@@ -893,7 +901,11 @@ class OpenRouterClient {
                 downloadUrl = stringArg("download_url", "downloadUrl", "url"),
                 searchScope = stringArg("search_scope", "searchScope", "scope"),
                 // Smartglasses camera
-                photoPrompt = stringArg("photo_prompt", "photoPrompt")
+                photoPrompt = stringArg("photo_prompt", "photoPrompt"),
+                duration = doubleArg("duration"),
+                uuid = stringArg("uuid"),
+                hex = booleanArg("hex"),
+                withResponse = booleanArg("with_response")
             )
 
             val missingArgs = missingRequiredArgs(action, args)
@@ -970,6 +982,11 @@ class OpenRouterClient {
             "led_control", "set_led", "led" -> CommandAction.LED_CONTROL
             "vibro_control", "vibro", "vibration" -> CommandAction.VIBRO_CONTROL
             "load_skill" -> CommandAction.LOAD_SKILL
+            "ble_scan_targets" -> CommandAction.BLE_SCAN_TARGETS
+            "ble_enumerate" -> CommandAction.BLE_ENUMERATE
+            "ble_read_char" -> CommandAction.BLE_READ_CHAR
+            "ble_write_char" -> CommandAction.BLE_WRITE_CHAR
+            "ble_subscribe" -> CommandAction.BLE_SUBSCRIBE
             "request_photo", "take_photo", "capture_photo", "photo", "snap_photo" -> CommandAction.REQUEST_PHOTO
             else -> null
         }
@@ -1193,6 +1210,11 @@ class OpenRouterClient {
             CommandAction.LED_CONTROL -> emptyList()  // defaults to 0,0,0
             CommandAction.VIBRO_CONTROL -> emptyList()  // defaults to on
             CommandAction.LOAD_SKILL -> listOfNotNull(if (args.command.isNullOrBlank()) "command" else null)
+            CommandAction.BLE_SCAN_TARGETS -> emptyList()
+            CommandAction.BLE_ENUMERATE -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null)
+            CommandAction.BLE_READ_CHAR -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null)
+            CommandAction.BLE_WRITE_CHAR -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null, if (args.content.isNullOrBlank()) "content" else null)
+            CommandAction.BLE_SUBSCRIBE -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null)
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1262,6 +1284,11 @@ class OpenRouterClient {
             CommandAction.GITHUB_SEARCH ->
                 """{"action":"github_search","args":{"command":"Samsung TV remote extension:ir","search_scope":"code"}}"""
             CommandAction.LOAD_SKILL -> """{"action":"load_skill","args":{"command":"signal-analysis"}}"""
+            CommandAction.BLE_SCAN_TARGETS -> """{"action":"ble_scan_targets","args":{}}"""
+            CommandAction.BLE_ENUMERATE -> """{"action":"ble_enumerate","args":{"address":"AA:BB:CC:DD:EE:FF"}}"""
+            CommandAction.BLE_READ_CHAR -> """{"action":"ble_read_char","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb"}}"""
+            CommandAction.BLE_WRITE_CHAR -> """{"action":"ble_write_char","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb","content":"01"}}"""
+            CommandAction.BLE_SUBSCRIBE -> """{"action":"ble_subscribe","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb"}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }
@@ -1444,7 +1471,8 @@ class OpenRouterClient {
             "ble_spam",
             "led_control",
             "vibro_control",
-            "request_photo", "input_send", "loader_list", "loader_close", "loader_signal"
+            "request_photo", "input_send", "loader_list", "loader_close", "loader_signal", "load_skill",
+            "ble_scan_targets", "ble_enumerate", "ble_read_char", "ble_write_char", "ble_subscribe"
         )
 
         // Shared vision system prompt used by both image preprocessing and agent-initiated photo capture.
@@ -1502,6 +1530,7 @@ class OpenRouterClient {
                                 JsonPrimitive("loader_close"),
                                 JsonPrimitive("loader_signal"),
                                 JsonPrimitive("load_skill"),
+                                JsonPrimitive("ble_scan_targets"),JsonPrimitive("ble_enumerate"),JsonPrimitive("ble_read_char"),JsonPrimitive("ble_write_char"),JsonPrimitive("ble_subscribe"),
                                 JsonPrimitive("request_photo")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero (request_photo requires smart glasses)")
@@ -1528,7 +1557,7 @@ class OpenRouterClient {
                                 )),
                                 "content" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Content to write to file. Catalog installation does not accept a direct URL override.")
+                                    "description" to JsonPrimitive("Content to write to file, or BLE characteristic bytes/text for ble_write_char (encoding controlled by hex). Catalog installation does not accept a direct URL override.")
                                 )),
                                 "download_url" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
@@ -1588,7 +1617,7 @@ class OpenRouterClient {
                                 )),
                                 "address" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Reserved metadata; file-based transmit/emulation uses the address stored in the file, not this field")
+                                    "description" to JsonPrimitive("Phone BLE target MAC address, required for enumerate/read/write/subscribe. File-based radio transmit/emulation uses the address stored in the file, not this field")
                                 )),
                                 "signal_name" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
@@ -1622,6 +1651,10 @@ class OpenRouterClient {
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Scope for github_search: 'repositories' (find repos) or 'code' (find files). Default: 'code'. Use 'code' with file extensions like 'extension:ir' or 'extension:sub'.")
                                 )),
+                                "duration" to JsonObject(mapOf("type" to JsonPrimitive("number"), "description" to JsonPrimitive("Phone BLE actions: seconds, default 5, range 0.5..60. Scan/listen duration for ble_scan_targets/ble_subscribe; connection and operation timeout for enumerate/read/write. Subscription connection timeout is 10 seconds; restoration adds at most 3 seconds."))),
+                                "uuid" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Full characteristic UUID required for ble_read_char, ble_write_char and ble_subscribe; must identify exactly one characteristic instance."))),
+                                "hex" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("ble_write_char content encoding: true (default) means hexadecimal byte pairs; false means UTF-8 text. Maximum 512 bytes."))),
+                                "with_response" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("ble_write_char only: true (default) waits for a GATT write response. False sends without a peripheral response and rejects data exceeding negotiated MTU minus 3; no fragmentation."))),
                                 "photo_prompt" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Vision analysis prompt for request_photo. Describe what you want to identify (e.g. 'Identify the TV brand and model', 'What device is this?'). Falls back to 'prompt' if not set.")

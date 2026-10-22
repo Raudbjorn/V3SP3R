@@ -21,9 +21,20 @@ class RiskAssessor @Inject constructor(
 ) {
 
     /**
-     * Assess the risk of a command.
-     * This is the authoritative risk calculation.
+     * ApprovalDialog renders this reason, binding consent to the actual BLE target and effect.
      */
+    private fun phoneBleApprovalDetails(command: ExecuteCommand): String {
+        val args = command.args
+        val target = "Peripheral: ${args.address ?: "missing"}\nCharacteristic: ${args.uuid ?: "missing"}"
+        val effect = if (command.action == CommandAction.BLE_WRITE_CHAR) {
+            val bytes = if (args.hex == false) args.content.orEmpty().toByteArray(Charsets.UTF_8)
+                .joinToString("") { "%02x".format(it) } else args.content.orEmpty()
+            "Payload (hex): $bytes\nWrite mode: ${if (args.withResponse == false) "without response" else "with response"}"
+        } else "Collect notifications for ${args.duration ?: 5.0} seconds; restore the original remote subscription afterward"
+        return "Phone BLE state change requires explicit approval\n$target\n$effect"
+    }
+
+    /** Android computes the authoritative risk; model-provided risk is ignored. */
     fun assess(command: ExecuteCommand): RiskAssessment {
         val paths = extractPaths(command)
 
@@ -42,6 +53,10 @@ class RiskAssessor @Inject constructor(
 
         // Assess based on action type
         return when (command.action) {
+            CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE -> RiskAssessment(
+                level = RiskLevel.HIGH, reason = phoneBleApprovalDetails(command), affectedPaths = paths,
+                requiresDiff = false, requiresConfirmation = true)
+
             CommandAction.INPUT_SEND, CommandAction.LOADER_SIGNAL -> RiskAssessment(
                 level = RiskLevel.HIGH,
                 reason = "Remote input or app signal can trigger an unknown foreground action",
@@ -57,6 +72,9 @@ class RiskAssessor @Inject constructor(
             )
             // LOW risk: read-only operations
             CommandAction.LOAD_SKILL,
+            CommandAction.BLE_SCAN_TARGETS,
+            CommandAction.BLE_ENUMERATE,
+            CommandAction.BLE_READ_CHAR,
             CommandAction.LIST_DIRECTORY,
             CommandAction.READ_FILE,
             CommandAction.GET_DEVICE_INFO,
