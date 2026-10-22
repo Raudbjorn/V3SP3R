@@ -36,8 +36,8 @@ class LoaderSingleSendTest {
         assertTrue(result is ProtocolResponse.Error)
         assertTrue((result as ProtocolResponse.Error).message.contains("unconfirmed"))
         verify(service, times(1)).sendUsbDataOnly(check { assertArrayEquals("loader signal 1\r\n".toByteArray(), it) })
-        verify(service).isRawCliTransportConnected()
-        verify(service).isUsbCliSessionSelected()
+        verify(service, atLeastOnce()).isRawCliTransportConnected()
+        verify(service, atLeastOnce()).isUsbCliSessionSelected()
         verifyNoMoreInteractions(service)
     }
 
@@ -52,8 +52,8 @@ class LoaderSingleSendTest {
         whenever(service.sendUsbDataOnly(any())).thenReturn(false)
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
         verify(service, times(1)).sendUsbDataOnly(any())
-        verify(service).isRawCliTransportConnected()
-        verify(service).isUsbCliSessionSelected()
+        verify(service, atLeastOnce()).isRawCliTransportConnected()
+        verify(service, atLeastOnce()).isUsbCliSessionSelected()
         verifyNoMoreInteractions(service)
     }
 
@@ -182,7 +182,7 @@ class LoaderSingleSendTest {
         verify(service, never()).sendUsbDataOnly(any())
     }
 
-    @Test fun `RPC session command text is not evidence of CLI readiness`() = runBlocking<Unit> {
+    @Test fun `generic session command cannot implicitly enter or confirm CLI`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
@@ -190,31 +190,24 @@ class LoaderSingleSendTest {
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
         whenever(service.isUsbCliSessionSelected()).thenReturn(false)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
-        whenever(service.sendData(any(), any(), any(), any())).thenAnswer {
-            protocol.processIncomingData("Starting RPC session\r\n".toByteArray())
-            true
-        }
-        assertTrue(protocol.sendRawCliCommand("start_rpc_session") is ProtocolResponse.FileContent)
-        assertFalse(observedCli(protocol))
+        assertTrue(protocol.sendRawCliCommand("start_rpc_session") is ProtocolResponse.Error)
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
+        verify(service, never()).sendData(any(), any(), any(), any())
         verify(service, never()).sendUsbDataOnly(any())
     }
 
-    @Test fun `multiline raw dispatch revokes CLI for a later session-control command`() = runBlocking<Unit> {
+    @Test fun `multiline generic raw dispatch cannot transition the selected session`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
         whenever(service.isUsbCliSessionSelected()).thenReturn(false)
-        whenever(service.isCommandTransportConnected()).thenReturn(true)
-        whenever(service.sendData(any(), any(), any(), any())).thenReturn(true)
-        assertTrue(observedCli(protocol))
         val text = "version\r\n  start_rpc_session\nhelp"
-        assertTrue(protocol.sendRawCli(text))
-        verify(service).sendData(check { assertArrayEquals("$text\r\n".toByteArray(), it) }, eq(false), eq(false), eq(true))
-        assertFalse(observedCli(protocol))
+        assertFalse(protocol.sendRawCli(text))
+        assertTrue(observedCli(protocol)) // rejecting text does not invent a mode transition
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
+        verify(service, never()).sendData(any(), any(), any(), any())
         verify(service, never()).sendUsbDataOnly(any())
     }
 

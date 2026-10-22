@@ -1600,6 +1600,12 @@ class FlipperBleService : Service() {
         return sendDataOverUsb(data, preferNoResponse = false, typedCli = true)
     }
 
+    /** Compatibility binary frames are bound to the current USB RPC port, never text/CLI. */
+    suspend fun sendLegacyData(data: ByteArray): Boolean {
+        if (!isUsbCommandTransportConnected() || usbSessionMode != UsbSessionMode.RPC) return false
+        return sendDataOverUsb(data, preferNoResponse = false)
+    }
+
     private suspend fun sendDataOverUsb(
         data: ByteArray,
         preferNoResponse: Boolean,
@@ -1827,20 +1833,11 @@ class FlipperBleService : Service() {
         telemetrySession: Long,
         block: suspend () -> T
     ): T? {
-        val lockAcquired = withTimeoutOrNull(lockTimeoutMs) {
-            writeMutex.lock()
-            true
-        } ?: false
-        if (!lockAcquired) {
-            writeFailures.record(timeoutReason, telemetrySession)
-            return null
-        }
-
-        return try {
-            block()
-        } finally {
-            writeMutex.unlock()
-        }
+        return writeMutex.withAcquisitionTimeout(
+            timeoutMs = lockTimeoutMs,
+            onTimeout = { writeFailures.record(timeoutReason, telemetrySession); null },
+            block = block
+        )
     }
 
     private fun failPendingWriteAck() {
@@ -2153,17 +2150,16 @@ class FlipperBleService : Service() {
     }
 
     /**
-     * Send a CLI command string to the Flipper.
-     * Uses the protocol layer for CLI transport and compatibility mapping.
-     * Supports Flipper CLI commands like: subghz, ir, nfc, ble_spam, etc.
+     * Route a supported command through the RPC compatibility mapping.
+     * Unmapped commands fail; explicitly selected USB CLI uses dedicated typed actions.
      */
     suspend fun sendCommand(command: String): Boolean {
         return sendCommandWithOutput(command).isSuccess
     }
 
     /**
-     * Send a CLI command and return raw output when available.
-     * Use this when callers need actionable error text instead of a boolean.
+     * Return the mapped RPC command result, including actionable failure details.
+     * This does not provide an arbitrary serial console.
      */
     suspend fun sendCommandWithOutput(command: String): Result<String> {
         return try {
@@ -2183,8 +2179,8 @@ class FlipperBleService : Service() {
     }
 
     /**
-     * Send a raw CLI command without protocol framing.
-     * Use this for direct serial console interaction.
+     * Legacy raw-console API. Current transports refuse arbitrary text;
+     * use mapped RPC commands or the dedicated confirmed USB CLI actions.
      */
     suspend fun sendRawCliCommand(command: String): Boolean {
         return flipperProtocol.sendRawCli(command)
@@ -2194,11 +2190,12 @@ class FlipperBleService : Service() {
         return flipperProtocol.probeCliAvailability(force)
     }
 
-    // Physical BLE and the primed desktop host both consume RPC, not text CLI.
+    // Physical BLE, the desktop host and explicitly selected USB RPC consume protobuf.
     fun usesBleCommandTransport(): Boolean = activeTransport == CommandTransport.BLE
 
     fun usesRpcOnlyCommandTransport(): Boolean =
-        usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE
+        usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE ||
+            (activeTransport == CommandTransport.USB && usbSessionMode == UsbSessionMode.RPC)
     /** Raw shell commands are available only on an established USB serial connection. */
     fun isRawCliTransportConnected(): Boolean = isUsbCommandTransportConnected()
     /** Called only after the protocol matches an incoming response to its request. */
