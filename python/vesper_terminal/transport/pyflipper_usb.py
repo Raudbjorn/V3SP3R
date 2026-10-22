@@ -36,7 +36,7 @@ class PyFlipperUsbTransport(FlipperTransport):
 
     def _probe_capabilities(self) -> dict:
         profile = {
-            "firmware_family": "MOMENTUM",
+            "firmware_family": "UNKNOWN",
             "transport_mode": "USB_SERIAL",
             "supports_cli": False,
             "supports_rpc": False,
