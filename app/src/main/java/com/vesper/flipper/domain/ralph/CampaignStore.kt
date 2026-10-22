@@ -61,7 +61,18 @@ class CampaignStore(context: Context) : java.io.Closeable {
     fun pendingApprovals(): List<Pair<String,String>> = readableDatabase.query(
         "SELECT id,approval FROM campaigns WHERE state='approval' AND approval IS NOT NULL"
     ).use { cursor -> buildList { while(cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1)) } }
-    fun killAll() { enabled = false; writableDatabase.execSQL("UPDATE campaigns SET state='cancelled', approval=NULL WHERE state NOT IN ('completed','failed','cancelled')") }
+    fun killAll(): List<Pair<String,String>> {
+        enabled = false
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val pending = pendingApprovals()
+            db.execSQL("UPDATE campaigns SET state='cancelled', approval=NULL WHERE state NOT IN ('completed','failed','cancelled')")
+            db.setTransactionSuccessful()
+            return pending
+        } finally { db.endTransaction() }
+    }
+
     companion object {
         const val MIGRATION_PHASE_START = "ALTER TABLE campaigns ADD COLUMN phaseStarted INTEGER NOT NULL DEFAULT 0"
         const val MIGRATION_1_2 = "ALTER TABLE campaigns ADD COLUMN approvalExpires INTEGER NOT NULL DEFAULT 0" }

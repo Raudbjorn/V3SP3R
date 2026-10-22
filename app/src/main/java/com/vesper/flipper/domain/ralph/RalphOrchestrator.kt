@@ -54,8 +54,7 @@ class RalphOrchestrator(private val context: Context) {
     }
     suspend fun kill() {
         CampaignStore(context).use { store ->
-            val pending = store.pendingApprovals()
-            store.killAll()
+            val pending = store.killAll()
             work.cancelAllWorkByTag(TAG)
             pending.forEach { (id, approval) -> executor(context).reject(approval,"campaign-$id") }
         }
@@ -94,7 +93,10 @@ class PhaseWorker(context: Context, params: WorkerParameters): CoroutineWorker(c
                         }
                         if (result.requiresConfirmation) {
                             val expires = minOf(System.currentTimeMillis()+5*60*1000,row.plan.expiresAt,row.phaseStarted+phase.timeoutMs)
-                            store.transition(claimed,"approval","Review ${phase.name} step ${row.step+1}",approval=result.pendingApprovalId,approvalExpires=expires)
+                            if (!store.transition(claimed,"approval","Review ${phase.name} step ${row.step+1}",approval=result.pendingApprovalId,approvalExpires=expires)) {
+                                result.pendingApprovalId?.let { executor(applicationContext).reject(it,"campaign-$id") }
+                                return@withTimeout
+                            }
                             CampaignNotifications.pending(applicationContext,id)
                             orchestration.expiry(id,expires)
                             return@withTimeout
