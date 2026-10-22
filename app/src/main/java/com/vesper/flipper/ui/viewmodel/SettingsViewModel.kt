@@ -11,6 +11,8 @@ import com.vesper.flipper.domain.service.PermissionService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
 data class SettingsState(
@@ -49,6 +51,12 @@ class SettingsViewModel @Inject constructor(
     private val _state = MutableStateFlow(SettingsState())
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
+    private val _credentialError = MutableStateFlow<String?>(null)
+    val credentialError: StateFlow<String?> = _credentialError.asStateFlow()
+    private var settingsJob: Job? = null
+    private var pendingApiKey: String? = null
+    private var keyEditRevision = 0L
+
     private val _availableModels = MutableStateFlow(SettingsStore.FALLBACK_MODELS)
     val availableModels: StateFlow<List<ModelInfo>> = _availableModels.asStateFlow()
 
@@ -62,7 +70,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun loadSettings() {
-        viewModelScope.launch {
+        settingsJob?.cancel()
+        _credentialError.value = null
+        settingsJob = viewModelScope.launch {
             combine(
                 settingsStore.apiKey,
                 settingsStore.selectedModel,
@@ -136,9 +146,11 @@ class SettingsViewModel @Inject constructor(
                     glassesSailorMouth = glasses.glassesSailorMouth,
                     glassesMuted = glasses.glassesMuted
                 )
+            }.catch {
+                _credentialError.value = "Could not open secure settings. Your saved data was retained. Retry to continue."
             }.collect { settings ->
                 _state.update { it.copy(
-                    apiKey = settings.apiKey,
+                    apiKey = if (pendingApiKey == null) settings.apiKey else it.apiKey,
                     selectedModel = settings.selectedModel,
                     aiMaxIterations = settings.aiMaxIterations,
                     autoConnect = settings.autoConnect,
@@ -172,10 +184,31 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setApiKey(key: String) {
+        pendingApiKey = key
+        val revision = ++keyEditRevision
+        // Keep the typed value available for retry without claiming it was persisted.
+        _state.update { it.copy(apiKey = key) }
         viewModelScope.launch {
-            settingsStore.setApiKey(key)
-            _state.update { it.copy(apiKey = key) }
+            try {
+                settingsStore.setApiKey(key)
+                if (revision == keyEditRevision) {
+                    pendingApiKey = null
+                    _credentialError.value = null
+                    if (settingsJob?.isActive != true) loadSettings()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (revision == keyEditRevision) {
+                    _credentialError.value = "Could not save the API key securely. Your previous saved data was retained. Retry to save this value."
+                }
+            }
         }
+    }
+
+    fun retryCredentialStorage() {
+        val pending = pendingApiKey
+        if (pending != null) setApiKey(pending) else loadSettings()
     }
 
     fun setSelectedModel(model: String) {

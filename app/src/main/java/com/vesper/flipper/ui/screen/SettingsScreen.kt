@@ -29,6 +29,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val credentialError by viewModel.credentialError.collectAsState()
     val availableModels by viewModel.availableModels.collectAsState()
     val isRefreshingModels by viewModel.isRefreshingModels.collectAsState()
     var showApiKey by remember { mutableStateOf(false) }
@@ -78,6 +79,11 @@ fun SettingsScreen(
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp)
                     )
+                    credentialError?.let { message ->
+                        Text(message, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = viewModel::retryCredentialStorage) { Text("Retry") }
+                    }
                     Text(
                         text = "Paste your OpenRouter key here (starts with \"sk-or-\").",
                         style = MaterialTheme.typography.bodySmall,

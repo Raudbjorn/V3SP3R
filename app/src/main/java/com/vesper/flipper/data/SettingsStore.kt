@@ -33,8 +33,8 @@ class SettingsStore @Inject constructor(
     private val apiKeyRevision = MutableStateFlow(0L)
 
     val apiKey: Flow<String?> = apiKeyRevision.map {
-        withContext(Dispatchers.IO) {
-            credentialMutex.withLock {
+        credentialMutex.withLock {
+            withContext(Dispatchers.IO) {
                 CredentialMigration.read(
                     legacy = context.dataStore.data.first()[API_KEY],
                     readSecure = { encryptedStorage.getString("openrouter_api_key") },
@@ -45,8 +45,9 @@ class SettingsStore @Inject constructor(
         }
     }
 
-    suspend fun setApiKey(key: String) = withContext(Dispatchers.IO) {
-        credentialMutex.withLock {
+    // Queue edits before the dispatcher handoff so IO scheduling cannot reorder saves.
+    suspend fun setApiKey(key: String) = credentialMutex.withLock {
+        withContext(Dispatchers.IO) {
             CredentialMigration.write(
                 value = key,
                 readSecure = { encryptedStorage.getString("openrouter_api_key") },
