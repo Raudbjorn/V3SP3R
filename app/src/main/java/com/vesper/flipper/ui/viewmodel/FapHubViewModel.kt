@@ -7,6 +7,7 @@ import com.vesper.flipper.data.FlipperAppCatalog
 import com.vesper.flipper.data.installCatalogApp
 import com.vesper.flipper.domain.model.*
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -133,6 +134,7 @@ class FapHubViewModel @Inject constructor(
     private fun loadCatalog() {
         viewModelScope.launch {
             try { catalogApps.value = catalog.apps() }
+            catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) { _error.value = "Catalog unavailable: ${e.message}" }
         }
     }
@@ -176,10 +178,12 @@ class FapHubViewModel @Inject constructor(
         viewModelScope.launch {
             _installStatus.value = _installStatus.value + (app.id to InstallStatus.Installing)
             try {
-                val result = installCatalogApp(flipperFileSystem, catalog, app.id)
+                installCatalogApp(flipperFileSystem, catalog, app.id)
                 _installStatus.value = _installStatus.value + (app.id to InstallStatus.Success)
-                _error.value = result
+                _error.value = null
                 loadInstalledApps()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _installStatus.value = _installStatus.value + (app.id to InstallStatus.Error(e.message ?: "Install failed"))
                 _error.value = "Failed to install ${app.name}: ${e.message}"
