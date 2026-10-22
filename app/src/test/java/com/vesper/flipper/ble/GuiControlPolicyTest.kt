@@ -6,6 +6,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GuiControlPolicyTest {
+    @Test fun `cleanup release is bounded even when recovery never answers`() = kotlinx.coroutines.runBlocking<Unit> {
+        val failure = kotlinx.coroutines.withTimeout(1_000) {
+            GuiInputDelivery.send(Gui.InputType.SHORT, cleanupTimeoutMs = 20) { step ->
+                if (step == Gui.InputType.RELEASE) kotlinx.coroutines.awaitCancellation()
+                null
+            }
+        }
+        assertEquals(Gui.InputType.PRESS, failure!!.step)
+    }
     @Test fun `uncertain action releases key and reports failure`() = kotlinx.coroutines.runBlocking {
         val events = mutableListOf<Gui.InputType>()
         val failure = GuiInputDelivery.send(Gui.InputType.SHORT) { step ->
@@ -38,8 +47,16 @@ class GuiControlPolicyTest {
         assertEquals(DesktopLockStatus.Reading.Locked, DesktopLockStatus.interpret(Flipper.CommandStatus.OK, false, false))
         assertEquals(DesktopLockStatus.Reading.Unlocked, DesktopLockStatus.interpret(Flipper.CommandStatus.ERROR, false, true))
         assertEquals(DesktopLockStatus.Reading.Unsupported, DesktopLockStatus.interpret(Flipper.CommandStatus.ERROR_NOT_IMPLEMENTED, false, false))
-        assertTrue(GuiRemoteInput.backWouldRelock(Gui.InputKey.BACK, true))
-        assertFalse(GuiRemoteInput.backWouldRelock(Gui.InputKey.OK, true))
+        assertEquals(DesktopLockStatus.Reading.Unknown, DesktopLockStatus.interpret(Flipper.CommandStatus.ERROR_BUSY, false, false))
+        assertTrue(GuiRemoteInput.backWouldRelock(Gui.InputKey.BACK, 1000, 2500))
+        assertFalse(GuiRemoteInput.backWouldRelock(Gui.InputKey.OK, 1000, 2500))
+    }
+    @Test fun `only release may retry and post-unlock back protection expires`() {
+        assertTrue(GuiRemoteInput.mayRetry(Gui.InputType.RELEASE))
+        assertFalse(GuiRemoteInput.mayRetry(Gui.InputType.PRESS))
+        assertFalse(GuiRemoteInput.mayRetry(Gui.InputType.SHORT))
+        assertFalse(GuiRemoteInput.backWouldRelock(Gui.InputKey.BACK, 1000, 4000))
+        assertFalse(GuiRemoteInput.backWouldRelock(Gui.InputKey.BACK, 0, 100))
     }
     @Test fun `actions run while held and finish released`() {
         for (type in listOf(Gui.InputType.SHORT, Gui.InputType.LONG, Gui.InputType.REPEAT)) {

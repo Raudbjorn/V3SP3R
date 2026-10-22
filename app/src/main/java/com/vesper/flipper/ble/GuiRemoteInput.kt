@@ -9,14 +9,16 @@ object GuiRemoteInput {
         Gui.InputType.PRESS, Gui.InputType.RELEASE -> listOf(type)
         else -> emptyList()
     }
-    fun backWouldRelock(key: Gui.InputKey, justUnlocked: Boolean) = justUnlocked && key == Gui.InputKey.BACK
+    fun mayRetry(type: Gui.InputType) = type == Gui.InputType.RELEASE
+    fun backWouldRelock(key: Gui.InputKey, unlockedAtMs: Long, nowMs: Long): Boolean =
+        key == Gui.InputKey.BACK && unlockedAtMs > 0 && nowMs - unlockedAtMs in 0L until 3_000L
 }
 
 /** Acknowledged GUI gesture delivery, including release after uncertain writes. */
 internal object GuiInputDelivery {
     data class Failure(val step: Gui.InputType, val status: com.flipperdevices.protobuf.Flipper.CommandStatus?)
 
-    suspend fun send(type: Gui.InputType, sender: suspend (Gui.InputType) -> com.flipperdevices.protobuf.Flipper.CommandStatus?): Failure? {
+    suspend fun send(type: Gui.InputType, cleanupTimeoutMs: Long = 5_000L, sender: suspend (Gui.InputType) -> com.flipperdevices.protobuf.Flipper.CommandStatus?): Failure? {
         val sequence = GuiRemoteInput.complementarySequence(type)
         require(sequence.isNotEmpty()) { "Unsupported GUI input" }
         var held = false
@@ -34,7 +36,7 @@ internal object GuiInputDelivery {
             if (held && (!completed || type != Gui.InputType.PRESS)) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                     // Preserve the original failure/cancellation if cleanup itself fails.
-                    runCatching { sender(Gui.InputType.RELEASE) }
+                    kotlinx.coroutines.withTimeoutOrNull(cleanupTimeoutMs) { runCatching { sender(Gui.InputType.RELEASE) } }
                 }
             }
         }

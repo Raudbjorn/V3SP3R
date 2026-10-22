@@ -18,7 +18,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -51,6 +50,7 @@ class FlipperProtocol @Inject constructor() {
     private var desktopLockProbeSupported: Boolean? = null
     @Volatile
     private var lastDesktopLockProbeAtMs: Long = 0L
+    @Volatile private var lastDesktopUnlockAtMs: Long = 0L
     private val rpcStartCandidateCache = ConcurrentHashMap<String, String>()
     private val rpcButtonArgCache = ConcurrentHashMap<String, String>()
     @Volatile
@@ -60,7 +60,6 @@ class FlipperProtocol @Inject constructor() {
     private var lastRpcActivityAtMs: Long = 0L
 
     private var currentRequestId: UInt = 0u
-    private val immediateRpcCommandId = AtomicInteger(10_000)
 
     private val _responseFlow = MutableSharedFlow<ProtocolResponse>()
     val responseFlow: SharedFlow<ProtocolResponse> = _responseFlow.asSharedFlow()
@@ -86,6 +85,7 @@ class FlipperProtocol @Inject constructor() {
         lastCliProbeAtMs = 0L
         desktopLockProbeSupported = null
         lastDesktopLockProbeAtMs = 0L
+        lastDesktopUnlockAtMs = 0L
         rpcStartCandidateCache.clear()
         rpcButtonArgCache.clear()
         lastRpcExecutionSnapshot = null
@@ -2043,7 +2043,7 @@ class FlipperProtocol @Inject constructor() {
             )
         }
 
-        val unlockDetails = if (shouldProbeDesktopLockForRemoteInput(System.currentTimeMillis())) {
+        if (shouldProbeDesktopLockForRemoteInput(System.currentTimeMillis())) {
             maybeUnlockDesktopIfNeededLocked(
                 lockProbeTimeoutMs = RPC_REMOTE_LOCK_TIMEOUT_MS,
                 unlockTimeoutMs = RPC_REMOTE_UNLOCK_TIMEOUT_MS
@@ -2052,7 +2052,7 @@ class FlipperProtocol @Inject constructor() {
             null
         }
 
-        if (GuiRemoteInput.backWouldRelock(key, unlockDetails == "desktop unlocked")) {
+        if (GuiRemoteInput.backWouldRelock(key, lastDesktopUnlockAtMs, System.currentTimeMillis())) {
             return@withCommandLock ProtocolResponse.Success("Desktop unlocked; Back suppressed to avoid relocking")
         }
         val sequence = GuiRemoteInput.complementarySequence(inputType)
@@ -2077,7 +2077,7 @@ class FlipperProtocol @Inject constructor() {
         inputType: Gui.InputType,
         timeoutMs: Long = RPC_APP_COMMAND_TIMEOUT_MS
     ): Flipper.CommandStatus? {
-        val response = sendRpcMainAndAwaitResponse(timeoutMs = timeoutMs, allowRetry = false) {
+        val response = sendRpcMainAndAwaitResponse(timeoutMs = timeoutMs, allowRetry = GuiRemoteInput.mayRetry(inputType)) {
             setGuiSendInputEventRequest(
                 Gui.SendInputEventRequest.newBuilder()
                     .setKey(key)
@@ -2089,69 +2089,8 @@ class FlipperProtocol @Inject constructor() {
         return response.commandStatus
     }
 
-    private suspend fun sendGuiInputEventFireAndForgetLocked(
-        key: Gui.InputKey,
-        inputType: Gui.InputType
-    ): Boolean {
-        val service = bleService ?: return false
-        if (!ensureTransportConnected(service)) return false
-        val packet = buildRpcMainPacket(nextRpcProbeCommandId()) {
-            setGuiSendInputEventRequest(
-                Gui.SendInputEventRequest.newBuilder()
-                    .setKey(key)
-                    .setType(inputType)
-                    .build()
-                )
-        }
-        val sent = service.sendData(
-            packet,
-            preferNoResponse = true,
-            ignoreOverflowBudget = false
-        )
-        if (sent) {
-            lastRpcActivityAtMs = System.currentTimeMillis()
-        }
-        return sent
-    }
-
-    private suspend fun sendGuiInputEventPacketImmediate(
-        service: FlipperBleService,
-        key: Gui.InputKey,
-        inputType: Gui.InputType
-    ): Boolean {
-        val packet = buildRpcMainPacket(nextImmediateRpcCommandId()) {
-            setGuiSendInputEventRequest(
-                Gui.SendInputEventRequest.newBuilder()
-                    .setKey(key)
-                    .setType(inputType)
-                    .build()
-            )
-        }
-        repeat(RPC_REMOTE_IMMEDIATE_WRITE_ATTEMPTS) { attempt ->
-            if (service.sendData(
-                    packet,
-                    preferNoResponse = true,
-                    ignoreOverflowBudget = false
-                )
-            ) {
-                lastRpcActivityAtMs = System.currentTimeMillis()
-                return true
-            }
-            if (attempt < RPC_REMOTE_IMMEDIATE_WRITE_ATTEMPTS - 1) {
-                delay(RPC_REMOTE_IMMEDIATE_RETRY_DELAY_MS)
-            }
-        }
-        val sent = service.sendData(
-            packet,
-            preferNoResponse = false,
-            ignoreOverflowBudget = false
-        )
-        if (sent) {
-            lastRpcActivityAtMs = System.currentTimeMillis()
-        }
-        return sent
-    }
-
+    // Retained for firmware readiness diagnostics shared with the transport routing feature.
+    @Suppress("unused")
     private fun isRemoteFastPathReady(nowMs: Long): Boolean {
         val status = _cliStatus.value
         if (status.level != CliCapabilityLevel.READY || !status.supportsRpc) {
@@ -2179,16 +2118,13 @@ class FlipperProtocol @Inject constructor() {
             return null
         }
 
-        val isLocked = requestDesktopLockStatusLocked(timeoutMs = lockProbeTimeoutMs) ?: run {
-            // Timeouts must not cache an unsupported lock probe.
-            return null
-        }
-        desktopLockProbeSupported = true
-        lastDesktopLockProbeAtMs = now
+        val isLocked = applyDesktopLockReading(requestDesktopLockStatusLocked(timeoutMs = lockProbeTimeoutMs), now)
+            ?: return null
         if (!isLocked) return null
 
         val unlockStatus = sendDesktopUnlockStatusLocked(timeoutMs = unlockTimeoutMs)
         return if (unlockStatus == Flipper.CommandStatus.OK) {
+            lastDesktopUnlockAtMs = System.currentTimeMillis()
             "desktop unlocked"
         } else {
             "desktop unlock failed: ${unlockStatus.name}"
@@ -2197,14 +2133,22 @@ class FlipperProtocol @Inject constructor() {
 
     private suspend fun requestDesktopLockStatusLocked(
         timeoutMs: Long = RPC_COMMAND_TIMEOUT_MS
-    ): Boolean? {
+    ): DesktopLockStatus.Reading? {
         val response = sendRpcMainAndAwaitResponse(timeoutMs = timeoutMs) {
             setDesktopIsLockedRequest(Desktop.IsLockedRequest.getDefaultInstance())
         } ?: return null
-        return when (DesktopLockStatus.interpret(response.commandStatus, response.hasDesktopStatus(), response.desktopStatus.locked)) {
+        return DesktopLockStatus.interpret(response.commandStatus, response.hasDesktopStatus(), response.desktopStatus.locked)
+    }
+
+    private fun applyDesktopLockReading(reading: DesktopLockStatus.Reading?, nowMs: Long): Boolean? {
+        // A missing acknowledgement says nothing about firmware support.
+        if (reading == null || reading == DesktopLockStatus.Reading.Unknown) return null
+        desktopLockProbeSupported = reading != DesktopLockStatus.Reading.Unsupported
+        lastDesktopLockProbeAtMs = nowMs
+        return when (reading) {
             DesktopLockStatus.Reading.Locked -> true
             DesktopLockStatus.Reading.Unlocked -> false
-            DesktopLockStatus.Reading.Unsupported -> null
+            DesktopLockStatus.Reading.Unsupported, DesktopLockStatus.Reading.Unknown -> null
         }
     }
 
@@ -3170,12 +3114,6 @@ class FlipperProtocol @Inject constructor() {
         val value = currentRequestId.toInt().coerceAtLeast(1)
         currentRequestId += 1u
         return value
-    }
-
-    private fun nextImmediateRpcCommandId(): Int {
-        return immediateRpcCommandId.updateAndGet { current ->
-            if (current == Int.MAX_VALUE) 1 else current + 1
-        }
     }
 
     private fun buildRpcMainPacket(

@@ -11,7 +11,8 @@ object DesktopLockStatus {
     enum class Reading {
         Locked,
         Unlocked,
-        Unsupported
+        Unsupported,
+        Unknown
     }
 
     fun interpret(
@@ -25,7 +26,8 @@ object DesktopLockStatus {
         return when (commandStatus) {
             Flipper.CommandStatus.OK -> Reading.Locked
             Flipper.CommandStatus.ERROR -> Reading.Unlocked
-            else -> Reading.Unsupported
+            Flipper.CommandStatus.ERROR_NOT_IMPLEMENTED -> Reading.Unsupported
+            else -> Reading.Unknown
         }
     }
 }
