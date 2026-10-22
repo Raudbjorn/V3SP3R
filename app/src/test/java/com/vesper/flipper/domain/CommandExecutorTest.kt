@@ -14,6 +14,8 @@ import com.vesper.flipper.domain.service.AuditService
 import com.vesper.flipper.domain.service.DiffService
 import com.vesper.flipper.domain.service.PermissionService
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.flowOf
+import com.vesper.flipper.data.SettingsStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -44,12 +46,17 @@ class CommandExecutorTest {
         permissionService = mock()
         auditService = mock()
         diffService = mock()
+        val settingsStore: SettingsStore = mock()
+        whenever(settingsStore.autoApproveMedium).thenReturn(flowOf(false))
+        whenever(settingsStore.autoApproveHigh).thenReturn(flowOf(false))
         commandExecutor = CommandExecutor(
             fileSystem = fileSystem,
             riskAssessor = riskAssessor,
             permissionService = permissionService,
             auditService = auditService,
-            diffService = diffService
+            diffService = diffService,
+            forgeEngine = mock(),
+            settingsStore = settingsStore
         )
     }
 

@@ -568,6 +568,9 @@ class OpenRouterClient @Inject constructor(
 
             // Validate tool calls if present
             val rawToolCalls = message.toolCalls
+            if (rawToolCalls.orEmpty().any { it.function.name.isNotBlank() && it.function.name != "execute_command" }) {
+                return ChatCompletionResult.Error("Model requested an unsupported tool. Select another tool-capable model and retry.")
+            }
             val toolCalls = rawToolCalls?.mapNotNull { tc ->
                 // Validate tool call structure — reject blanks but log them
                 if (tc.id.isBlank() || tc.function.name.isBlank()) {
