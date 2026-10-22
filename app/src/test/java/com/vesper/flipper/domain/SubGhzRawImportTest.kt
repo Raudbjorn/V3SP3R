@@ -51,4 +51,28 @@ class SubGhzRawImportTest {
         val huge = project.copy(layers = listOf(project.layers[0].copy(timing = TimingConfig(repeatCount = 100))))
         assertThrows(IllegalArgumentException::class.java) { SignalAlchemist.synthesize(huge) }
     }
+    @Test fun exportRejectsUnsupportedFrequencyAndExpandedRawEnvelope() {
+        val project = SignalAlchemist.importSubGhzRaw(raw("1 -1"))!!
+        for (frequency in listOf(0L, -1L, 1L, 279999999L, 930000001L, 1000000001L)) {
+            assertNull(SignalAlchemist.importSubGhzRaw(raw("1 -1").replace("433920000", frequency.toString())))
+            assertThrows(IllegalArgumentException::class.java) { SignalAlchemist.exportToFlipperFormat(project.copy(frequency = frequency)) }
+        }
+        val repeated = project.copy(layers = listOf(project.layers[0].copy(rawTimings = List(10000) { if (it % 2 == 0) 1 else -1 }, timing = TimingConfig(repeatCount = 2))))
+        assertThrows(IllegalArgumentException::class.java) { SignalAlchemist.exportToFlipperFormat(repeated) }
+        val long = project.copy(layers = listOf(project.layers[0].copy(rawTimings = listOf(10000000, -10000000), timing = TimingConfig(repeatCount = 100))))
+        assertThrows(IllegalArgumentException::class.java) { SignalAlchemist.exportToFlipperFormat(long) }
+        assertThrows(IllegalArgumentException::class.java) { SignalAlchemist.exportToFlipperFormat(project.copy(modulation = ModulationType.CUSTOM)) }
+    }
+
+    @Test fun unknownHeadersAreRejectedWithoutAccumulation() {
+        assertNull(SignalAlchemist.importSubGhzRaw(raw("1 -1") + "\nArbitrary: metadata"))
+        assertNull(SignalAlchemist.importSubGhzRaw(raw("1 -1") + "\nPreset: FuriHalSubGhzPresetOok650Async"))
+    }
+
+    @Test fun consecutiveLevelDurationsRoundTripWithoutChangingSignal() {
+        val project = SignalAlchemist.importSubGhzRaw(raw("100 200 -300\nRAW_Data: -400 500"))!!
+        val reopened = SignalAlchemist.importSubGhzRaw(SignalAlchemist.exportToFlipperFormat(project))!!
+        assertEquals(listOf(100, 200, -300, -400, 500), SignalAlchemist.synthesize(reopened))
+    }
+
 }

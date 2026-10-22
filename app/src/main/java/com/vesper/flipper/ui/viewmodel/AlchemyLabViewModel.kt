@@ -200,7 +200,7 @@ class AlchemyLabViewModel @Inject constructor(
     fun importRaw(content: String) {
         val imported = SignalAlchemist.importSubGhzRaw(content)
         if (imported == null) {
-            _message.value = "Invalid RAW file: use version 1, a standard preset, and at most 16,384 nonzero pulses (1 MiB)"
+            _message.value = "Invalid RAW file: use version 1, a standard preset, 280–930 MHz, and at most 16,384 nonzero pulses (1 MiB)"
             return
         }
         _project.value = imported
@@ -401,7 +401,13 @@ class AlchemyLabViewModel @Inject constructor(
     // ═══════════════════════════════════════════════════════
 
     fun updateProjectName(name: String) { _project.value = _project.value.copy(name = name) }
-    fun updateFrequency(frequency: Long) { _project.value = _project.value.copy(frequency = frequency) }
+    fun updateFrequency(frequency: Long) {
+        if (frequency !in SignalAlchemist.SUPPORTED_FREQUENCIES) {
+            _message.value = "Frequency must be between 280 and 930 MHz; changes were not applied"
+            return
+        }
+        _project.value = _project.value.copy(frequency = frequency)
+    }
     fun selectPreset(preset: SignalPreset) { _project.value = _project.value.copy(preset = preset, frequency = preset.frequency) }
     fun updateModulation(modulation: ModulationType) { _project.value = _project.value.copy(modulation = modulation) }
 

@@ -428,7 +428,11 @@ object SignalAlchemist {
     }
 
     fun exportToFlipperFormat(project: AlchemyProject): String {
+        require(project.frequency in SUPPORTED_FREQUENCIES) { "Frequency must be between 280 and 930 MHz" }
+        require(project.modulation != ModulationType.CUSTOM) { "Custom radio presets cannot be exported without register data" }
         val rawData = synthesize(project)
+        require(rawData.size in 2..MAX_RAW_PULSES) { "RAW export requires 2–16,384 pulses; reduce layers or repeats" }
+        require(rawData.sumOf { kotlin.math.abs(it.toLong()) } <= MAX_RAW_DURATION_MICROS) { "RAW export exceeds 5 minutes; reduce layers or repeats" }
         require(rawData.isNotEmpty() && rawData.all { it != 0 && it.toLong() in -MAX_PULSE_MICROS.toLong()..MAX_PULSE_MICROS.toLong() }) { "Signal has invalid or empty pulse timings" }
         return buildString {
             appendLine("Filetype: Flipper SubGhz RAW File")
@@ -441,9 +445,12 @@ object SignalAlchemist {
             rawData.chunked(50).forEach { chunk ->
                 appendLine("RAW_Data: ${chunk.joinToString(" ")}")
             }
-        }
+        }.also { require(it.length <= MAX_RAW_CHARACTERS) { "RAW export exceeds 1 MiB" } }
     }
 
+    val SUPPORTED_FREQUENCIES = 280_000_000L..930_000_000L
+    const val MAX_RAW_DURATION_MICROS = 300_000_000L
+    private val RAW_HEADERS = setOf("Filetype", "Version", "Frequency", "Preset", "Protocol")
     const val MAX_RAW_CHARACTERS = 1_048_576
     const val MAX_RAW_PULSES = 16_384
     const val MAX_PULSE_MICROS = 10_000_000
@@ -469,16 +476,17 @@ object SignalAlchemist {
                     if (timing == 0 || timing.toLong() !in -MAX_PULSE_MICROS.toLong()..MAX_PULSE_MICROS.toLong()) return null
                     if (timings.size >= MAX_RAW_PULSES) return null
                     totalDuration += kotlin.math.abs(timing.toLong())
-                    if (totalDuration > 300_000_000L) return null
+                    if (totalDuration > MAX_RAW_DURATION_MICROS) return null
                     timings.add(timing)
                 }
             } else {
+                if (key !in RAW_HEADERS || value.length > 128) return null
                 if (headers.put(key, value) != null) return null
             }
         }
         if (headers["Filetype"] != "Flipper SubGhz RAW File" || headers["Version"] != "1" ||
             headers["Protocol"] != "RAW" || timings.size < 2) return null
-        val frequency = headers["Frequency"]?.toLongOrNull()?.takeIf { it in 1..1_000_000_000L } ?: return null
+        val frequency = headers["Frequency"]?.toLongOrNull()?.takeIf { it in SUPPORTED_FREQUENCIES } ?: return null
         // Custom presets need extra radio register data; reject rather than lose it on export.
         val modulation = ModulationType.entries.firstOrNull {
             it != ModulationType.CUSTOM && it.flipperPreset == headers["Preset"]
