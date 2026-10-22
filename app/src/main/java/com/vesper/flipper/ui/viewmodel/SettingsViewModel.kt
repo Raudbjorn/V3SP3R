@@ -10,6 +10,8 @@ import com.vesper.flipper.domain.model.CommandAction
 import com.vesper.flipper.domain.model.Permission
 import com.vesper.flipper.domain.service.PermissionService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -59,6 +61,24 @@ class SettingsViewModel @Inject constructor(
     private val _isRefreshingModels = MutableStateFlow(false)
     val isRefreshingModels: StateFlow<Boolean> = _isRefreshingModels.asStateFlow()
     private var modelRefreshGeneration = 0
+    private val _credentialError = MutableStateFlow<String?>(null)
+    val credentialError: StateFlow<String?> = _credentialError.asStateFlow()
+    private var settingsJob: Job? = null
+    private var pendingApiKey: Pair<LlmProvider, String>? = null
+    private var credentialRevision = 0
+
+    private fun reportCredentialFailure(error: Exception) {
+        if (error is CancellationException) throw error
+        _credentialError.value = "Could not access or save your API key securely. Retry when storage is available."
+    }
+
+    fun retryCredentialStorage() {
+        _credentialError.value = null
+        val pending = pendingApiKey
+        if (pending != null) saveApiKey(pending.first, pending.second)
+        loadSettings()
+        refreshAvailableModels()
+    }
 
     init {
         viewModelScope.launch { settingsStore.extendedThinking.collect { value -> _state.update { it.copy(extendedThinking = value) } } }
@@ -69,7 +89,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun loadSettings() {
-        viewModelScope.launch {
+        settingsJob?.cancel()
+        settingsJob = viewModelScope.launch {
             combine(
                 settingsStore.apiKey,
                 settingsStore.selectedModel,
@@ -145,10 +166,10 @@ class SettingsViewModel @Inject constructor(
                 )
             }.combine(settingsStore.llmSelection) { settings, selection ->
                 settings.copy(provider = selection.provider, apiKey = selection.apiKey.orEmpty(), selectedModel = selection.model)
-            }.collect { settings ->
+            }.catch { error -> reportCredentialFailure(error as? Exception ?: throw error) }.collect { settings ->
                 _state.update { it.copy(
                     provider = settings.provider,
-                    apiKey = settings.apiKey,
+                    apiKey = pendingApiKey?.takeIf { it.first == settings.provider }?.second ?: settings.apiKey,
                     selectedModel = settings.selectedModel,
                     aiMaxIterations = settings.aiMaxIterations,
                     autoConnect = settings.autoConnect,
@@ -191,25 +212,38 @@ class SettingsViewModel @Inject constructor(
 
     fun setProvider(provider: LlmProvider) {
         viewModelScope.launch {
-            settingsStore.setProvider(provider)
-            val selection = settingsStore.readLlmSelection()
-            _state.update {
-                it.copy(
-                    provider = selection.provider,
-                    apiKey = selection.apiKey.orEmpty(),
-                    selectedModel = selection.model
-                )
+            try {
+                settingsStore.setProvider(provider)
+                val selection = settingsStore.readLlmSelection()
+                _state.update {
+                    it.copy(provider = selection.provider, apiKey = selection.apiKey.orEmpty(), selectedModel = selection.model)
+                }
+                _availableModels.value = provider.models
+                refreshAvailableModels()
+            } catch (error: Exception) {
+                reportCredentialFailure(error)
             }
-            _availableModels.value = provider.models
-            refreshAvailableModels()
         }
     }
 
-    fun setApiKey(key: String) {
-        val provider = _state.value.provider
+    fun setApiKey(key: String) = saveApiKey(_state.value.provider, key)
+
+    private fun saveApiKey(provider: LlmProvider, key: String) {
+        val revision = ++credentialRevision
+        pendingApiKey = provider to key
+        _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
         viewModelScope.launch {
-            settingsStore.setApiKey(key, provider)
-            _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
+            try {
+                settingsStore.setApiKey(key, provider)
+                if (revision == credentialRevision) {
+                    pendingApiKey = null
+                    _credentialError.value = null
+                    _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (revision == credentialRevision) reportCredentialFailure(error)
+            }
         }
     }
 
@@ -232,19 +266,23 @@ class SettingsViewModel @Inject constructor(
         val generation = ++modelRefreshGeneration
         viewModelScope.launch {
             _isRefreshingModels.value = true
-            val selection = settingsStore.readLlmSelection()
-            openRouterModelCatalog.fetchModels(selection.provider, selection.apiKey)
-                .onSuccess { models ->
-                    if (generation != modelRefreshGeneration) return@onSuccess
-                    val curatedDefault = selection.provider.models.filter { it.id == selection.provider.defaultModel }
-                    _availableModels.value = (models + curatedDefault).distinctBy { it.id }
-                }
-                .onFailure {
-                    if (generation != modelRefreshGeneration) return@onFailure
-                    _availableModels.value = selection.provider.models
-                }
-            if (generation == modelRefreshGeneration) {
-                _isRefreshingModels.value = false
+            try {
+                val selection = settingsStore.readLlmSelection()
+                openRouterModelCatalog.fetchModels(selection.provider, selection.apiKey)
+                    .onSuccess { models ->
+                        if (generation != modelRefreshGeneration) return@onSuccess
+                        val curatedDefault = selection.provider.models.filter { it.id == selection.provider.defaultModel }
+                        _availableModels.value = (models + curatedDefault).distinctBy { it.id }
+                    }
+                    .onFailure {
+                        if (generation != modelRefreshGeneration) return@onFailure
+                        _availableModels.value = selection.provider.models
+                    }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (generation == modelRefreshGeneration) reportCredentialFailure(error)
+            } finally {
+                if (generation == modelRefreshGeneration) _isRefreshingModels.value = false
             }
         }
     }
