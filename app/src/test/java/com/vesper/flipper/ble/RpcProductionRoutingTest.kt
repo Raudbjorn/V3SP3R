@@ -137,4 +137,32 @@ class RpcProductionRoutingTest {
         assertFalse(ready(protocol))
     }
 
+    @Test fun `stale prechecked RPC dispatch cannot revoke a new explicit CLI session`() {
+        val service = mock<FlipperBleService>()
+        whenever(service.isCommandTransportConnected()).thenReturn(true)
+        whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        val protocol = FlipperProtocol().apply { setBleService(service) }
+        // The old operation passed its outer selected-mode check before replacement.
+        assertFalse(service.isUsbCliSessionSelected())
+        protocol.onConnectionReset()
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+        protocol.confirmExplicitUsbCliSession("hardware_model: Flipper Zero\nfirmware_version: test")
+        protocol.onRpcDispatch()
+        assertTrue(protocol.isConfirmedUsbCliSession())
+    }
+
+    @Test fun `accepted RPC mode dispatch still revokes observed CLI`() {
+        val service = mock<FlipperBleService>()
+        whenever(service.isCommandTransportConnected()).thenReturn(true)
+        whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
+        val protocol = FlipperProtocol().apply { setBleService(service) }
+        protocol.confirmExplicitUsbCliSession("hardware_model: Flipper Zero\nfirmware_version: test")
+        whenever(service.isUsbCliSessionSelected()).thenReturn(false)
+        protocol.onRpcDispatch()
+        val observed = FlipperProtocol::class.java.getDeclaredField("observedCommandSessionMode")
+            .apply { isAccessible = true }.get(protocol).toString()
+        assertEquals("UNKNOWN", observed)
+    }
+
 }

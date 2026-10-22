@@ -142,7 +142,12 @@ class FlipperProtocol @Inject constructor() {
     private enum class CommandSessionMode { UNKNOWN, CLI, RPC }
     @Volatile private var observedCommandSessionMode = CommandSessionMode.UNKNOWN
 
-    internal fun onRpcDispatch() { observedCommandSessionMode = CommandSessionMode.UNKNOWN }
+    internal fun onRpcDispatch() = synchronized(ingressStateLock) {
+        // A stale dispatch rejected by the selected CLI route must not revoke its identity.
+        if (bleService?.isUsbCliSessionSelected() != true) {
+            observedCommandSessionMode = CommandSessionMode.UNKNOWN
+        }
+    }
     private fun isRpcSessionControl(command: String) = command.lineSequence().any { line ->
         val token = line.trim().takeWhile { !it.isWhitespace() }.lowercase()
         token == "start_rpc_session" || token == "stop_rpc_session"
@@ -151,7 +156,7 @@ class FlipperProtocol @Inject constructor() {
         if (isRpcSessionControl(command)) onRpcDispatch() else markCliReady(response)
     }
 
-    internal fun confirmExplicitUsbCliSession(identity: String) {
+    internal fun confirmExplicitUsbCliSession(identity: String) = synchronized(ingressStateLock) {
         check(bleService?.isUsbCliSessionSelected() == true &&
             bleService?.isCommandTransportConnected() == true && UsbCliHandshake.isDeviceInfo(identity))
         _cliStatus.value = CliCapabilityStatus()
