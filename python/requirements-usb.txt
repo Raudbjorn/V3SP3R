@@ -1,0 +1,2 @@
+# Optional. Local/mock terminal usage has no third-party dependencies.
+pyserial>=3.5,<4
