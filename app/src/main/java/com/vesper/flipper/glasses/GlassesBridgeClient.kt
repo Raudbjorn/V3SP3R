@@ -76,7 +76,7 @@ class GlassesBridgeClient @Inject constructor() {
         val sanitized = sanitizeUrl(url)
         if (sanitized == null) {
             _state.value = BridgeState.Error("Invalid bridge URL: $url")
-            Log.w(TAG, "Invalid bridge URL, not connecting: $url")
+            Log.w(TAG, "Invalid or insecure bridge URL")
             return
         }
         bridgeUrl = sanitized
@@ -157,7 +157,7 @@ class GlassesBridgeClient @Inject constructor() {
             return
         }
         _state.value = BridgeState.Connecting(url)
-        Log.i(TAG, "Connecting to glasses bridge: $url")
+        Log.i(TAG, "Connecting to glasses bridge")
 
         val request = try {
             Request.Builder()
@@ -167,7 +167,7 @@ class GlassesBridgeClient @Inject constructor() {
         } catch (e: Exception) {
             isConnecting.set(false)
             _state.value = BridgeState.Error("Invalid URL: ${e.message}")
-            Log.e(TAG, "Failed to build request for bridge URL: $url", e)
+            Log.e(TAG, "Failed to build bridge request")
             return
         }
 
@@ -188,13 +188,13 @@ class GlassesBridgeClient @Inject constructor() {
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
-                    Log.d(TAG, "Bridge raw: ${text.take(200)}")
+                    Log.d(TAG, "Bridge message received")
                     val message = json.decodeFromString<GlassesMessage>(text)
-                    Log.d(TAG, "Parsed: type=${message.type}, hasImage=${message.imageBase64 != null}")
+                    Log.d(TAG, "Parsed bridge message")
                     scope.launch { _incomingMessages.emit(message) }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Invalid message from bridge: ${e.message}")
-                    Log.w(TAG, "Raw message was: ${text.take(300)}")
+                    Log.w(TAG, "Invalid message from bridge")
+                    // Never log bridge payloads (chat text, images, or credentials).
                 }
             }
 
@@ -205,7 +205,7 @@ class GlassesBridgeClient @Inject constructor() {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 isConnecting.set(false)
                 this@GlassesBridgeClient.webSocket = null
-                Log.i(TAG, "Bridge connection closed (code=$code): $reason")
+                Log.i(TAG, "Bridge connection closed (code=$code)")
                 if (code == 1000) {
                     // Normal close (user disconnect) — don't reconnect
                     _state.value = BridgeState.Disconnected
@@ -219,7 +219,7 @@ class GlassesBridgeClient @Inject constructor() {
                 isConnecting.set(false)
                 this@GlassesBridgeClient.webSocket = null
                 val reason = t.message ?: "unknown error"
-                Log.w(TAG, "Bridge connection failed: $reason", t)
+                Log.w(TAG, "Bridge connection failed")
                 _state.value = BridgeState.Error("Connection failed: $reason")
                 scheduleReconnect()
             }
@@ -231,7 +231,7 @@ class GlassesBridgeClient @Inject constructor() {
         try {
             ws.send(json.encodeToString(message))
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to send to bridge: ${e.message}")
+            Log.w(TAG, "Failed to send to bridge")
         }
     }
 
@@ -263,28 +263,8 @@ class GlassesBridgeClient @Inject constructor() {
      * Accepts https:// or http:// (auto-converts to wss:// / ws://) and
      * trims whitespace. Returns null if the URL is fundamentally invalid.
      */
-    private fun sanitizeUrl(raw: String): String? {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) return null
-
-        // Auto-convert https/http to wss/ws for WebSocket
-        val converted = when {
-            trimmed.startsWith("https://", ignoreCase = true) ->
-                "wss://" + trimmed.substring("https://".length)
-            trimmed.startsWith("http://", ignoreCase = true) ->
-                "ws://" + trimmed.substring("http://".length)
-            trimmed.startsWith("wss://", ignoreCase = true) -> trimmed
-            trimmed.startsWith("ws://", ignoreCase = true) -> trimmed
-            // No scheme — assume wss
-            else -> "wss://$trimmed"
-        }
-
-        // Basic validity: must have a host after the scheme
-        val hostPart = converted.substringAfter("://")
-        if (hostPart.isBlank() || hostPart.startsWith("/")) return null
-
-        return converted
-    }
+    private fun sanitizeUrl(raw: String): String? =
+        com.vesper.flipper.security.TransportSecurity.bridgeUrl(raw, com.vesper.flipper.BuildConfig.DEBUG)
 
     private fun truncateForDisplay(text: String): String {
         // Strip markdown and truncate for glasses HUD
