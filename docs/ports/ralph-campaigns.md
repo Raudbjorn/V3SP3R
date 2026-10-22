@@ -1,0 +1,15 @@
+# Experimental scoped campaigns
+
+Selective redesign inspired by charlesreid1/M0MA-V3SP3R at 62c189ca54a291ab3b35670b2fa79f236d2331f1 (AGPL-3.0). WorkManager advances bounded phases of explicitly authored commands. Enable and open the inbox from Settings → Experimental campaigns. Disabled by default. A stop-all switch disables scheduling and cancels work.
+
+The initial supported vocabulary is device/storage information plus scoped directory listing, file reading/writing, and directory creation. Raw CLI, nested runbooks and unbounded autonomous exploitation are rejected. Plans have exact /ext directory scope, at most five phases, twenty steps per phase, five minute execution timeout and 24-hour campaign expiry. Write commands require content; an empty string creates an empty file. Write/create commands that pass the executor’s blocked-path checks request explicit approval regardless of auto-approve settings. Blocked paths are rejected without an approval option.
+
+All inbox rows display scope and state. Pending approval rows additionally display the exact command and approval expiry; confirmation is bound to that displayed approval ID. Approval notifications are optional when Android notification permission is absent. Expired or process-lost executor approvals are retired as failed before the inbox offers them. Approval timeout or cancellation persists an uncertain failure and prevents subsequent steps. Commands are claimed durably before execution; process death leaves an uncertain execution state requiring manual verification rather than replay.
+
+Campaign data uses its own encrypted SQLCipher database through the shared key/migration factory and explicit additive v1→v2 schema migration. Legacy plaintext campaign records are converted before the actual schema upgrade; audit/chat databases retain their own schemas. Hardware validation still required for background execution, process death during side effects, notification permission, approval expiry, and cancellation while a device call is in progress. This is a draft experimental feature, not a production autonomous executor.
+
+Campaigns reuse a bounded subset of the existing command actions and arguments; no additional tool-schema vocabulary is introduced. The current generated schema and runtime parser contract remain enforced by `:app:verifyExecuteCommandSchema` during preBuild.
+
+Kill-switch timing: a command already claimed or sent to the device can finish after stop. Disabled state and durable cancellation prevent subsequent commands from running; verify the device state after stopping an in-flight side effect.
+
+Approval availability checks the exact command, displayed approval identity, expiry, and campaign origin session. The executor still performs the authoritative atomic session-bound consumption. Both approval and phase execution recompute the remaining deadline after blocking claim/readiness checks; an expired budget cannot invoke the command. Native conversion/upgrade and CAS instrumentation fixtures are compiled in CI; execution still requires an Android device or emulator.

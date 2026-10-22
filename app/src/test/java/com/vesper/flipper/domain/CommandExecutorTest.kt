@@ -20,6 +20,7 @@ import com.vesper.flipper.data.FlipperAppCatalog
 import com.vesper.flipper.domain.model.FapHubCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -30,6 +31,7 @@ import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 
@@ -41,6 +43,7 @@ class CommandExecutorTest {
     private lateinit var auditService: AuditService
     private lateinit var diffService: DiffService
     private lateinit var commandExecutor: CommandExecutor
+    private lateinit var settingsStore: SettingsStore
 
     @Before
     fun setup() {
@@ -49,7 +52,7 @@ class CommandExecutorTest {
         permissionService = mock()
         auditService = mock()
         diffService = mock()
-        val settingsStore: SettingsStore = mock()
+        settingsStore = mock()
         whenever(settingsStore.autoApproveMedium).thenReturn(flowOf(false))
         whenever(settingsStore.autoApproveHigh).thenReturn(flowOf(false))
         val appCatalog: FlipperAppCatalog = mock()
@@ -86,6 +89,41 @@ class CommandExecutorTest {
         val entries = argumentCaptor<AuditEntry>()
         verify(auditService, atLeastOnce()).log(entries.capture())
         assertTrue(entries.allValues.any { it.actionType == AuditActionType.COMMAND_EXECUTED && it.sessionId == "skill-session" })
+    }
+
+    @Test
+    fun `campaign mutation ignores auto approval and only owning session can consume it`() = runBlocking<Unit> {
+        val command = ExecuteCommand(CommandAction.CREATE_DIRECTORY, CommandArgs(path = "/ext/campaign/test"),
+            "Create scoped directory", "Directory exists")
+        whenever(riskAssessor.assess(command)).thenReturn(RiskAssessment(RiskLevel.LOW,
+            "Within allowed scope", affectedPaths = listOf("/ext/campaign/test"),
+            requiresDiff = false, requiresConfirmation = false))
+        whenever(settingsStore.autoApproveHigh).thenReturn(flowOf(true))
+        whenever(fileSystem.createDirectory("/ext/campaign/test")).thenReturn(Result.success(Unit))
+        val pending = commandExecutor.execute(command, "campaign-one")
+        assertTrue(pending.requiresConfirmation)
+        assertNull(commandExecutor.currentApproval.value)
+        val approvalId = requireNotNull(pending.pendingApprovalId)
+        assertEquals("campaign-one", commandExecutor.getPendingApproval(approvalId)?.originSessionId)
+        assertFalse(commandExecutor.approve(approvalId, "campaign-other").success)
+        assertNotNull(commandExecutor.getPendingApproval(approvalId))
+        verifyNoInteractions(fileSystem)
+        assertTrue(commandExecutor.approve(approvalId, "campaign-one").success)
+        assertFalse(commandExecutor.approve(approvalId, "campaign-one").success)
+        verify(fileSystem, times(1)).createDirectory("/ext/campaign/test")
+    }
+
+    @Test
+    fun `blocked campaign mutation has no approval option`() = runBlocking<Unit> {
+        val command = ExecuteCommand(CommandAction.CREATE_DIRECTORY, CommandArgs(path = "/int/blocked"),
+            "Create directory", "Directory exists")
+        whenever(riskAssessor.assess(command)).thenReturn(RiskAssessment(RiskLevel.BLOCKED,
+            "Protected path", affectedPaths = listOf("/int/blocked"), requiresDiff = false, requiresConfirmation = true))
+        val result = commandExecutor.execute(command, "campaign-one")
+        assertFalse(result.success)
+        assertFalse(result.requiresConfirmation)
+        assertNull(result.pendingApprovalId)
+        verifyNoInteractions(fileSystem)
     }
 
     @Test
