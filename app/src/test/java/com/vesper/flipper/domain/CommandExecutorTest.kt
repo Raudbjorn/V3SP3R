@@ -92,7 +92,7 @@ class CommandExecutorTest {
     }
 
     @Test
-    fun `campaign mutation ignores auto approval and only owning session can consume it`() = runBlocking {
+    fun `campaign mutation ignores auto approval and only owning session can consume it`() = runBlocking<Unit> {
         val command = ExecuteCommand(CommandAction.CREATE_DIRECTORY, CommandArgs(path = "/ext/campaign/test"),
             "Create scoped directory", "Directory exists")
         whenever(riskAssessor.assess(command)).thenReturn(RiskAssessment(RiskLevel.LOW,
@@ -114,7 +114,7 @@ class CommandExecutorTest {
     }
 
     @Test
-    fun `blocked campaign mutation has no approval option`() = runBlocking {
+    fun `blocked campaign mutation has no approval option`() = runBlocking<Unit> {
         val command = ExecuteCommand(CommandAction.CREATE_DIRECTORY, CommandArgs(path = "/int/blocked"),
             "Create directory", "Directory exists")
         whenever(riskAssessor.assess(command)).thenReturn(RiskAssessment(RiskLevel.BLOCKED,
