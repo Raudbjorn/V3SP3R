@@ -52,7 +52,7 @@ class TerminalSafetyTest(unittest.TestCase):
         self.assertFalse(self.agent.executor.approve(pending, self.agent.session_id).success)
 
     def test_paths_and_control_characters_blocked(self):
-        for path in ['/ext/../int/manifest.txt', '/int', '/ext/update', '/ext/.region', '/ext/a.secret', 'relative', '/ext/a\nb']:
+        for path in ['/ext/../int/manifest.txt', '//int/manifest.txt', '/ext//update/fw', '/int', '/ext/update', '/ext/.region', '/ext/a.secret', 'relative', '/ext/a\nb']:
             command = ExecuteCommand(CommandAction.DELETE, CommandArgs(path=path), '', '')
             result = self.agent.executor.execute(command, self.agent.session_id)
             self.assertFalse(result.success, path)
