@@ -1,5 +1,6 @@
 package com.vesper.flipper.domain.executor
 
+import com.vesper.flipper.ai.PhotoCaptureCallback
 import com.vesper.flipper.ble.FlipperFileSystem
 import com.vesper.flipper.data.SettingsStore
 import com.vesper.flipper.domain.model.*
@@ -7,6 +8,8 @@ import com.vesper.flipper.domain.service.AuditService
 import com.vesper.flipper.domain.service.DiffService
 import com.vesper.flipper.domain.service.PermissionService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,7 +42,20 @@ class CommandExecutor @Inject constructor(
     private val settingsStore: SettingsStore
 ) {
 
-    private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
+    private data class ScopedApproval(val approval: PendingApproval, val sessionId: String)
+    private val pendingApprovals = ConcurrentHashMap<String, ScopedApproval>()
+
+    @Volatile private var photoCaptureCallback: PhotoCaptureCallback? = null
+
+    fun setPhotoCaptureCallback(callback: PhotoCaptureCallback?) {
+        photoCaptureCallback = callback
+    }
+
+    private fun consumeApproval(id: String, sessionId: String): PendingApproval? {
+        val pending = pendingApprovals[id] ?: return null
+        if (pending.sessionId != sessionId) return null
+        return if (pendingApprovals.remove(id, pending)) pending.approval else null
+    }
 
     private val _currentApproval = MutableStateFlow<PendingApproval?>(null)
     val currentApproval: StateFlow<PendingApproval?> = _currentApproval.asStateFlow()
@@ -65,6 +81,16 @@ class CommandExecutor @Inject constructor(
 
         // Assess risk (Android decides, not the model)
         val riskAssessment = riskAssessor.assess(command)
+
+        // A camera request discloses the user's surroundings to a cloud model.
+        // Neither model instructions nor global auto-approve settings authorize it.
+        if (command.action == CommandAction.REQUEST_PHOTO && riskAssessment.level != RiskLevel.BLOCKED) {
+            return requestApproval(command, riskAssessment.copy(
+                level = RiskLevel.HIGH,
+                reason = "Capture a photo from the glasses camera and send it for cloud analysis",
+                requiresConfirmation = true
+            ), sessionId, startTime, traceId)
+        }
 
         return when (riskAssessment.level) {
             RiskLevel.LOW -> executeDirectly(
@@ -158,6 +184,8 @@ class CommandExecutor @Inject constructor(
                 data = data,
                 executionTimeMs = executionTime
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             CommandResult(
                 success = false,
@@ -204,7 +232,7 @@ class CommandExecutor @Inject constructor(
             traceId = traceId
         )
 
-        pendingApprovals[approval.id] = approval
+        pendingApprovals[approval.id] = ScopedApproval(approval, sessionId)
         _currentApproval.value = approval
 
         auditService.log(
@@ -239,7 +267,7 @@ class CommandExecutor @Inject constructor(
      */
     suspend fun approve(approvalId: String, sessionId: String): CommandResult {
         clearExpiredApprovals()
-        val approval = pendingApprovals.remove(approvalId)
+        val approval = consumeApproval(approvalId, sessionId)
             ?: return CommandResult(
                 success = false,
                 action = CommandAction.LIST_DIRECTORY,
@@ -303,6 +331,8 @@ class CommandExecutor @Inject constructor(
             )
 
             result
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             CommandResult(
                 success = false,
@@ -331,9 +361,9 @@ class CommandExecutor @Inject constructor(
      */
     suspend fun reject(approvalId: String, sessionId: String): CommandResult {
         clearExpiredApprovals()
-        val approval = pendingApprovals.remove(approvalId)
+        val approval = consumeApproval(approvalId, sessionId)
 
-        if (_currentApproval.value?.id == approvalId) {
+        if (approval != null && _currentApproval.value?.id == approvalId) {
             _currentApproval.value = null
         }
 
@@ -651,13 +681,16 @@ class CommandExecutor @Inject constructor(
                 )
             }
 
-            // REQUEST_PHOTO is intercepted by VesperAgent before reaching here.
-            // This stub exists only so the exhaustive when compiles.
+            // Only the consumed, session-bound approval path can reach this branch.
             CommandAction.REQUEST_PHOTO -> {
-                CommandResultData(
-                    content = "request_photo is handled at the agent layer",
-                    message = "Photo capture handled by agent"
-                )
+                val callback = photoCaptureCallback
+                    ?: throw IllegalStateException("Smart glasses are not connected")
+                val prompt = command.args.photoPrompt ?: command.args.prompt
+                    ?: "Describe what you see in detail"
+                val description = withTimeoutOrNull(15_000L) {
+                    callback.capturePhoto(prompt, 15_000L)
+                } ?: throw IllegalStateException("Photo capture failed or timed out")
+                CommandResultData(content = description, message = "Photo captured and analyzed")
             }
         }
     }
@@ -876,12 +909,12 @@ class CommandExecutor @Inject constructor(
 
     fun getPendingApproval(approvalId: String): PendingApproval? {
         clearExpiredApprovals()
-        return pendingApprovals[approvalId]
+        return pendingApprovals[approvalId]?.approval
     }
 
     fun clearExpiredApprovals() {
         val now = System.currentTimeMillis()
-        pendingApprovals.entries.removeIf { it.value.expiresAt < now }
+        pendingApprovals.entries.removeIf { it.value.approval.expiresAt < now }
         _currentApproval.value?.let {
             if (it.expiresAt < now) {
                 _currentApproval.value = null
