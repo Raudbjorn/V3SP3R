@@ -49,7 +49,9 @@ class CommandExecutorTest {
             riskAssessor = riskAssessor,
             permissionService = permissionService,
             auditService = auditService,
-            diffService = diffService
+            diffService = diffService,
+            forgeEngine = mock(),
+            settingsStore = mock()
         )
     }
 

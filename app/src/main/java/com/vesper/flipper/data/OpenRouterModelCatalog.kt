@@ -1,5 +1,6 @@
 package com.vesper.flipper.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -17,8 +18,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Fetches OpenRouter's live model catalog and selects one latest model
- * for each major manufacturer/provider used by the app.
+ * Fetches all tool-capable OpenRouter models, ordered by provider and recency.
  */
 @Singleton
 class OpenRouterModelCatalog @Inject constructor() {
@@ -48,66 +48,93 @@ class OpenRouterModelCatalog @Inject constructor() {
                 val body = response.body?.string()
                     ?: return@withContext Result.failure(IOException("Empty model catalog response"))
 
-                val root = json.parseToJsonElement(body).jsonObject
-                val data = root["data"]?.jsonArray
-                    ?: return@withContext Result.failure(IOException("Invalid model catalog payload"))
-
-                val remoteModels = data.mapNotNull { element ->
-                    val modelObj = element.jsonObject
-                    val id = modelObj.string("id") ?: return@mapNotNull null
-                    RemoteModel(
-                        id = id,
-                        name = modelObj.string("name") ?: id.substringAfter("/"),
-                        created = modelObj.long("created") ?: 0L
-                    )
-                }
-
-                val selectedByProvider = MAJOR_MANUFACTURERS.mapNotNull { manufacturer ->
-                    val candidates = remoteModels.filter { providerFromId(it.id) == manufacturer.providerId }
-                    if (candidates.isEmpty()) return@mapNotNull null
-
-                    val stableCandidates = candidates.filterNot { model ->
-                        model.id.contains(":free", ignoreCase = true) ||
-                                model.id.contains(":beta", ignoreCase = true) ||
-                                model.id.contains(":preview", ignoreCase = true)
-                    }
-
-                    val latest = (if (stableCandidates.isNotEmpty()) stableCandidates else candidates)
-                        .maxByOrNull { it.created }
-                        ?: return@mapNotNull null
-
-                    ModelInfo(
-                        id = latest.id,
-                        displayName = latest.name,
-                        description = "Latest ${manufacturer.displayName}"
-                    )
-                }
-
-                if (selectedByProvider.isEmpty()) {
-                    return@withContext Result.success(SettingsStore.FALLBACK_MODELS)
-                }
-
-                val selectedByProviderId = selectedByProvider.associateBy { providerFromId(it.id) }.toMutableMap()
-                SettingsStore.FALLBACK_MODELS.forEach { fallback ->
-                    selectedByProviderId.putIfAbsent(providerFromId(fallback.id), fallback)
-                }
-
-                val ordered = MAJOR_MANUFACTURERS.mapNotNull { manufacturer ->
-                    selectedByProviderId[manufacturer.providerId]
-                }
-
-                Result.success(ordered)
+                Result.success(parseCatalog(body))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    internal fun parseCatalog(body: String): List<ModelInfo> {
+                val root = json.parseToJsonElement(body).jsonObject
+                val data = root["data"]?.jsonArray
+                    ?: throw IOException("Invalid model catalog payload")
+
+                // Only models that can call tools. This is not a preference — the app
+                // works by having the model invoke execute_command, so a model without
+                // tool support cannot do anything here and picking one produces a
+                // conversation where nothing ever happens. It was previously possible
+                // to select exactly that.
+                val usable = data.mapNotNull { element ->
+                    // Skip anything that is not a well-formed model object rather
+                    // than letting one malformed entry abort the whole fetch.
+                    val modelObj = (element as? JsonObject) ?: return@mapNotNull null
+                    val id = modelObj.string("id") ?: return@mapNotNull null
+
+                    val supportsTools = modelObj["supported_parameters"]?.let { params ->
+                        runCatching { params.jsonArray.any { it.jsonPrimitive.content == "tools" } }
+                            .getOrDefault(false)
+                    } ?: false
+                    if (!supportsTools) return@mapNotNull null
+
+                    // :free and :beta are rate-limited or unstable aliases of a model
+                    // that is already in the list under its real id.
+                    if (id.contains(":free", true) || id.contains(":beta", true) ||
+                        id.contains(":extended", true) || id.endsWith(":batch")
+                    ) return@mapNotNull null
+
+                    val supportsImages = (modelObj["architecture"] as? JsonObject)
+                        ?.get("input_modalities")?.let { mods ->
+                            runCatching { mods.jsonArray.any { it.jsonPrimitive.content == "image" } }
+                                .getOrDefault(false)
+                        } ?: false
+
+                    RemoteModel(
+                        id = id,
+                        name = modelObj.string("name") ?: id.substringAfter("/"),
+                        created = modelObj.long("created") ?: 0L,
+                        supportsImages = supportsImages
+                    )
+                }
+
+                if (usable.isEmpty()) {
+                    return SettingsStore.FALLBACK_MODELS
+                }
+
+                // Known vendors first and in a deliberate order, everything else after,
+                // newest first within each. The old code kept ONE model per vendor —
+                // the most recently created — which is not the same as the best one: a
+                // vendor's newest release is often a small or experimental variant while
+                // its flagship, published a month earlier, never appeared at all. That
+                // is why the list was both short and full of odd choices.
+                val vendorRank = MAJOR_MANUFACTURERS.withIndex()
+                    .associate { (index, m) -> m.providerId to index }
+
+                val ordered = usable
+                    .sortedWith(
+                        compareBy<RemoteModel> { vendorRank[providerFromId(it.id)] ?: Int.MAX_VALUE }
+                            .thenBy { providerFromId(it.id) }
+                            .thenByDescending { it.created }
+                    )
+                    .map { model ->
+                        ModelInfo(
+                            id = model.id,
+                            displayName = model.name,
+                            description = if (model.supportsImages) "Tools · images" else "Tools"
+                        )
+                    }
+
+                return ordered
     }
 
     private fun providerFromId(modelId: String): String = modelId.substringBefore("/")
 
     private fun JsonObject.string(key: String): String? {
         val value = this[key] as? JsonPrimitive ?: return null
-        val content = if (value.isString) value.content else value.toString()
+        if (!value.isString) return null
+        val content = value.content
         return content.takeIf { it.isNotBlank() }
     }
 
@@ -127,22 +154,20 @@ class OpenRouterModelCatalog @Inject constructor() {
         private data class RemoteModel(
             val id: String,
             val name: String,
-            val created: Long
+            val created: Long,
+            val supportsImages: Boolean = false
         )
 
         private val MAJOR_MANUFACTURERS = listOf(
-            Manufacturer("nousresearch", "Nous Research"),
+            Manufacturer("google", "Google"),
             Manufacturer("anthropic", "Anthropic"),
             Manufacturer("openai", "OpenAI"),
-            Manufacturer("google", "Google"),
-            Manufacturer("meta-llama", "Meta"),
-            Manufacturer("mistralai", "Mistral"),
             Manufacturer("x-ai", "xAI"),
             Manufacturer("qwen", "Qwen"),
             Manufacturer("deepseek", "DeepSeek"),
-            Manufacturer("cohere", "Cohere"),
             Manufacturer("moonshotai", "Moonshot"),
-            Manufacturer("z-ai", "Z.ai")
+            Manufacturer("meta", "Meta"),
+            Manufacturer("minimax", "MiniMax")
         )
     }
 }
