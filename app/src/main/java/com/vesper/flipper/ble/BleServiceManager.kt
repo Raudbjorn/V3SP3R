@@ -137,10 +137,12 @@ class BleServiceManager @Inject constructor(
         }
     }
 
-    fun connectUsb() {
+    fun isUsbCliSession(): Boolean = _service?.isUsbCliSessionSelected() == true
+
+    fun connectUsb(mode: UsbSessionMode = UsbSessionMode.RPC) {
         managerScope.launch {
             val service = awaitService() ?: return@launch
-            service.connectUsbIfAvailable()
+            service.connectUsbIfAvailable(mode)
         }
     }
 

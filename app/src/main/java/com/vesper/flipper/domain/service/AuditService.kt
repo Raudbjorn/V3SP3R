@@ -99,6 +99,13 @@ class AuditService @Inject constructor(
     /**
      * Get recent entries across all sessions
      */
+    // Model-facing reads require an explicit session; UI-wide history remains separate.
+    suspend fun queryRecent(sessionId: String, limit: Int, action: String?, risk: RiskLevel?): List<AuditEntry> {
+        require(sessionId.isNotBlank()) { "Session required" }
+        require(limit in 1..100) { "limit must be 1..100" }
+        return auditDao.queryFiltered(sessionId, limit, action, risk?.name).map { it.toAuditEntry(json) }
+    }
+
     fun getRecentEntries(limit: Int = 100): Flow<List<AuditEntry>> {
         return auditDao.getRecentEntries(limit)
             .map { entities -> entities.map { it.toAuditEntry(json) } }

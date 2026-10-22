@@ -88,7 +88,7 @@ class CameraStreamingIntegrationTest {
                 forgeEngine = mock(), settingsStore = mock {
                     on { autoApproveMedium } doReturn flowOf(true)
                     on { autoApproveHigh } doReturn flowOf(true)
-                }, appCatalog = mock()
+                }, vulnTriage = mock(), appCatalog = mock()
             )
             var captures = 0
             executor.setPhotoCaptureCallback(PhotoCaptureCallback { prompt, timeout ->

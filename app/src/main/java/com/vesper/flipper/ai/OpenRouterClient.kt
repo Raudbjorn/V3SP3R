@@ -752,14 +752,11 @@ class OpenRouterClient {
 
         // Fast-path: strict decoding when the model follows schema perfectly.
         runCatching {
-            val decoded = json.decodeFromString<ExecuteCommand>(trimmedArguments)
-            if (decoded.action in setOf(CommandAction.BLE_ENUMERATE, CommandAction.BLE_READ_CHAR,
-                    CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE)) {
-                val missing = missingRequiredArgs(decoded.action, decoded.args)
-                if (missing.isNotEmpty()) return ParsedCommand(error =
-                    "Missing required BLE argument(s): ${missing.joinToString()}. Example: ${requiredArgsExample(decoded.action)}")
-            }
-            return ParsedCommand(command = decoded)
+            val command = json.decodeFromString<ExecuteCommand>(trimmedArguments)
+            val missing = missingRequiredArgs(command.action, command.args)
+            return if (missing.isEmpty()) ParsedCommand(command = command) else ParsedCommand(
+                error = "Missing required argument(s): ${missing.joinToString()}. Example: ${requiredArgsExample(command.action)}"
+            )
         }
 
         // Attempt to repair common JSON malformations from LLMs before fallback parsing.
@@ -905,7 +902,24 @@ class OpenRouterClient {
                 duration = doubleArg("duration"),
                 uuid = stringArg("uuid"),
                 hex = booleanArg("hex"),
-                withResponse = booleanArg("with_response")
+                withResponse = booleanArg("with_response"),
+                target = stringArg("target"),
+                vulnType = stringArg("vuln_type"),
+                description = stringArg("description"),
+                evidence = stringArg("evidence"),
+                severity = stringArg("severity"),
+                complexity = intArg("complexity"),
+                vulnId = stringArg("vuln_id"),
+                reproduced = booleanArg("reproduced"),
+                notes = stringArg("notes"),
+                status = stringArg("status"),
+                limit = intArg("limit"),
+                riskLevel = stringArg("risk_level"),
+                pin = stringArg("pin"),
+                value = intArg("value"),
+                mode = intArg("mode"),
+                keyType = stringArg("key_type"),
+                keyData = stringArg("key_data")
             )
 
             val missingArgs = missingRequiredArgs(action, args)
@@ -987,6 +1001,22 @@ class OpenRouterClient {
             "ble_read_char" -> CommandAction.BLE_READ_CHAR
             "ble_write_char" -> CommandAction.BLE_WRITE_CHAR
             "ble_subscribe" -> CommandAction.BLE_SUBSCRIBE
+            "vuln_submit" -> CommandAction.VULN_SUBMIT
+            "vuln_validate" -> CommandAction.VULN_VALIDATE
+            "vuln_list" -> CommandAction.VULN_LIST
+            "vuln_classify" -> CommandAction.VULN_CLASSIFY
+            "audit_query" -> CommandAction.AUDIT_QUERY
+            "gpio_read" -> CommandAction.GPIO_READ
+            "gpio_set" -> CommandAction.GPIO_SET
+            "gpio_mode" -> CommandAction.GPIO_MODE
+            "apps_list" -> CommandAction.APPS_LIST
+            "get_system_info" -> CommandAction.GET_SYSTEM_INFO
+            "nfc_detect" -> CommandAction.NFC_DETECT
+            "rfid_read" -> CommandAction.RFID_READ
+            "rfid_write" -> CommandAction.RFID_WRITE
+            "ir_receive" -> CommandAction.IR_RECEIVE
+            "badusb_validate" -> CommandAction.BADUSB_VALIDATE
+            "badusb_diff" -> CommandAction.BADUSB_DIFF
             "request_photo", "take_photo", "capture_photo", "photo", "snap_photo" -> CommandAction.REQUEST_PHOTO
             else -> null
         }
@@ -1119,7 +1149,7 @@ class OpenRouterClient {
             ?: "invalid format"
     }
 
-    private fun missingRequiredArgs(action: CommandAction, args: CommandArgs): List<String> {
+    internal fun missingRequiredArgs(action: CommandAction, args: CommandArgs): List<String> {
         return when (action) {
             CommandAction.INPUT_SEND -> listOfNotNull(if (args.key.isNullOrBlank()) "key" else null)
             CommandAction.LOADER_SIGNAL -> listOfNotNull(if (args.signalId == null) "signal_id" else null)
@@ -1215,6 +1245,22 @@ class OpenRouterClient {
             CommandAction.BLE_READ_CHAR -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null)
             CommandAction.BLE_WRITE_CHAR -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null, if (args.content.isNullOrBlank()) "content" else null)
             CommandAction.BLE_SUBSCRIBE -> listOfNotNull(if (args.address.isNullOrBlank()) "address" else null, if (args.uuid.isNullOrBlank()) "uuid" else null)
+            CommandAction.VULN_SUBMIT -> listOfNotNull(if (args.target.isNullOrBlank()) "target" else null, if (args.vulnType.isNullOrBlank()) "vuln_type" else null, if (args.description.isNullOrBlank()) "description" else null, if (args.evidence.isNullOrBlank()) "evidence" else null, if (args.severity.isNullOrBlank()) "severity" else null, if (args.complexity == null) "complexity" else null)
+            CommandAction.VULN_VALIDATE -> listOfNotNull(if (args.vulnId.isNullOrBlank()) "vuln_id" else null, if (args.reproduced == null) "reproduced" else null)
+            CommandAction.VULN_LIST -> emptyList()
+            CommandAction.VULN_CLASSIFY -> listOfNotNull(if (args.vulnType.isNullOrBlank()) "vuln_type" else null)
+            CommandAction.AUDIT_QUERY -> emptyList()
+            CommandAction.GPIO_READ -> listOfNotNull(if (args.pin.isNullOrBlank()) "pin" else null)
+            CommandAction.GPIO_SET -> listOfNotNull(if (args.pin.isNullOrBlank()) "pin" else null, if (args.value == null) "value" else null)
+            CommandAction.GPIO_MODE -> listOfNotNull(if (args.pin.isNullOrBlank()) "pin" else null, if (args.mode == null) "mode" else null)
+            CommandAction.APPS_LIST -> emptyList()
+            CommandAction.GET_SYSTEM_INFO -> emptyList()
+            CommandAction.NFC_DETECT -> emptyList()
+            CommandAction.RFID_READ -> emptyList()
+            CommandAction.RFID_WRITE -> listOfNotNull(if (args.keyType.isNullOrBlank()) "key_type" else null, if (args.keyData.isNullOrBlank()) "key_data" else null)
+            CommandAction.IR_RECEIVE -> emptyList()
+            CommandAction.BADUSB_VALIDATE -> listOfNotNull(if (args.content.isNullOrBlank()) "content" else null)
+            CommandAction.BADUSB_DIFF -> listOfNotNull(if (args.path.isNullOrBlank()) "path" else null, if (args.content.isNullOrBlank()) "content" else null)
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1289,6 +1335,22 @@ class OpenRouterClient {
             CommandAction.BLE_READ_CHAR -> """{"action":"ble_read_char","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb"}}"""
             CommandAction.BLE_WRITE_CHAR -> """{"action":"ble_write_char","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb","content":"01"}}"""
             CommandAction.BLE_SUBSCRIBE -> """{"action":"ble_subscribe","args":{"address":"AA:BB:CC:DD:EE:FF","uuid":"00002a19-0000-1000-8000-00805f9b34fb"}}"""
+            CommandAction.VULN_SUBMIT -> """{"action":"vuln_submit","args":{"target":"owned-device","vuln_type":"info_disclosure","description":"Observed banner","evidence":"Version shown in authorized test","severity":"low","complexity":1}}"""
+            CommandAction.VULN_VALIDATE -> """{"action":"vuln_validate","args":{"vuln_id":"existing-session-finding-id","reproduced":false}}"""
+            CommandAction.VULN_LIST -> """{"action":"vuln_list","args":{}}"""
+            CommandAction.VULN_CLASSIFY -> """{"action":"vuln_classify","args":{"vuln_type":"info_disclosure"}}"""
+            CommandAction.AUDIT_QUERY -> """{"action":"audit_query","args":{}}"""
+            CommandAction.GPIO_READ -> """{"action":"gpio_read","args":{"pin":"PA7"}}"""
+            CommandAction.GPIO_SET -> """{"action":"gpio_set","args":{"pin":"PA7","value":0}}"""
+            CommandAction.GPIO_MODE -> """{"action":"gpio_mode","args":{"pin":"PA7","mode":0}}"""
+            CommandAction.APPS_LIST -> """{"action":"apps_list","args":{}}"""
+            CommandAction.GET_SYSTEM_INFO -> """{"action":"get_system_info","args":{}}"""
+            CommandAction.NFC_DETECT -> """{"action":"nfc_detect","args":{}}"""
+            CommandAction.RFID_READ -> """{"action":"rfid_read","args":{}}"""
+            CommandAction.RFID_WRITE -> """{"action":"rfid_write","args":{"key_type":"EM4100","key_data":"0102030405"}}"""
+            CommandAction.IR_RECEIVE -> """{"action":"ir_receive","args":{}}"""
+            CommandAction.BADUSB_VALIDATE -> """{"action":"badusb_validate","args":{"content":"REM reviewed script"}}"""
+            CommandAction.BADUSB_DIFF -> """{"action":"badusb_diff","args":{"path":"/ext/badusb/demo.txt","content":"REM replacement"}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }
@@ -1487,7 +1549,7 @@ class OpenRouterClient {
             type = "function",
             function = OpenRouterToolFunction(
                 name = "execute_command",
-                description = "Execute a Flipper Zero action. The 'action' enum lists all supported operations. Use 'args' for action-specific parameters.",
+                description = "Execute a Flipper Zero action. The 'action' enum lists available handlers. Use 'args' for action-specific parameters. Typed hardware handlers gpio_read/gpio_set/gpio_mode/apps_list/get_system_info/nfc_detect/rfid_read/rfid_write/ir_receive require the explicitly selected USB CLI connection mode with a successful read-only handshake. RPC mode is the default; ask the user to disconnect, select USB CLI on Device, and reconnect if needed. Never switch a live session or retry a refused command automatically. Findings, audit queries and authoring validation do not require that session.",
                 parameters = JsonObject(mapOf(
                     "type" to JsonPrimitive("object"),
                     "properties" to JsonObject(mapOf(
@@ -1531,6 +1593,7 @@ class OpenRouterClient {
                                 JsonPrimitive("loader_signal"),
                                 JsonPrimitive("load_skill"),
                                 JsonPrimitive("ble_scan_targets"),JsonPrimitive("ble_enumerate"),JsonPrimitive("ble_read_char"),JsonPrimitive("ble_write_char"),JsonPrimitive("ble_subscribe"),
+                                JsonPrimitive("vuln_submit"),JsonPrimitive("vuln_validate"),JsonPrimitive("vuln_list"),JsonPrimitive("vuln_classify"),JsonPrimitive("audit_query"),JsonPrimitive("gpio_read"),JsonPrimitive("gpio_set"),JsonPrimitive("gpio_mode"),JsonPrimitive("apps_list"),JsonPrimitive("get_system_info"),JsonPrimitive("nfc_detect"),JsonPrimitive("rfid_read"),JsonPrimitive("rfid_write"),JsonPrimitive("ir_receive"),JsonPrimitive("badusb_validate"),JsonPrimitive("badusb_diff"),
                                 JsonPrimitive("request_photo")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero (request_photo requires smart glasses)")
@@ -1541,7 +1604,7 @@ class OpenRouterClient {
                                 "command" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive(
-                                        "Primary text argument. For execute_cli: raw CLI command; for search_faphub/search_resources: query; for install_faphub_app: app id; for run_runbook: runbook id; for browse_repo: repo id (if repo_id not set); for load_skill: bundled read-only methodology ID."
+                                        "Primary text argument. For execute_cli: raw CLI command; for search_faphub/search_resources: query; for install_faphub_app: app id; for run_runbook: runbook id; for browse_repo: repo id (if repo_id not set); for load_skill: bundled read-only methodology ID; for audit_query: optional exact audit action type filter."
                                     )
                                 )),
                                 "key" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("GUI key: up/down/left/right/ok/back"))),
@@ -1655,6 +1718,23 @@ class OpenRouterClient {
                                 "uuid" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Full characteristic UUID required for ble_read_char, ble_write_char and ble_subscribe; must identify exactly one characteristic instance."))),
                                 "hex" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("ble_write_char content encoding: true (default) means hexadecimal byte pairs; false means UTF-8 text. Maximum 512 bytes."))),
                                 "with_response" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("ble_write_char only: true (default) waits for a GATT write response. False sends without a peripheral response and rejects data exceeding negotiated MTU minus 3; no fragmentation."))),
+                                "target" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required nonblank target for vuln_submit (maximum 512 characters); optional Unicode case-insensitive target substring for current-session vuln_list."))),
+                                "vuln_type" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required vulnerability type for submit/classify (maximum 128 characters). Classification uses exact normalized rule keys; with vuln_id it must match the stored finding type."))),
+                                "description" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required nonblank finding description for vuln_submit, maximum 8192 characters."))),
+                                "evidence" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required nonblank observed evidence for vuln_submit, maximum 65536 characters. Submission does not establish reproduction."))),
+                                "severity" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required for vuln_submit or optional exact filter for vuln_list: critical/high/medium/low."))),
+                                "complexity" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Required for vuln_submit: integer 1..10."))),
+                                "vuln_id" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required current-session finding ID for vuln_validate; optional for vuln_classify. ID-targeted classification persists severity and requires explicit approval."))),
+                                "reproduced" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("Required for vuln_validate: true confirms; false marks inconclusive and preserves earlier history."))),
+                                "notes" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional validation notes, maximum 8192 characters. History is capped at 100 entries and 64 KiB of JSON; full histories reject mutation."))),
+                                "status" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional exact current-session vuln_list filter: submitted/confirmed/inconclusive/rejected/false_positive."))),
+                                "limit" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("audit_query maximum returned entries: 1..100, default 20. Always scoped to the calling session."))),
+                                "risk_level" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional audit_query risk filter: LOW/MEDIUM/HIGH/BLOCKED, case-insensitive."))),
+                                "pin" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required for GPIO actions: MCU pin name matching P[A-H][0-9]{1,2}, for example PA7. Requires explicitly selected and confirmed USB CLI; verify physical wiring."))),
+                                "value" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Required gpio_set value: 0 or 1. Typed hardware action uses one USB CLI send after normal risk approval."))),
+                                "mode" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Required gpio_mode value: 0 or 1 according to firmware CLI. Confirm firmware semantics before changing hardware mode."))),
+                                "key_type" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required rfid_write key type: 1..32 letters, digits, underscore or hyphen. Firmware must support the requested type."))),
+                                "key_data" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Required rfid_write key bytes: 1..32 hexadecimal byte pairs, no separators. Explicit confirmed USB CLI only; no retries."))),
                                 "photo_prompt" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Vision analysis prompt for request_photo. Describe what you want to identify (e.g. 'Identify the TV brand and model', 'What device is this?'). Falls back to 'prompt' if not set.")

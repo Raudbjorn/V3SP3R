@@ -22,6 +22,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendUsbDataOnly(any())).thenAnswer {
             // Command echo is not acknowledgement of the signal's outcome.
             protocol.processIncomingData("loader signal 1\r\n>:".toByteArray())
@@ -32,6 +33,7 @@ class LoaderSingleSendTest {
         assertTrue((result as ProtocolResponse.Error).message.contains("unconfirmed"))
         verify(service, times(1)).sendUsbDataOnly(check { assertArrayEquals("loader signal 1\r\n".toByteArray(), it) })
         verify(service).isRawCliTransportConnected()
+        verify(service).isUsbCliSessionSelected()
         verifyNoMoreInteractions(service)
     }
 
@@ -41,10 +43,12 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendUsbDataOnly(any())).thenReturn(false)
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
         verify(service, times(1)).sendUsbDataOnly(any())
         verify(service).isRawCliTransportConnected()
+        verify(service).isUsbCliSessionSelected()
         verifyNoMoreInteractions(service)
     }
 
@@ -54,6 +58,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendUsbDataOnly(any())).thenAnswer {
             protocol.processIncomingData("ERROR busy\r\n>:".toByteArray())
             true
@@ -69,6 +74,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol, supportsRpc = true, confirmed = false)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
         verify(service, never()).sendUsbDataOnly(any())
     }
@@ -78,6 +84,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol, supportsRpc = true)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendUsbDataOnly(any())).thenAnswer {
             protocol.processIncomingData("Application closed\r\n>:".toByteArray())
             true
@@ -93,6 +100,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol, supportsRpc = true)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.sendData(any(), any(), any(), any())).thenReturn(false)
         assertTrue(protocol.isConfirmedUsbCliSession())
         kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<ByteArray> { continuation ->
@@ -105,12 +113,13 @@ class LoaderSingleSendTest {
         verify(service, never()).sendUsbDataOnly(any())
     }
 
-    @Test fun `single RPC collector revokes observed CLI before its direct write`() = runBlocking<Unit> {
+    @Test fun `single RPC collector revokes observed CLI and refuses selected CLI mode`() = runBlocking<Unit> {
         val protocol = FlipperProtocol()
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         status(protocol, supportsRpc = true)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         var confirmedAtWrite = true
         whenever(service.sendData(any(), any(), any(), any())).thenAnswer {
             confirmedAtWrite = protocol.isConfirmedUsbCliSession()
@@ -123,10 +132,10 @@ class LoaderSingleSendTest {
                 kotlin.coroutines.Continuation::class.java).apply { isAccessible = true }
                 .invoke(protocol, byteArrayOf(1), 7, 10L, false, continuation)
         }
-        assertFalse(confirmedAtWrite)
+        assertTrue(confirmedAtWrite) // No write occurred in explicitly selected CLI mode.
         assertFalse(protocol.isConfirmedUsbCliSession())
         assertTrue(protocol.sendLoaderCommandOnce("loader close") is ProtocolResponse.Error)
-        verify(service).sendData(any(), eq(false), eq(false), eq(false))
+        verify(service, never()).sendData(any(), any(), any(), any())
         verify(service, never()).sendUsbDataOnly(any())
     }
 
@@ -135,6 +144,7 @@ class LoaderSingleSendTest {
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         status(protocol)
         assertTrue(protocol.isConfirmedUsbCliSession())
         protocol.onConnectionReset()
@@ -148,6 +158,7 @@ class LoaderSingleSendTest {
         val service = mock<FlipperBleService>()
         protocol.setBleService(service)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.awaitCommandTransportReady(any())).thenReturn(false)
         assertTrue(protocol.sendCliCommand("version") is ProtocolResponse.Error)
         assertFalse(protocol.isConfirmedUsbCliSession())
@@ -160,6 +171,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         FlipperProtocol::class.java.getDeclaredMethod("markRpcReady", String::class.java)
             .apply { isAccessible = true }.invoke(protocol, "RPC response")
         assertTrue(protocol.cliStatus.value.supportsCli)
@@ -173,6 +185,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.sendData(any(), any(), any(), any())).thenAnswer {
             protocol.processIncomingData("Starting RPC session\r\n".toByteArray())
@@ -190,6 +203,7 @@ class LoaderSingleSendTest {
         protocol.setBleService(service)
         status(protocol)
         whenever(service.isRawCliTransportConnected()).thenReturn(true)
+        whenever(service.isUsbCliSessionSelected()).thenReturn(true)
         whenever(service.isCommandTransportConnected()).thenReturn(true)
         whenever(service.sendData(any(), any(), any(), any())).thenReturn(true)
         assertTrue(protocol.isConfirmedUsbCliSession())
@@ -207,6 +221,7 @@ class LoaderSingleSendTest {
         service.flipperProtocol = protocol
         protocol.setBleService(service)
         doReturn(true).whenever(service).isRawCliTransportConnected()
+        doReturn(true).whenever(service).isUsbCliSessionSelected()
         status(protocol)
         assertTrue(protocol.isConfirmedUsbCliSession())
         val port = mock<com.hoho.android.usbserial.driver.UsbSerialPort>()

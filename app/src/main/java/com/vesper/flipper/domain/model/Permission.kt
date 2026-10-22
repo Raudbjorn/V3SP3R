@@ -101,6 +101,7 @@ data class PendingApproval(
     val riskAssessment: RiskAssessment,
     val diff: FileDiff? = null,
     val traceId: String? = null,
+    val originSessionId: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val expiresAt: Long = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min expiry
 )

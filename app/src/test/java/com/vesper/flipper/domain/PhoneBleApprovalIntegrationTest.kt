@@ -17,7 +17,7 @@ class PhoneBleApprovalIntegrationTest {
         whenever(settings.autoApproveHigh).thenReturn(flowOf(true))
         whenever(settings.autoApproveMedium).thenReturn(flowOf(true))
         val peripheral = mock<BleReconService>()
-        val executor = CommandExecutor(mock(), RiskAssessor(mock()), mock(), mock(), mock(), mock(), settings, mock())
+        val executor = CommandExecutor(mock(), RiskAssessor(mock()), mock(), mock(), mock(), mock(), settings, vulnTriage = mock(), appCatalog = mock())
         executor.bleRecon = peripheral
         for (action in listOf(CommandAction.BLE_WRITE_CHAR, CommandAction.BLE_SUBSCRIBE)) {
             val args = CommandArgs(address = "AA:BB:CC:DD:EE:FF",

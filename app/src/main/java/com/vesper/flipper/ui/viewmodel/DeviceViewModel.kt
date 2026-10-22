@@ -145,7 +145,7 @@ class DeviceViewModel @Inject constructor(
             bleServiceManager.connectionState.collect { state ->
                 _connectionState.value = state
                 if (state is ConnectionState.Connected) {
-                    refreshDeviceInfo()
+                    if (!bleServiceManager.isUsbCliSession()) refreshDeviceInfo()
                 } else {
                     clearConnectionTransientState()
                 }
@@ -195,8 +195,8 @@ class DeviceViewModel @Inject constructor(
         bleServiceManager.connect(device)
     }
 
-    fun connectUsb() {
-        bleServiceManager.connectUsb()
+    fun connectUsb(mode: com.vesper.flipper.ble.UsbSessionMode = com.vesper.flipper.ble.UsbSessionMode.RPC) {
+        bleServiceManager.connectUsb(mode)
     }
 
     fun connectDesktopBridge(pairingCode: String) {

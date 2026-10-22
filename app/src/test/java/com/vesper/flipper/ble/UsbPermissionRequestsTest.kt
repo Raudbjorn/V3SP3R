@@ -9,6 +9,18 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class UsbPermissionRequestsTest {
+    @Test fun `queued permission ticket captures mode and supersession cannot change it`() {
+        val requests = UsbPermissionRequests()
+        val cli = requests.begin(UsbSessionMode.CLI)
+        assertEquals(UsbSessionMode.CLI, requests.current(cli.id)!!.mode)
+        val rpc = requests.begin()
+        assertEquals(UsbSessionMode.RPC, rpc.mode)
+        assertEquals(UsbSessionMode.CLI, cli.mode)
+        assertNull(requests.current(cli.id))
+        assertFalse(requests.startIfCurrent(cli) { error("Old CLI intent must not connect") })
+        assertTrue(requests.startIfCurrent(rpc) { requests.current(rpc.id)!!.mode == UsbSessionMode.RPC })
+    }
+
     @Test fun `superseded request cannot start service even if permission completes late`() = runTest {
         val requests = UsbPermissionRequests()
         val old = requests.begin()
