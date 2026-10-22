@@ -63,18 +63,26 @@ class SettingsViewModel @Inject constructor(
     private val _credentialError = MutableStateFlow<String?>(null)
     val credentialError: StateFlow<String?> = _credentialError.asStateFlow()
     private var settingsJob: Job? = null
-    private var pendingApiKey: Pair<LlmProvider, String>? = null
-    private var credentialRevision = 0
+    private val pendingApiKeys = mutableMapOf<LlmProvider, String>()
+    private val credentialRevisions = mutableMapOf<LlmProvider, Long>()
+    private val failedCredentialProviders = mutableSetOf<LlmProvider>()
+    private var credentialReadFailed = false
+
+    private fun updateCredentialError() {
+        _credentialError.value = if (credentialReadFailed || failedCredentialProviders.isNotEmpty())
+            "Could not access or save your API key securely. Retry when storage is available." else null
+    }
 
     private fun reportCredentialFailure(error: Exception) {
         if (error is CancellationException) throw error
-        _credentialError.value = "Could not access or save your API key securely. Retry when storage is available."
+        credentialReadFailed = true
+        updateCredentialError()
     }
 
     fun retryCredentialStorage() {
-        _credentialError.value = null
-        val pending = pendingApiKey
-        if (pending != null) saveApiKey(pending.first, pending.second)
+        credentialReadFailed = false
+        pendingApiKeys.toMap().forEach { (provider, key) -> saveApiKey(provider, key) }
+        updateCredentialError()
         loadSettings()
         refreshAvailableModels()
     }
@@ -162,11 +170,11 @@ class SettingsViewModel @Inject constructor(
                     glassesMuted = glasses.glassesMuted
                 )
             }.combine(settingsStore.llmSelection) { settings, selection ->
-                settings.copy(provider = selection.provider, apiKey = selection.apiKey.orEmpty(), selectedModel = selection.model)
+                settings.copy(provider = selection.provider, apiKey = pendingApiKeys[selection.provider] ?: selection.apiKey.orEmpty(), selectedModel = selection.model)
             }.catch { error -> reportCredentialFailure(error as? Exception ?: throw error) }.collect { settings ->
                 _state.update { it.copy(
                     provider = settings.provider,
-                    apiKey = pendingApiKey?.takeIf { it.first == settings.provider }?.second ?: settings.apiKey,
+                    apiKey = pendingApiKeys[settings.provider] ?: settings.apiKey,
                     selectedModel = settings.selectedModel,
                     aiMaxIterations = settings.aiMaxIterations,
                     autoConnect = settings.autoConnect,
@@ -209,7 +217,7 @@ class SettingsViewModel @Inject constructor(
                 settingsStore.setProvider(provider)
                 val selection = settingsStore.readLlmSelection()
                 _state.update {
-                    it.copy(provider = selection.provider, apiKey = selection.apiKey.orEmpty(), selectedModel = selection.model)
+                    it.copy(provider = selection.provider, apiKey = pendingApiKeys[selection.provider] ?: selection.apiKey.orEmpty(), selectedModel = selection.model)
                 }
                 _availableModels.value = provider.models
                 refreshAvailableModels()
@@ -222,20 +230,25 @@ class SettingsViewModel @Inject constructor(
     fun setApiKey(key: String) = saveApiKey(_state.value.provider, key)
 
     private fun saveApiKey(provider: LlmProvider, key: String) {
-        val revision = ++credentialRevision
-        pendingApiKey = provider to key
+        val revision = (credentialRevisions[provider] ?: 0L) + 1
+        credentialRevisions[provider] = revision
+        pendingApiKeys[provider] = key
         _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
         viewModelScope.launch {
             try {
                 settingsStore.setApiKey(key, provider)
-                if (revision == credentialRevision) {
-                    pendingApiKey = null
-                    _credentialError.value = null
+                if (revision == credentialRevisions[provider]) {
+                    pendingApiKeys.remove(provider)
+                    failedCredentialProviders.remove(provider)
+                    updateCredentialError()
                     _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if (revision == credentialRevision) reportCredentialFailure(error)
+                if (revision == credentialRevisions[provider]) {
+                    failedCredentialProviders.add(provider)
+                    updateCredentialError()
+                }
             }
         }
     }
