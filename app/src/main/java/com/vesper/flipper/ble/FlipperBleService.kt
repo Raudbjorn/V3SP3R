@@ -148,15 +148,6 @@ class FlipperBleService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!transportLifecycle.active) return
             when (intent?.action) {
-                ACTION_USB_PERMISSION -> {
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    pendingUsbPermissionRequest?.let { deferred ->
-                        if (!deferred.isCompleted) {
-                            deferred.complete(granted)
-                        }
-                    }
-                    pendingUsbPermissionRequest = null
-                }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                     val attachedDevice = intent.extractUsbDeviceExtra() ?: return
                     if (!isLikelyFlipperUsbDevice(attachedDevice)) return
@@ -198,7 +189,7 @@ class FlipperBleService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Recheck on sticky restart and after permission revocation, before promotion.
-        if (intent?.action != ACTION_STOP && !BlePermissionPolicy.hasPermissions(this)) {
+        if (intent?.action != ACTION_STOP && !hasConnectedDevicePermission(this)) {
             transportLifecycle.stop()
             stopSelf(startId)
             return START_NOT_STICKY
@@ -208,7 +199,22 @@ class FlipperBleService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val usbDevice = if (intent?.action == ACTION_CONNECT_USB) {
+            val id = intent.getIntExtra(EXTRA_USB_DEVICE_ID, -1)
+            usbManager?.deviceList?.values?.firstOrNull { it.deviceId == id && usbManager?.hasPermission(it) == true }
+                ?: run {
+                    transportLifecycle.stop()
+                    _connectionState.value = ConnectionState.Error("USB permission unavailable; reconnect and retry")
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+        } else null
         if (!startForegroundService()) return START_NOT_STICKY
+        if (usbDevice != null) serviceScope.launch {
+            stopScan()
+            disconnect()
+            connectUsbInternal(usbDevice)
+        }
         return START_STICKY
     }
 
@@ -232,7 +238,6 @@ class FlipperBleService : Service() {
     private fun registerUsbReceivers() {
         if (usbReceiverRegistered) return
         val filter = IntentFilter().apply {
-            addAction(ACTION_USB_PERMISSION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
@@ -578,12 +583,31 @@ class FlipperBleService : Service() {
         }
     }
 
-    fun connectUsbIfAvailable() {
-        if (!transportLifecycle.active) return
-        serviceScope.launch {
-            stopScan()
-            disconnect()
-            connectUsbInternal()
+    /** Permission-only preparation is allowed while bound; all USB I/O waits for onStartCommand promotion. */
+    suspend fun connectUsbIfAvailable() {
+        val manager = usbManager ?: run {
+            _connectionState.value = ConnectionState.Error("USB host manager unavailable")
+            return
+        }
+        val device = resolveUsbSerialDriver(manager)?.device ?: run {
+            _connectionState.value = ConnectionState.Error("No compatible USB device detected. Connect Flipper with OTG and retry.")
+            return
+        }
+        try {
+            val started = ConnectedDeviceForegroundPolicy.requestUsbStart(
+                { manager.deviceList.values.any { it.deviceId == device.deviceId } && manager.hasPermission(device) },
+                { ensureUsbPermission(manager, device) },
+                { startService(this, device.deviceId) }
+            )
+            if (!started) {
+                _connectionState.value = ConnectionState.Error("USB permission or foreground start denied; reopen the app and retry")
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: SecurityException) {
+            _connectionState.value = ConnectionState.Error("USB permission unavailable; reopen the app and retry")
+        } catch (_: IllegalStateException) {
+            _connectionState.value = ConnectionState.Error("USB connection unavailable; reopen the app and retry")
         }
     }
 
@@ -882,19 +906,32 @@ class FlipperBleService : Service() {
 
     private suspend fun ensureUsbPermission(manager: UsbManager, device: UsbDevice): Boolean {
         if (manager.hasPermission(device)) return true
-        val pendingIntent = PendingIntent.getBroadcast(
-            this,
-            0,
-            Intent(ACTION_USB_PERMISSION).setPackage(packageName),
-            usbPermissionPendingIntentFlags()
-        )
+        // A unique action binds this temporary receiver to one request generation and device.
+        // Unlike the foreground transport receiver it cannot connect/open anything on attachment.
+        val action = "$ACTION_USB_PERMISSION.${java.util.UUID.randomUUID()}"
         val deferred = CompletableDeferred<Boolean>()
         pendingUsbPermissionRequest?.cancel()
         pendingUsbPermissionRequest = deferred
-        manager.requestPermission(device, pendingIntent)
-        return withTimeoutOrNull(USB_PERMISSION_TIMEOUT_MS) {
-            deferred.await()
-        } ?: false
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action != action || intent.extractUsbDeviceExtra()?.deviceId != device.deviceId) return
+                deferred.complete(intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false) &&
+                    manager.hasPermission(device))
+            }
+        }
+        val pendingIntent = PendingIntent.getBroadcast(this, 0,
+            Intent(action).setPackage(packageName), usbPermissionPendingIntentFlags())
+        var registered = false
+        try {
+            ContextCompat.registerReceiver(this, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED)
+            registered = true
+            manager.requestPermission(device, pendingIntent)
+            return withTimeoutOrNull(USB_PERMISSION_TIMEOUT_MS) { deferred.await() } ?: false
+        } finally {
+            if (registered) runCatching { unregisterReceiver(receiver) }
+            pendingIntent.cancel()
+            if (pendingUsbPermissionRequest === deferred) pendingUsbPermissionRequest = null
+        }
     }
 
     private fun usbPermissionPendingIntentFlags(): Int {
@@ -2685,6 +2722,8 @@ class FlipperBleService : Service() {
     companion object {
         private const val TAG = "FlipperBleService"
         const val ACTION_START_FOREGROUND = "com.vesper.flipper.START_FOREGROUND"
+        private const val ACTION_CONNECT_USB = "com.vesper.flipper.CONNECT_USB"
+        private const val EXTRA_USB_DEVICE_ID = "usb_device_id"
         const val ACTION_STOP = "com.vesper.flipper.STOP"
         const val ACTION_USB_PERMISSION = "com.vesper.flipper.USB_PERMISSION"
         const val NOTIFICATION_ID = 1
@@ -2775,22 +2814,29 @@ class FlipperBleService : Service() {
         private val KNOWN_FLIPPER_USB_VENDOR_IDS = setOf(0x0483)
         private val KNOWN_FLIPPER_USB_PRODUCT_IDS = setOf(0x5740, 0x5741)
 
-        fun startService(context: Context) {
-            if (!BlePermissionPolicy.hasPermissions(context)) return
+        private fun hasConnectedDevicePermission(context: Context): Boolean {
+            val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
+            return ConnectedDeviceForegroundPolicy.canStart(
+                bleGranted = BlePermissionPolicy.hasPermissions(context),
+                usbGranted = manager?.deviceList?.values?.any { manager.hasPermission(it) } == true
+            )
+        }
+
+        fun startService(context: Context, usbDeviceId: Int? = null): Boolean {
+            if (!hasConnectedDevicePermission(context)) return false
             val intent = Intent(context, FlipperBleService::class.java).apply {
-                action = ACTION_START_FOREGROUND
+                action = if (usbDeviceId == null) ACTION_START_FOREGROUND else ACTION_CONNECT_USB
+                usbDeviceId?.let { putExtra(EXTRA_USB_DEVICE_ID, it) }
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                try {
-                    context.startForegroundService(intent)
-                } catch (_: SecurityException) {
-                    return
-                } catch (_: IllegalStateException) {
-                    // Background starts may be prohibited; retry when the UI is visible.
-                    return
-                }
-            } else {
-                context.startService(intent)
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                else context.startService(intent)
+                true
+            } catch (_: SecurityException) {
+                false
+            } catch (_: IllegalStateException) {
+                // Background starts may be prohibited; retry when the UI is visible.
+                false
             }
         }
 
