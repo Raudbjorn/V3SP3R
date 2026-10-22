@@ -116,7 +116,10 @@ enum class CommandAction {
     // ── Smartglasses camera ───────────────────────────────────
 
     @SerialName("request_photo")
-    REQUEST_PHOTO
+    REQUEST_PHOTO,
+
+    @SerialName("load_skill")
+    LOAD_SKILL
 }
 
 @Serializable

@@ -39,6 +39,8 @@ class CommandExecutor @Inject constructor(
     private val settingsStore: SettingsStore
 ) {
 
+    @Inject lateinit var skillRegistry: com.vesper.flipper.domain.service.SkillRegistry
+
     private val pendingApprovals = ConcurrentHashMap<String, PendingApproval>()
 
     private val _currentApproval = MutableStateFlow<PendingApproval?>(null)
@@ -376,6 +378,11 @@ class CommandExecutor @Inject constructor(
 
     private suspend fun executeAction(command: ExecuteCommand): CommandResultData? {
         return when (command.action) {
+            CommandAction.LOAD_SKILL -> {
+                val id = command.args.command ?: throw IllegalArgumentException("load_skill requires command=id")
+                val content = skillRegistry.load(id) ?: throw IllegalArgumentException("Unknown skill: $id")
+                CommandResultData(content = content, message = "Read-only methodology; does not grant execution approval")
+            }
             CommandAction.LIST_DIRECTORY -> {
                 val path = command.args.path ?: "/ext"
                 val entries = fileSystem.listDirectory(path).getOrThrow()

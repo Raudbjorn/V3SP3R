@@ -20,6 +20,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.atLeastOnce
@@ -49,7 +50,12 @@ class CommandExecutorTest {
             riskAssessor = riskAssessor,
             permissionService = permissionService,
             auditService = auditService,
-            diffService = diffService
+            diffService = diffService,
+            forgeEngine = mock(),
+            settingsStore = mock {
+                on { autoApproveMedium } doReturn kotlinx.coroutines.flow.flowOf(false)
+                on { autoApproveHigh } doReturn kotlinx.coroutines.flow.flowOf(false)
+            }
         )
     }
 
