@@ -58,18 +58,13 @@ enum class LlmProvider(
         chatCompletionsUrl = "https://openrouter.ai/api/v1/chat/completions",
         modelsUrl = "https://openrouter.ai/api/v1/models",
         apiHost = "openrouter.ai",
-        defaultModel = "nousresearch/hermes-4-405b",
+        defaultModel = "anthropic/claude-sonnet-4.5",
         models = listOf(
-            ModelInfo("nousresearch/hermes-4-405b", "nousresearch/hermes-4-405b", "Tool-capable model"),
             ModelInfo("anthropic/claude-sonnet-4.5", "anthropic/claude-sonnet-4.5", "Tool-capable model"),
             ModelInfo("openai/gpt-oss-120b", "openai/gpt-oss-120b", "Tool-capable model"),
-            ModelInfo("google/gemini-2.5-flash-image-preview", "google/gemini-2.5-flash-image-preview", "Tool-capable model"),
-            ModelInfo("meta-llama/llama-3.3-8b-instruct", "meta-llama/llama-3.3-8b-instruct", "Tool-capable model"),
-            ModelInfo("mistralai/devstral-small", "mistralai/devstral-small", "Tool-capable model"),
-            ModelInfo("x-ai/grok-4-fast", "x-ai/grok-4-fast", "Tool-capable model"),
+            ModelInfo("google/gemini-2.5-flash", "google/gemini-2.5-flash", "Tool-capable model"),
             ModelInfo("qwen/qwen3-coder", "qwen/qwen3-coder", "Tool-capable model"),
             ModelInfo("deepseek/deepseek-r1-0528", "deepseek/deepseek-r1-0528", "Tool-capable model"),
-            ModelInfo("cohere/command-a", "cohere/command-a", "Tool-capable model"),
             ModelInfo("moonshotai/kimi-k2", "moonshotai/kimi-k2", "Tool-capable model"),
             ModelInfo("z-ai/glm-4.5", "z-ai/glm-4.5", "Tool-capable model")
         ),
@@ -79,11 +74,8 @@ enum class LlmProvider(
             "openai/gpt-4o-mini"
         ),
         toolFallbackModels = listOf(
-            "nousresearch/hermes-4-405b",
             "anthropic/claude-sonnet-4.5",
             "openai/gpt-oss-120b",
-            "x-ai/grok-4-fast",
-            "cohere/command-a"
         ),
         knownNonToolModels = setOf("google/gemini-2.5-flash-image-preview"),
         speechBackend = SpeechBackend.OPENROUTER_AUDIO,
@@ -363,7 +355,7 @@ enum class LlmProvider(
         private val DATED_SNAPSHOT = Regex("-\\d{4}-\\d{2}-\\d{2}")
 
         fun mergeCatalog(provider: LlmProvider, liveIds: List<String>): List<ModelInfo> {
-            val curated = provider.models
+            val curated = provider.models.distinctBy { it.id }
             val curatedIds = curated.map { it.id }.toSet()
             val extras = liveIds
                 .map { provider.normalizeModelId(it) }

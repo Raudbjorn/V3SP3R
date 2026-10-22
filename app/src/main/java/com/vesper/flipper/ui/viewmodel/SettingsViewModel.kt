@@ -15,6 +15,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsState(
+    val extendedThinking: Boolean = false,
+    val reasoningEffort: String = "medium",
     val provider: LlmProvider = LlmProvider.OPENROUTER,
     val apiKey: String = "",
     val selectedModel: String = SettingsStore.DEFAULT_MODEL,
@@ -59,6 +61,8 @@ class SettingsViewModel @Inject constructor(
     private var modelRefreshGeneration = 0
 
     init {
+        viewModelScope.launch { settingsStore.extendedThinking.collect { value -> _state.update { it.copy(extendedThinking = value) } } }
+        viewModelScope.launch { settingsStore.reasoningEffort.collect { value -> _state.update { it.copy(reasoningEffort = value) } } }
         loadSettings()
         observePermissions()
         refreshAvailableModels()
@@ -181,6 +185,10 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setReasoningEffort(value: String) { viewModelScope.launch { settingsStore.setReasoningEffort(value) } }
+
+    fun setExtendedThinking(enabled: Boolean) { viewModelScope.launch { settingsStore.setExtendedThinking(enabled) } }
+
     fun setProvider(provider: LlmProvider) {
         viewModelScope.launch {
             settingsStore.setProvider(provider)
@@ -198,16 +206,18 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setApiKey(key: String) {
+        val provider = _state.value.provider
         viewModelScope.launch {
-            settingsStore.setApiKey(key)
-            _state.update { it.copy(apiKey = key) }
+            settingsStore.setApiKey(key, provider)
+            _state.update { if (it.provider == provider) it.copy(apiKey = key) else it }
         }
     }
 
     fun setSelectedModel(model: String) {
+        val provider = _state.value.provider
         viewModelScope.launch {
-            settingsStore.setSelectedModel(model)
-            _state.update { it.copy(selectedModel = model) }
+            settingsStore.setSelectedModel(model, provider)
+            _state.update { if (it.provider == provider) it.copy(selectedModel = model) else it }
         }
     }
 
