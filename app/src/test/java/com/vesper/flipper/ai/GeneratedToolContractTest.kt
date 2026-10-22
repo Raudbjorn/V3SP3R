@@ -24,4 +24,17 @@ class GeneratedToolContractTest {
             .getValue("tools").jsonArray.single().jsonObject.getValue("input_schema")
         assertEquals(runtime, native)
     }
+    @Test fun canonicalTextArgumentWorksAndLegacyAliasesRemainAcceptedByFallback() {
+        val client=OpenRouterClient(org.mockito.kotlin.mock())
+        for ((action,alias) in listOf("search_faphub" to "query", "install_faphub_app" to "app_id")) {
+            val canonical=client.parseCommandDetailed("""{"action":"$action","args":{"command":"quac"},"justification":"requested","expected_effect":"inspect"}""")
+            assertEquals("quac",canonical.command!!.args.command)
+            val legacy=client.parseCommandDetailed("""{"action":"$action","args":{"$alias":"quac"}}""")
+            assertEquals("quac",legacy.command!!.args.command)
+            val missing=client.parseCommandDetailed("""{"action":"$action","args":{}}""")
+            assertNull(missing.command)
+            assertTrue(missing.error!!,missing.error!!.contains("command"))
+            assertFalse(missing.error!!.contains("\"$alias\""))
+        }
+    }
 }
