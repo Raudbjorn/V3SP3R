@@ -311,14 +311,14 @@ class RiskAssessor @Inject constructor(
                 )
             }
 
-            // LOW risk: photo request reads from glasses camera — no Flipper side-effects
+            // Camera access can disclose surroundings to the configured cloud model.
             CommandAction.REQUEST_PHOTO -> {
                 RiskAssessment(
-                    level = RiskLevel.LOW,
-                    reason = "Glasses camera capture (read-only)",
+                    level = RiskLevel.HIGH,
+                    reason = "Capture a photo from the glasses camera and send it for cloud analysis",
                     affectedPaths = paths,
                     requiresDiff = false,
-                    requiresConfirmation = false
+                    requiresConfirmation = true
                 )
             }
 

@@ -301,8 +301,8 @@ class SettingsStore @Inject constructor(
     }
 
     companion object {
-        // Default to the largest Hermes 4 model on OpenRouter.
-        const val DEFAULT_MODEL = "nousresearch/hermes-4-405b"
+        // Tool-capable fallback verified against the public catalog (2026-10-22).
+        const val DEFAULT_MODEL = "anthropic/claude-sonnet-4.5"
         // Shimmer: soft, warm female — default TTS voice (OpenAI via OpenRouter)
         const val DEFAULT_TTS_VOICE = "shimmer"
         const val DEFAULT_AI_MAX_ITERATIONS = 10
@@ -311,16 +311,11 @@ class SettingsStore @Inject constructor(
 
         // Used when fetching live catalog fails (offline/rate-limited).
         val FALLBACK_MODELS = listOf(
-            ModelInfo("nousresearch/hermes-4-405b", "Hermes 4 405B", "Largest Hermes 4"),
             ModelInfo("anthropic/claude-sonnet-4.5", "Claude Sonnet 4.5", "Latest Anthropic"),
             ModelInfo("openai/gpt-oss-120b", "GPT-OSS 120B", "Latest OpenAI"),
-            ModelInfo("google/gemini-2.5-flash-image-preview", "Gemini 2.5 Flash Image Preview", "Latest Google"),
-            ModelInfo("meta-llama/llama-3.3-8b-instruct", "Llama 3.3 8B Instruct", "Latest Meta"),
-            ModelInfo("mistralai/devstral-small", "Devstral Small", "Latest Mistral"),
-            ModelInfo("x-ai/grok-4-fast", "Grok 4 Fast", "Latest xAI"),
+            ModelInfo("google/gemini-2.5-flash", "Gemini 2.5 Flash", "Tools and images"),
             ModelInfo("qwen/qwen3-coder", "Qwen3 Coder", "Latest Qwen"),
             ModelInfo("deepseek/deepseek-r1-0528", "DeepSeek R1 0528", "Latest DeepSeek"),
-            ModelInfo("cohere/command-a", "Command A", "Latest Cohere"),
             ModelInfo("moonshotai/kimi-k2", "Kimi K2", "Latest Moonshot"),
             ModelInfo("z-ai/glm-4.5", "GLM 4.5", "Latest Z.ai")
         )

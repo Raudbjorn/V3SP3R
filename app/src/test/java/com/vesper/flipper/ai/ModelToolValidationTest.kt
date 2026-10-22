@@ -8,9 +8,7 @@ import org.mockito.kotlin.mock
 class ModelToolValidationTest {
     private fun parse(name: String): ChatCompletionResult {
         val client = OpenRouterClient(mock<SettingsStore>())
-        val method = OpenRouterClient::class.java.getDeclaredMethod("parseResponse", String::class.java)
-        method.isAccessible = true
-        return method.invoke(client, """{"id":"response-1","model":"test","choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"$name","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}""") as ChatCompletionResult
+        return client.parseResponse("""{"id":"response-1","model":"test","choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call-1","type":"function","function":{"name":"$name","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}""")
     }
 
     @Test fun `rejects invented tool names before accepting a completion`() {
