@@ -173,6 +173,10 @@ class EncryptedStorage(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
+    /** Durable commit and readback; callers must retain plaintext if this returns false. */
+    fun putStringSync(key: String, value: String): Boolean =
+        encryptedPrefs.edit().putString(key, value).commit() && getString(key) == value
+
     fun putString(key: String, value: String) {
         encryptedPrefs.edit().putString(key, value).apply()
     }

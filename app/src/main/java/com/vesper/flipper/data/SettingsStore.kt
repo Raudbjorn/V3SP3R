@@ -7,6 +7,14 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import com.vesper.flipper.security.EncryptedStorage
+import com.vesper.flipper.security.CredentialMigration
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -20,13 +28,32 @@ class SettingsStore @Inject constructor(
     // OpenRouter API Key
     private val API_KEY = stringPreferencesKey("openrouter_api_key")
 
-    val apiKey: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[API_KEY]
+    private val encryptedStorage by lazy { EncryptedStorage(context) }
+    private val credentialMutex = Mutex()
+    private val apiKeyRevision = MutableStateFlow(0L)
+
+    val apiKey: Flow<String?> = apiKeyRevision.map {
+        withContext(Dispatchers.IO) {
+            credentialMutex.withLock {
+                CredentialMigration.read(
+                    legacy = context.dataStore.data.first()[API_KEY],
+                    readSecure = { encryptedStorage.getString("openrouter_api_key") },
+                    writeSecure = { encryptedStorage.putStringSync("openrouter_api_key", it) },
+                    removeLegacy = { context.dataStore.edit { it.remove(API_KEY) }; Unit }
+                )
+            }
+        }
     }
 
-    suspend fun setApiKey(key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[API_KEY] = key
+    suspend fun setApiKey(key: String) = withContext(Dispatchers.IO) {
+        credentialMutex.withLock {
+            CredentialMigration.write(
+                value = key,
+                readSecure = { encryptedStorage.getString("openrouter_api_key") },
+                writeSecure = { encryptedStorage.putStringSync("openrouter_api_key", it) },
+                removeLegacy = { context.dataStore.edit { it.remove(API_KEY) }; Unit }
+            )
+            apiKeyRevision.value += 1
         }
     }
 

@@ -93,6 +93,8 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
     // Compose BOM & UI
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
