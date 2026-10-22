@@ -571,7 +571,6 @@ class OpenRouterClient @Inject constructor(
             val toolCalls = rawToolCalls?.mapNotNull { tc ->
                 // Validate tool call structure — reject blanks but log them
                 if (tc.id.isBlank() || tc.function.name.isBlank()) {
-                    Log.w(TAG, "Dropping malformed tool call: id='${tc.id}' name='${tc.function.name}' args='${tc.function.arguments.take(100)}'")
                     null
                 } else {
                     ToolCall(
