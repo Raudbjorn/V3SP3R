@@ -114,7 +114,7 @@ class ChatViewModel @Inject constructor(
                         val autoSpeak = settingsStore.ttsAutoSpeak.first()
                         val ttsEnabled = settingsStore.ttsEnabled.first()
                         val glassesActive = glassesIntegration.isConnected()
-                        if (autoSpeak && ttsEnabled && !glassesActive) {
+                        if (autoSpeak && ttsEnabled && !glassesActive && ttsService.isAvailable()) {
                             speakText(lastMsg.content)
                         }
                     }

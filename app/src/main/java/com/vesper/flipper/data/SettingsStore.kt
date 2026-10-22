@@ -7,6 +7,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.vesper.flipper.ai.LlmProvider
 import com.vesper.flipper.ai.LlmSelection
 import com.vesper.flipper.security.EncryptedStorage
+import com.vesper.flipper.security.CredentialMigration
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,64 +56,24 @@ class SettingsStore @Inject constructor(
      * (see [EncryptedStorage]); any plaintext key left by an older build is
      * read transparently here and migrated on the next read or write.
      */
-    val apiKey: Flow<String?> = combine(
-        context.dataStore.data,
-        secureKeyRevision
-    ) { preferences, _ ->
-        readApiKey(LlmProvider.fromId(preferences[PROVIDER]), preferences)
+    val apiKey: Flow<String?> = combine(context.dataStore.data, secureKeyRevision) { _, _ ->
+        readLlmSelection().apiKey
     }
 
-    // Publish credentials and model with the provider from the same preferences snapshot.
-    val llmSelection: Flow<LlmSelection> = combine(context.dataStore.data, secureKeyRevision) { preferences, _ ->
-        val provider = LlmProvider.fromId(preferences[PROVIDER])
-        LlmSelection(provider, readApiKey(provider, preferences),
-            preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel)
-    }
-
-    private fun readApiKey(provider: LlmProvider, preferences: Preferences): String? {
-        secureStorage.getString(provider.apiKeyPreference)?.takeIf { it.isNotBlank() }?.let { return it }
-        // Legacy fallback: keys written to plaintext DataStore before encryption.
-        return preferences[stringPreferencesKey(provider.apiKeyPreference)]?.takeIf { it.isNotBlank() }
+    val llmSelection: Flow<LlmSelection> = combine(context.dataStore.data, secureKeyRevision) { _, _ ->
+        readLlmSelection()
     }
 
     suspend fun setApiKey(key: String, forProvider: LlmProvider? = null) = apiKeyMutex.withLock {
-        val provider = forProvider ?: LlmProvider.fromId(context.dataStore.data.first()[PROVIDER])
-        val trimmed = key.trim()
-        if (trimmed.isEmpty()) {
-            secureStorage.remove(provider.apiKeyPreference)
-        } else {
-            check(secureStorage.putStringSync(provider.apiKeyPreference, trimmed)) { "Unable to save API key" }
+        withContext(Dispatchers.IO) {
+            val provider = forProvider ?: LlmProvider.fromId(context.dataStore.data.first()[PROVIDER])
+            // An empty secure value is a durable deletion tombstone: stale plaintext cannot revive it.
+            CredentialMigration.write(key.trim(),
+                { secureStorage.getString(provider.apiKeyPreference) },
+                { secureStorage.putStringSync(provider.apiKeyPreference, it) },
+                { context.dataStore.edit { it.remove(stringPreferencesKey(provider.apiKeyPreference)) } })
+            secureKeyRevision.update { it + 1 }
         }
-        // Drop any plaintext copy that an older build may have persisted.
-        context.dataStore.edit { it.remove(stringPreferencesKey(provider.apiKeyPreference)) }
-        secureKeyRevision.update { it + 1 }
-    }
-
-    /**
-     * Move any plaintext API keys left by older builds into encrypted storage,
-     * then purge them from the plaintext DataStore. Idempotent, and serialized
-     * with [setApiKey] so it never overwrites a key the user just saved.
-     */
-    private suspend fun migrateLegacyApiKeys() = apiKeyMutex.withLock {
-        val preferences = context.dataStore.data.first()
-        val plaintext = LlmProvider.entries.mapNotNull { provider ->
-            preferences[stringPreferencesKey(provider.apiKeyPreference)]
-                ?.takeIf { it.isNotBlank() }
-                ?.let { provider to it }
-        }
-        if (plaintext.isEmpty()) return@withLock
-        plaintext.forEach { (provider, key) ->
-            // Only seed encrypted storage when it has no key yet — never clobber
-            // a key written since migration started.
-            if (secureStorage.getString(provider.apiKeyPreference).isNullOrBlank()) {
-                check(secureStorage.putStringSync(provider.apiKeyPreference, key)) { "Unable to migrate API key" }
-            }
-        }
-        // Purge the insecure plaintext residue regardless.
-        context.dataStore.edit { prefs ->
-            LlmProvider.entries.forEach { prefs.remove(stringPreferencesKey(it.apiKeyPreference)) }
-        }
-        secureKeyRevision.update { it + 1 }
     }
 
     val selectedModel: Flow<String> = context.dataStore.data.map { preferences ->
@@ -125,13 +88,20 @@ class SettingsStore @Inject constructor(
         }
     }
 
-    suspend fun readLlmSelection(): LlmSelection {
-        migrateLegacyApiKeys()
-        val preferences = context.dataStore.data.first()
-        val provider = LlmProvider.fromId(preferences[PROVIDER])
-        val apiKey = readApiKey(provider, preferences)
-        val model = preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel
-        return LlmSelection(provider, apiKey, model)
+    suspend fun readLlmSelection(): LlmSelection = apiKeyMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val preferences = context.dataStore.data.first()
+            LlmProvider.entries.forEach { provider ->
+                val slot = stringPreferencesKey(provider.apiKeyPreference)
+                CredentialMigration.read(preferences[slot],
+                    { secureStorage.getString(provider.apiKeyPreference) },
+                    { secureStorage.putStringSync(provider.apiKeyPreference, it) },
+                    { context.dataStore.edit { it.remove(slot) } })
+            }
+            val provider = LlmProvider.fromId(preferences[PROVIDER])
+            LlmSelection(provider, secureStorage.getString(provider.apiKeyPreference)?.takeIf { it.isNotBlank() },
+                preferences[stringPreferencesKey(provider.modelPreference)] ?: provider.defaultModel)
+        }
     }
 
     // Last Connected Device

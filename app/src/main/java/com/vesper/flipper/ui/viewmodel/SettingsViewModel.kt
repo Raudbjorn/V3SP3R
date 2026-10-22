@@ -61,6 +61,7 @@ class SettingsViewModel @Inject constructor(
     private val _isRefreshingModels = MutableStateFlow(false)
     val isRefreshingModels: StateFlow<Boolean> = _isRefreshingModels.asStateFlow()
     private var modelRefreshGeneration = 0
+    private var modelRefreshJob: Job? = null
     private val _credentialError = MutableStateFlow<String?>(null)
     val credentialError: StateFlow<String?> = _credentialError.asStateFlow()
     private var settingsJob: Job? = null
@@ -264,7 +265,8 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshAvailableModels() {
         val generation = ++modelRefreshGeneration
-        viewModelScope.launch {
+        modelRefreshJob?.cancel()
+        modelRefreshJob = viewModelScope.launch {
             _isRefreshingModels.value = true
             try {
                 val selection = settingsStore.readLlmSelection()
