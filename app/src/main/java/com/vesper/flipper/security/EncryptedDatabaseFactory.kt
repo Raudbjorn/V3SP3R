@@ -61,6 +61,9 @@ object EncryptedDatabaseFactory {
                 val storage = EncryptedStorage(context)
                 val key = "database_passphrase_$name"
                 val saved = storage.getString(key)
+                check(saved == null || saved.isNotBlank()) {
+                    "Database key is invalid; existing data has been preserved"
+                }
                 check(saved != null || (!file.exists() || isPlaintext(file)) &&
                     !File(file.path + ".plaintext-backup").exists() &&
                     !File(file.path + ".encrypting").exists()) {
@@ -122,6 +125,7 @@ object EncryptedDatabaseFactory {
     }
 
     internal fun validate(file: File, passphrase: String) {
+        check(!isPlaintext(file)) { "Expected encrypted database; original data has been preserved" }
         open(file, passphrase, SQLiteDatabase.OPEN_READONLY).use { db ->
             db.rawQuery("PRAGMA integrity_check", emptyArray<String>()).use {
                 check(it.moveToFirst() && it.getString(0) == "ok") { "Database integrity validation failed" }

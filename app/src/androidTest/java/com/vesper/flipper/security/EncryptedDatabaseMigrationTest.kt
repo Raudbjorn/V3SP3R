@@ -151,6 +151,10 @@ class EncryptedDatabaseMigrationTest {
         source.copyTo(snapshot)
         java.io.File(source.path + "-wal").copyTo(java.io.File(snapshot.path + "-wal"))
         plain.close()
+        try {
+            EncryptedDatabaseFactory.validate(snapshot, "")
+            fail("Plaintext must never pass encrypted validation")
+        } catch (_: IllegalStateException) { }
         EncryptedDatabaseFactory.export(snapshot, target, "correct-passphrase")
         EncryptedDatabaseFactory.validate(target, "correct-passphrase")
         SQLiteDatabase.openDatabase(target.path, "correct-passphrase", null, SQLiteDatabase.OPEN_READONLY).use { db ->
