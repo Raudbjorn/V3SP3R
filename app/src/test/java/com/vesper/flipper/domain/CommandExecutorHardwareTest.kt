@@ -28,6 +28,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.whenever
 
@@ -184,10 +185,15 @@ class CommandExecutorHardwareTest {
     @Test fun `autoapproved medium transmit cannot select a high risk app through arguments`() = runBlocking<Unit> {
         val service = mock<FlipperBleService>()
         whenever(service.usesRpcOnlyCommandTransport()).thenReturn(true)
+        whenever(service.isCommandTransportConnected()).thenReturn(true)
         val protocol = FlipperProtocol().apply { setBleService(service) }
+        FlipperProtocol::class.java.getDeclaredMethod("markRpcReady", String::class.java)
+            .apply { isAccessible = true }.invoke(protocol, "Correlated RPC response in fixture")
+        val responses = mutableListOf<ProtocolResponse>()
         whenever(settingsStore.autoApproveMedium).thenReturn(flowOf(true))
         whenever(fileSystem.executeCli(any())).thenAnswer { call ->
             val response = runBlocking { protocol.sendCliCommand(call.getArgument(0)) }
+            responses += response
             assertTrue(response is ProtocolResponse.Error)
             Result.failure<String>(IllegalStateException((response as ProtocolResponse.Error).message))
         }
@@ -198,6 +204,9 @@ class CommandExecutorHardwareTest {
                 "Transmit", emptyList(), requiresDiff = false, requiresConfirmation = true))
             assertFalse(executor.execute(cmd, "s").success)
         }
+        assertEquals(4, responses.size)
+        assertTrue(responses.all { it is ProtocolResponse.Error && it.message.contains("No RPC action mapping") })
+        verify(fileSystem, times(4)).executeCli(any())
         verify(service, never()).sendData(any(), any(), any(), any())
         verify(service, never()).sendUsbDataOnly(any())
     }
