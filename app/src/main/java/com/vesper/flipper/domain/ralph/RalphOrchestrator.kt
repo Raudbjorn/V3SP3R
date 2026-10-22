@@ -35,7 +35,10 @@ class RalphOrchestrator(private val context: Context) {
             val row = store.get(id) ?: return
             check(CampaignTransitions.canApprove(store.enabled,row.state,System.currentTimeMillis(),row.approvalExpires,row.plan.expiresAt)) { "Approval expired or campaigns disabled" }
             check(store.transition(row,"approving")) { "Approval already consumed" }
-            val result = executor(context).approve(requireNotNull(row.approval), "campaign-$id")
+            val deadline = minOf(row.plan.expiresAt, row.phaseStarted + row.plan.phases[row.phase].timeoutMs)
+            val result = withTimeout((deadline-System.currentTimeMillis()).coerceAtLeast(1)) {
+                executor(context).approve(requireNotNull(row.approval), "campaign-$id")
+            }
             val claimed = store.get(id) ?: return
             // A kill/reject during the in-flight approval must never resurrect the campaign.
             if (!store.enabled || claimed.state != "approving") return
@@ -70,6 +73,10 @@ class PhaseWorker(context: Context, params: WorkerParameters): CoroutineWorker(c
             if (System.currentTimeMillis() >= row.plan.expiresAt) { store.transition(row,"failed","Campaign expired"); return Result.failure() }
             if (row.phase >= row.plan.phases.size) { store.transition(row,"completed","All phases complete"); return Result.success() }
             val phase = row.plan.phases[row.phase]
+            if (row.phaseStarted != 0L && System.currentTimeMillis() >= row.phaseStarted + phase.timeoutMs) {
+                store.transition(row,"failed","Phase deadline exceeded")
+                return Result.failure()
+            }
             if (row.phaseStarted == 0L) {
                 if (!store.transition(row,"queued",phaseStarted=System.currentTimeMillis())) return Result.success()
                 row=store.get(id) ?: return Result.failure()
