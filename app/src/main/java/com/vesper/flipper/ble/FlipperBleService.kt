@@ -595,6 +595,7 @@ class FlipperBleService : Service() {
                 isConfirmedFlipper = true
             )
             _connectionState.value = ConnectionState.Connected("$deviceName (USB)")
+            flipperProtocol.onTransportReady()
             updateNotification()
 
             serviceScope.launch {
@@ -1718,6 +1719,7 @@ class FlipperBleService : Service() {
         }
         _connectedDevice.value = device
         _connectionState.value = ConnectionState.Connected(device.name)
+        flipperProtocol.onTransportReady()
         updateNotification()
         startBleKeepalive()
 

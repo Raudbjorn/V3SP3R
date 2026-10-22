@@ -103,11 +103,9 @@ class FlipperProtocol @Inject constructor() {
             checkedAtMs = System.currentTimeMillis(),
             details = "Connection reset. Capability will be rechecked."
         )
-        // Set transport to PROBING instead of UNAVAILABLE — probes will update
-        // once they complete. This prevents the UI from showing "transport
-        // unavailable" during the brief window between connect and probe.
+        // Revoke readiness immediately, including before service state publication completes.
         _firmwareCompatibility.value = _firmwareCompatibility.value.copy(
-            transportMode = if (bleService?.isCommandTransportConnected() == true) FirmwareTransportMode.PROBING else FirmwareTransportMode.UNAVAILABLE,
+            transportMode = FirmwareTransportMode.UNAVAILABLE,
             supportsCli = false,
             supportsRpc = false,
             supportsRpcAppBridge = false,
@@ -118,6 +116,11 @@ class FlipperProtocol @Inject constructor() {
             pending.continuation.complete(ProtocolResponse.Error("Connection reset"))
         }
         pendingRequest = null
+    }
+
+    /** Publish a connected route without sending probes or claiming a verified RPC response. */
+    fun onTransportReady() {
+        refreshFirmwareCompatibility()
     }
 
     private suspend fun processWriteQueue() {
@@ -3651,6 +3654,7 @@ class FlipperProtocol @Inject constructor() {
             cli.supportsCli && cli.supportsRpc -> FirmwareTransportMode.CLI_AND_RPC
             cli.supportsCli -> FirmwareTransportMode.CLI_ONLY
             cli.supportsRpc -> FirmwareTransportMode.RPC_ONLY
+            cli.level == CliCapabilityLevel.UNKNOWN -> FirmwareTransportMode.PROBING
             else -> FirmwareTransportMode.UNAVAILABLE
         }
         val label = when (family) {
