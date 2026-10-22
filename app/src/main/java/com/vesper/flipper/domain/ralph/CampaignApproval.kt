@@ -15,7 +15,7 @@ internal suspend fun <T> executeCampaignApproval(
     onInterrupted: suspend () -> Unit,
     execute: suspend () -> T
 ): T = try {
-    withTimeout(timeoutMs.coerceAtLeast(1)) { execute() }
+    withTimeout(timeoutMs) { execute() }
 } catch (failure: Exception) {
     withContext(NonCancellable) { onInterrupted() }
     throw failure

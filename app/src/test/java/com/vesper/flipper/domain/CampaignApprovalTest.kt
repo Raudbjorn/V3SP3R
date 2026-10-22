@@ -19,6 +19,19 @@ class CampaignApprovalTest {
         assertFalse(approvalAvailable(pending, "shown", command.copy(args=command.args.copy(content="different")), 99))
     }
 
+    @Test fun expiredDeadlineNeverStartsApprovalAndStillRetiresClaim() = runBlocking {
+        for (remaining in listOf(0L, -1L)) {
+            var executed = false
+            var retired = false
+            try {
+                executeCampaignApproval(remaining, onInterrupted={ retired=true }) { executed=true }
+                fail("Expired approval should time out")
+            } catch (_: TimeoutCancellationException) { }
+            assertFalse("Must not execute with remaining=$remaining", executed)
+            assertTrue("Must retire claim with remaining=$remaining", retired)
+        }
+    }
+
     @Test fun timeoutPersistsFailureBeforeReturningAndCannotContinue() = runBlocking {
         var state = "approving"
         var continued = false
