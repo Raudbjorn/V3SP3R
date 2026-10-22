@@ -8,7 +8,14 @@ suspend fun installCatalogApp(fileSystem: FlipperFileSystem, catalog: FlipperApp
     val binary = catalog.download(alias, info)
     val directory = "/ext/apps/${binary.category}"
     val root = fileSystem.listDirectory("/ext/apps").getOrThrow()
-    if (root.none { it.name == binary.category && it.isDirectory }) fileSystem.createDirectory(directory).getOrThrow()
+    if (root.none { it.name == binary.category && it.isDirectory }) {
+        val created = fileSystem.createDirectory(directory)
+        if (created.isFailure) {
+            // Another installer may have provisioned the same category while we downloaded.
+            val current = fileSystem.listDirectory("/ext/apps").getOrThrow()
+            if (current.none { it.name == binary.category && it.isDirectory }) created.getOrThrow()
+        }
+    }
     val target = "$directory/${binary.id}.fap"
     val existing = fileSystem.listDirectory(directory).getOrThrow()
     check(existing.none { it.name == "${binary.id}.fap" }) { "Already present at $target; existing app was preserved" }

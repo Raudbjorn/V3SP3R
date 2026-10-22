@@ -823,10 +823,8 @@ class FlipperFileSystem @Inject constructor(
             hardwareVersion = "unknown",
             batteryLevel = batteryLevel.coerceIn(0, 100),
             isCharging = isCharging,
-            firmwareTarget = values["firmware_target"]?.let { "f" + it.removePrefix("f") },
-            firmwareApi = (values["firmware_api_major"] ?: values["firmware_api.major"])?.let { major ->
-                (values["firmware_api_minor"] ?: values["firmware_api.minor"])?.let { minor -> "$major.$minor" }
-            }
+            firmwareTarget = com.vesper.flipper.data.FirmwareCatalogMetadata.target(values["firmware_target"]),
+            firmwareApi = com.vesper.flipper.data.FirmwareCatalogMetadata.api(values)
         )
     }
 

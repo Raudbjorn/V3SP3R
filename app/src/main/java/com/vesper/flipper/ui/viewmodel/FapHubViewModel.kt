@@ -8,6 +8,10 @@ import com.vesper.flipper.data.installCatalogApp
 import com.vesper.flipper.domain.model.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -127,13 +131,16 @@ class FapHubViewModel @Inject constructor(
 
     // ═══════════════════════════════════════════════════════
 
+    private var catalogJob: Job? = null
+
     init {
         refresh()
     }
 
     private fun loadCatalog() {
-        viewModelScope.launch {
-            try { catalogApps.value = catalog.apps() }
+        catalogJob?.cancel()
+        catalogJob = viewModelScope.launch {
+            try { val apps = catalog.apps(); coroutineContext.ensureActive(); catalogApps.value = apps }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) { _error.value = "Catalog unavailable: ${e.message}" }
         }
@@ -175,6 +182,8 @@ class FapHubViewModel @Inject constructor(
     }
 
     fun installApp(app: FapApp) {
+        if (_installStatus.value[app.id] == InstallStatus.Installing || _installStatus.value[app.id] == InstallStatus.Success) return
+        _installStatus.value = _installStatus.value + (app.id to InstallStatus.Installing)
         viewModelScope.launch {
             _installStatus.value = _installStatus.value + (app.id to InstallStatus.Installing)
             try {
@@ -182,6 +191,8 @@ class FapHubViewModel @Inject constructor(
                 _installStatus.value = _installStatus.value + (app.id to InstallStatus.Success)
                 _error.value = null
                 loadInstalledApps()
+                delay(1500)
+                if (_installStatus.value[app.id] == InstallStatus.Success) _installStatus.value = _installStatus.value - app.id
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
@@ -194,8 +205,14 @@ class FapHubViewModel @Inject constructor(
     fun uninstallApp(app: FapApp) {
         viewModelScope.launch {
             try {
-                listOf("/ext/apps/${app.id}.fap", "/ext/apps/${app.category.name.lowercase()}/${app.id}.fap").forEach {
-                    flipperFileSystem.deleteFile(it)
+                val root = flipperFileSystem.listDirectory("/ext/apps").getOrThrow()
+                val category = app.category.name.lowercase()
+                val directories = listOf("/ext/apps") + if (root.any { it.isDirectory && it.name == category }) listOf("/ext/apps/$category") else emptyList()
+                for (directory in directories) {
+                    val entries = if (directory == "/ext/apps") root else flipperFileSystem.listDirectory(directory).getOrThrow()
+                    for (entry in entries.filter { !it.isDirectory && it.name == "${app.id}.fap" }) {
+                        flipperFileSystem.deleteFile("$directory/${app.id}.fap").getOrThrow()
+                    }
                 }
                 _installedApps.value = _installedApps.value - app.id
             } catch (e: Exception) {
