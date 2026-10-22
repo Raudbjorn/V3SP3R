@@ -13,3 +13,7 @@ restores CLI collection; an uncertain stop requires retrying pause or reconnecti
 RPC commands continue to use the demultiplexed command path while streaming.
 ViewModel teardown makes a separate five-second stop attempt so navigation cannot
 cancel the only firmware cleanup request with `viewModelScope`.
+
+Streaming is eligible only while the Device lifecycle is STARTED. Home/lock sends a
+stop even when the composition is retained; returning foreground resumes an enabled
+mirror. Decoding and connection reset share the ingress generation boundary.

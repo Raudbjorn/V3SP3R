@@ -23,6 +23,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.vesper.flipper.ui.viewmodel.ScreenMirrorLifecycleObserver
 import com.vesper.flipper.R
 import com.vesper.flipper.ble.CliCapabilityLevel
 import com.vesper.flipper.ble.CliCapabilityStatus
@@ -51,6 +54,10 @@ fun DeviceScreen(
     val screenFrame by viewModel.screenFrame.collectAsState()
     val screenStatus by viewModel.screenStreamStatus.collectAsState()
     var mirrorEnabled by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var foreground by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     val connectionState by viewModel.connectionState.collectAsState()
     val discoveredDevices by viewModel.discoveredDevices.collectAsState()
     val connectedDevice by viewModel.connectedDevice.collectAsState()
@@ -68,11 +75,20 @@ fun DeviceScreen(
     val glassesBridgeState by viewModel.glassesBridgeState.collectAsState()
     val glassesBridgeUrl by viewModel.glassesBridgeUrl.collectAsState()
 
-    LaunchedEffect(connectionState, mirrorEnabled) {
-        viewModel.setScreenMirrorEnabled(mirrorEnabled && connectionState is ConnectionState.Connected)
+    LaunchedEffect(connectionState, mirrorEnabled, foreground) {
+        viewModel.setScreenMirrorEnabled(mirrorEnabled && foreground && connectionState is ConnectionState.Connected)
     }
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.setScreenMirrorEnabled(false) }
+    DisposableEffect(viewModel, lifecycleOwner) {
+        val observer = ScreenMirrorLifecycleObserver { active ->
+            foreground = active
+            // Stop directly on lifecycle loss; background composition need not recompose.
+            if (!active) viewModel.setScreenMirrorEnabled(false)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.setScreenMirrorEnabled(false)
+        }
     }
 
     Scaffold(
