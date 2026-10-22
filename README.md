@@ -149,6 +149,10 @@ Vesper works with any model on [OpenRouter](https://openrouter.ai). For the best
 
 ### 3. Build & Install
 
+**Updating an existing checkout?** Back up `local.properties` before pulling
+the artifact-cleanup change; Git can remove its previously tracked copy. Follow
+the [local configuration migration steps](docs/building.md#updating-an-existing-checkout).
+
 ```bash
 git clone https://github.com/elder-plinius/V3SP3R.git
 cd V3SP3R
