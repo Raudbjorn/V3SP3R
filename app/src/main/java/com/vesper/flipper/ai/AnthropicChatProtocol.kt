@@ -118,6 +118,8 @@ object AnthropicChatProtocol : ChatProtocol {
                 })
             }) })
             root["usage"]?.jsonObject?.let { usage -> put("usage", buildJsonObject {
+                put("prompt_tokens", usage["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0)
+                put("completion_tokens", usage["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0)
                 put("total_tokens", (usage["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0) +
                     (usage["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0))
             }) }
