@@ -122,4 +122,25 @@ class SettingsCredentialFailureTest {
         verify(store, never()).setApiKey("replacement-key", LlmProvider.OPENAI)
         assertEquals(LlmProvider.OPENAI, vm.state.value.provider)
     }
+    @Test fun savingAnotherProviderKeepsTheFailedDraftAndRetry() = runTest(dispatcher) {
+        val vm = create()
+        advanceUntilIdle()
+        failSave = true
+        vm.setApiKey("failed-router-draft")
+        advanceUntilIdle()
+        vm.setProvider(LlmProvider.OPENAI)
+        advanceUntilIdle()
+        failSave = false
+        vm.setApiKey("saved-openai-key")
+        advanceUntilIdle()
+        assertNotNull(vm.credentialError.value)
+        vm.setProvider(LlmProvider.OPENROUTER)
+        advanceUntilIdle()
+        assertEquals("failed-router-draft",vm.state.value.apiKey)
+        vm.retryCredentialStorage()
+        advanceUntilIdle()
+        verify(store,times(2)).setApiKey("failed-router-draft",LlmProvider.OPENROUTER)
+        verify(store,times(1)).setApiKey("saved-openai-key",LlmProvider.OPENAI)
+        assertNull(vm.credentialError.value)
+    }
 }

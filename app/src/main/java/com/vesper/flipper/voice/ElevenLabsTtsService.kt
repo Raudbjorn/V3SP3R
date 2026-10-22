@@ -309,20 +309,8 @@ class OpenRouterTtsService @Inject constructor(
         audioTrack.play()
         _state.value = TtsState.Speaking
         try {
-            val buffer = ByteArray(bufferSize)
-            var written = 0L
-            while (coroutineContext.isActive) {
-                val read = source.read(buffer)
-                if (read < 0) break
-                if (read == 0) continue
-                var offset = 0
-                while (offset < read) {
-                    coroutineContext.ensureActive()
-                    val count = audioTrack.write(buffer, offset, read - offset)
-                    check(count > 0) { "Audio output failed" }
-                    offset += count; written += count
-                    check(written <= SpeechAudio.MAX_AUDIO_BYTES) { "Speech audio exceeded size limit" }
-                }
+            val written = transferPcm16(source) { buffer, offset, count ->
+                audioTrack.write(buffer, offset, count)
             }
             drainAudio(written / 2) { audioTrack.playbackHeadPosition.toLong() and 0xffffffffL }
         } finally {
