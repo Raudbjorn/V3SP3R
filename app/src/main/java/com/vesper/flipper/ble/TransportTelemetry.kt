@@ -42,12 +42,20 @@ internal class TransportTelemetryRecorder(private val clock: () -> Long = System
         }
     }
 
-    @Synchronized fun writeAttempt(type: String) {
+    @Synchronized fun writeAttempt(type: String, expectedSession: Long? = null) {
+        if (expectedSession != null && expectedSession != session) return
         mutableState.update { it.copy(lastWriteTypeLabel = type, lastUpdatedAtMs = clock()) }
     }
 
-    @Synchronized fun writeFailure(reason: String?) {
+    @Synchronized fun writeFailure(reason: String?, expectedSession: Long? = null) {
+        if (expectedSession != null && expectedSession != session) return
         mutableState.update { it.copy(lastWriteFailure = reason, lastUpdatedAtMs = clock()) }
+    }
+
+    /** Shares the route-change lock with the pending error and diagnostic publication. */
+    @Synchronized fun inSession(expectedSession: Long?, block: () -> Unit) {
+        if (expectedSession != null && expectedSession != session) return
+        block()
     }
 
     @Synchronized fun received(byteCount: Int) {
@@ -68,16 +76,26 @@ internal class TransportTelemetryRecorder(private val clock: () -> Long = System
 }
 
 /** Consuming an error message must not erase the user's diagnostic history. */
-internal class WriteFailureTracker(private val recordDiagnostic: (String?) -> Unit) {
+internal class WriteFailureTracker(private val recorder: TransportTelemetryRecorder) {
     @Volatile var pending: String? = null
         private set
-    @Synchronized fun record(reason: String?) {
+
+    fun record(reason: String?, expectedSession: Long? = null) = recorder.inSession(expectedSession) {
         pending = reason
-        if (reason != null) recordDiagnostic(reason)
+        if (reason != null) recorder.writeFailure(reason)
     }
-    @Synchronized fun consume(): String? = pending.also { pending = null }
-    @Synchronized fun succeeded() {
+
+    fun consume(): String? {
+        var result: String? = null
+        recorder.inSession(null) {
+            result = pending
+            pending = null
+        }
+        return result
+    }
+
+    fun succeeded(expectedSession: Long? = null) = recorder.inSession(expectedSession) {
         pending = null
-        recordDiagnostic(null)
+        recorder.writeFailure(null)
     }
 }

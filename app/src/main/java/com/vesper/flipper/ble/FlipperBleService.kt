@@ -122,7 +122,7 @@ class FlipperBleService : Service() {
     private var negotiatedMtu: Int = DEFAULT_ATT_MTU
     @Volatile
     private var currentUsbBaudRate: Int? = null
-    private val writeFailures = WriteFailureTracker(telemetryRecorder::writeFailure)
+    private val writeFailures = WriteFailureTracker(telemetryRecorder)
     private var lastWriteFailureReason: String?
         get() = writeFailures.pending
         set(value) { writeFailures.record(value) }
@@ -1580,9 +1580,10 @@ class FlipperBleService : Service() {
         ignoreOverflowBudget: Boolean = false,
         allowWriteRetry: Boolean = true
     ): Boolean {
-        lastWriteFailureReason = null
+        val telemetrySession = telemetryRecorder.sessionId()
+        writeFailures.record(null, telemetrySession)
         if (!awaitCommandTransportReady()) {
-            lastWriteFailureReason = "Command transport not ready"
+            writeFailures.record("Command transport not ready", telemetrySession)
             return false
         }
 
@@ -1604,28 +1605,30 @@ class FlipperBleService : Service() {
         preferNoResponse: Boolean,
         typedCli: Boolean = false
     ): Boolean {
+        val telemetrySession = telemetryRecorder.sessionId()
         if (!UsbSessionPolicy.allowsWrite(usbSessionMode, typedCli)) {
-            lastWriteFailureReason = "USB session mode does not permit this command; reconnect in the required mode"
+            writeFailures.record("USB session mode does not permit this command; reconnect in the required mode", telemetrySession)
             return false
         }
         val port = usbSerialPort ?: run {
-            lastWriteFailureReason = "USB serial port unavailable"
+            writeFailures.record("USB serial port unavailable", telemetrySession)
             return false
         }
         val lockTimeoutMs = resolveWriteLockTimeoutMs(data.size, preferNoResponse)
         val writeResult = withWriteMutexOrFail(
             lockTimeoutMs = lockTimeoutMs,
+            telemetrySession = telemetrySession,
             timeoutReason = "USB write queue busy (timeout waiting for writer lock)"
         ) {
             withContext(Dispatchers.IO) {
                 try {
-                    telemetryRecorder.writeAttempt("serial")
+                    telemetryRecorder.writeAttempt("serial", telemetrySession)
                     val chunks = data.toList().chunked(USB_WRITE_CHUNK_SIZE_BYTES)
                     chunks.forEachIndexed { index, chunk ->
                         if (!isUsbCommandTransportConnected() || usbSerialPort !== port ||
                             !UsbSessionPolicy.allowsWrite(usbSessionMode, typedCli) ||
                             (typedCli && !flipperProtocol.isConfirmedUsbCliSession())) {
-                            lastWriteFailureReason = "USB connection changed during write"
+                            writeFailures.record("USB connection changed during write", telemetrySession)
                             return@withContext false
                         }
                         port.write(chunk.toByteArray(), USB_WRITE_TIMEOUT_MS.toInt())
@@ -1633,10 +1636,10 @@ class FlipperBleService : Service() {
                             delay(USB_WRITE_INTER_CHUNK_DELAY_MS)
                         }
                     }
-                    writeFailures.succeeded()
+                    writeFailures.succeeded(telemetrySession)
                     true
                 } catch (t: Throwable) {
-                    lastWriteFailureReason = "USB write failed: ${t.message ?: t::class.java.simpleName}"
+                    writeFailures.record("USB write failed: ${t.message ?: t::class.java.simpleName}", telemetrySession)
                     false
                 }
             }
@@ -1648,25 +1651,28 @@ class FlipperBleService : Service() {
         data: ByteArray,
         preferNoResponse: Boolean
     ): Boolean {
+        val telemetrySession = telemetryRecorder.sessionId()
         val lockTimeoutMs = resolveWriteLockTimeoutMs(data.size, preferNoResponse)
         val writeResult = withWriteMutexOrFail(
             lockTimeoutMs = lockTimeoutMs,
+            telemetrySession = telemetrySession,
             timeoutReason = "Desktop Bridge write queue busy (timeout waiting for writer lock)"
         ) {
             val socket = desktopBridgeSocket
             val output = socket?.let { desktopBridgeSession.ifCurrent(it) { desktopBridgeOutput } }
             if (socket == null || output == null) {
-                lastWriteFailureReason = "Desktop Bridge output unavailable"
+                writeFailures.record("Desktop Bridge output unavailable", telemetrySession)
                 false
             } else withContext(Dispatchers.IO) {
                 try {
-                    telemetryRecorder.writeAttempt("desktop_serial")
+                    telemetryRecorder.writeAttempt("desktop_serial", telemetrySession)
                     DesktopBridgeIo.withDeadline(socket) { DesktopBridgeFraming.write(output, data) }
-                    writeFailures.succeeded()
+                    writeFailures.succeeded(telemetrySession)
                     true
                 } catch (t: Throwable) {
-                    lastWriteFailureReason = "Desktop Bridge write failed: ${t.message ?: t::class.java.simpleName}"
-                    disconnectDesktopBridgeTransport(true, lastWriteFailureReason, expectedSocket = socket)
+                    val reason = "Desktop Bridge write failed: ${t.message ?: t::class.java.simpleName}"
+                    writeFailures.record(reason, telemetrySession)
+                    disconnectDesktopBridgeTransport(true, reason, expectedSocket = socket)
                     false
                 }
             }
@@ -1681,13 +1687,14 @@ class FlipperBleService : Service() {
         ignoreOverflowBudget: Boolean,
         allowWriteRetry: Boolean
     ): Boolean {
+        val telemetrySession = telemetryRecorder.sessionId()
         if (!hasBluetoothPermissions()) {
-            lastWriteFailureReason = "Bluetooth permission missing"
+            writeFailures.record("Bluetooth permission missing", telemetrySession)
             return false
         }
 
         val characteristic = serialCharacteristic ?: run {
-            lastWriteFailureReason = "Serial TX characteristic unavailable"
+            writeFailures.record("Serial TX characteristic unavailable", telemetrySession)
             return false
         }
         if (!notificationsReady) {
@@ -1697,7 +1704,7 @@ class FlipperBleService : Service() {
                 delay(NOTIFICATION_READY_POLL_MS)
             }
             if (!notificationsReady) {
-                lastWriteFailureReason = "Notifications not ready"
+                writeFailures.record("Notifications not ready", telemetrySession)
                 return false
             }
         }
@@ -1711,6 +1718,7 @@ class FlipperBleService : Service() {
 
         val writeResult = withWriteMutexOrFail(
             lockTimeoutMs = lockTimeoutMs,
+            telemetrySession = telemetrySession,
             timeoutReason = "BLE write queue busy (timeout waiting for writer lock)"
         ) {
             withContext(Dispatchers.IO) {
@@ -1724,9 +1732,9 @@ class FlipperBleService : Service() {
 
                 for (chunk in chunks) {
                     val chunkData = chunk.toByteArray()
-                    if (!ignoreOverflowBudget && !waitForOverflowBudget(chunkData.size, data.size)) {
+                    if (!ignoreOverflowBudget && !waitForOverflowBudget(chunkData.size, data.size, telemetrySession)) {
                         pendingWriteAck = null
-                        lastWriteFailureReason = "Serial overflow budget timeout"
+                        writeFailures.record("Serial overflow budget timeout", telemetrySession)
                         return@withContext false
                     }
 
@@ -1736,12 +1744,12 @@ class FlipperBleService : Service() {
                             val gatt = bluetoothGatt
                             if (gatt == null || !gattLinkConnected || _connectionState.value !is ConnectionState.Connected) {
                                 pendingWriteAck = null
-                                lastWriteFailureReason = "BLE link not connected while writing"
+                                writeFailures.record("BLE link not connected while writing", telemetrySession)
                                 return@withContext false
                             }
                             if (!isCurrentGatt(gatt)) {
                                 pendingWriteAck = null
-                                lastWriteFailureReason = "BLE link changed during write"
+                                writeFailures.record("BLE link changed during write", telemetrySession)
                                 return@withContext false
                             }
 
@@ -1753,15 +1761,15 @@ class FlipperBleService : Service() {
                                 BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE -> "no_response"
                                 BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT -> "default"
                                 else -> "type=$writeType"
-                            })
+                            }, telemetrySession)
                             characteristic.value = chunkData
                             characteristic.writeType = writeType
 
                             val started = gatt.writeCharacteristic(characteristic)
                             if (!started) {
                                 pendingWriteAck = null
-                                lastWriteFailureReason = "Gatt rejected write " +
-                                        "(type=$writeType, attempt=${attemptIndex + 1}, retry=$retryIndex)"
+                                writeFailures.record("Gatt rejected write " +
+                                        "(type=$writeType, attempt=${attemptIndex + 1}, retry=$retryIndex)", telemetrySession)
                                 if (retryIndex < writeAttempts) {
                                     delay(writeRetryDelayMs * retryIndex)
                                 }
@@ -1774,8 +1782,8 @@ class FlipperBleService : Service() {
                                 } ?: false
                                 pendingWriteAck = null
                                 if (!confirmed) {
-                                    lastWriteFailureReason = "Write ack timeout " +
-                                            "(type=$writeType, attempt=${attemptIndex + 1}, retry=$retryIndex)"
+                                    writeFailures.record("Write ack timeout " +
+                                            "(type=$writeType, attempt=${attemptIndex + 1}, retry=$retryIndex)", telemetrySession)
                                     if (retryIndex < writeAttempts) {
                                         delay(writeRetryDelayMs)
                                         continue
@@ -1798,12 +1806,12 @@ class FlipperBleService : Service() {
                     if (!chunkWritten) {
                         remainingSerialBufferBytes = null
                         if (lastWriteFailureReason == null) {
-                            lastWriteFailureReason = "Unknown write failure"
+                            writeFailures.record("Unknown write failure", telemetrySession)
                         }
                         return@withContext false
                     }
                 }
-                writeFailures.succeeded()
+                writeFailures.succeeded(telemetrySession)
                 true
             }
         } ?: run {
@@ -1816,6 +1824,7 @@ class FlipperBleService : Service() {
     private suspend fun <T> withWriteMutexOrFail(
         lockTimeoutMs: Long,
         timeoutReason: String,
+        telemetrySession: Long,
         block: suspend () -> T
     ): T? {
         val lockAcquired = withTimeoutOrNull(lockTimeoutMs) {
@@ -1823,7 +1832,7 @@ class FlipperBleService : Service() {
             true
         } ?: false
         if (!lockAcquired) {
-            lastWriteFailureReason = timeoutReason
+            writeFailures.record(timeoutReason, telemetrySession)
             return null
         }
 
@@ -1848,14 +1857,14 @@ class FlipperBleService : Service() {
         remainingSerialBufferBytes = remaining
     }
 
-    private suspend fun waitForOverflowBudget(requiredBytes: Int, payloadBytes: Int): Boolean {
+    private suspend fun waitForOverflowBudget(requiredBytes: Int, payloadBytes: Int, telemetrySession: Long): Boolean {
         val overflowCharacteristic = serialOverflowCharacteristic ?: return true
         val deadline = System.currentTimeMillis() + SerialFlowControl.waitTimeoutMs(payloadBytes, OVERFLOW_WAIT_TIMEOUT_MS)
 
         while (true) {
             val available = remainingSerialBufferBytes
             if (available == null) {
-                lastWriteFailureReason = "Flipper flow-control capacity is unavailable; reconnect"
+                writeFailures.record("Flipper flow-control capacity is unavailable; reconnect", telemetrySession)
                 return false
             }
             if (available >= requiredBytes) {
