@@ -260,10 +260,19 @@ Install via USB debugging or transfer the APK to your phone.
 <summary><strong>Command-line build (no Android Studio)</strong></summary>
 
 ```bash
-# Requires Android SDK and JDK 17+
+# Requires Android SDK Platform 35, Build Tools 36.0.0, and JDK 21 (Temurin recommended)
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/app-debug.apk
+
+# Optimized release from the current working tree
+./scripts/build-release.sh
+# Without signing credentials: app/build/outputs/apk/release/app-release-unsigned.apk
+# With signing credentials: app/build/outputs/apk/release/app-release.apk
 ```
+
+See [Building V3SP3R](docs/building.md) for Java 21 setup, release signing, and
+the manual-only GitHub APK workflow. Unsigned release APKs require signing
+before installation; debug builds are signed automatically for development.
 </details>
 
 ### 4. First Launch
