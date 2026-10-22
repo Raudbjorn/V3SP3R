@@ -120,7 +120,10 @@ enum class CommandAction {
     @SerialName("input_send") INPUT_SEND,
     @SerialName("loader_list") LOADER_LIST,
     @SerialName("loader_close") LOADER_CLOSE,
-    @SerialName("loader_signal") LOADER_SIGNAL
+    @SerialName("loader_signal") LOADER_SIGNAL,
+
+    @SerialName("load_skill")
+    LOAD_SKILL
 }
 
 @Serializable

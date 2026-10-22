@@ -42,7 +42,8 @@
         "input_send",
         "loader_list",
         "loader_close",
-        "loader_signal"
+        "loader_signal",
+        "load_skill"
       ],
       "description": "The action to perform on the Flipper Zero"
     },
@@ -79,7 +80,7 @@
         },
         "command": {
           "type": "string",
-          "description": "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id."
+          "description": "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id. For load_skill: bundled methodology ID (read-only; grants no execution approval)."
         },
         "path": {
           "type": "string",
@@ -396,6 +397,14 @@
       },
       "justification": "User wants to run a BLE spam mode",
       "expected_effect": "Launch BLE spam with the given mode"
+    },
+    {
+      "action": "load_skill",
+      "args": {
+        "command": "signal-analysis"
+      },
+      "justification": "User requested signal analysis methodology",
+      "expected_effect": "Return the bundled read-only playbook; execution still requires normal risk approval"
     },
     {
       "action": "request_photo",

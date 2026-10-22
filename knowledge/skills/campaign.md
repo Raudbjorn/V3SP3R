@@ -11,7 +11,7 @@ listed tool exists in the installed branch. Inspect its tool schema first.
 The standalone MCP server only reads reference material; it does not execute
 campaigns or device commands.
 
-A campaign is a real penetration test executed through Vesper's tools against real hardware. Every claim in a campaign traces back to a tool call recorded in `audit_entries` and a finding recorded in `vuln_findings`. If neither exists, the claim is fabrication.
+Campaign claims require actual observed evidence. When findings/audit tools are installed, reference the records they return. Otherwise keep an explicit operator-reviewed report; do not fabricate database rows or identifiers. Direct UI operations may not enter the command audit pipeline.
 
 Load this skill on any prompt matching: "start a campaign", "run an engagement", "pentest this", "assess these targets", "sweep the area", "what's around us", or when resuming prior work in this project.
 
@@ -27,10 +27,20 @@ Load this skill on any prompt matching: "start a campaign", "run an engagement",
 
 ## Session-resume protocol
 
-The database is the campaign state — chat context is not. On **every** new session, before doing anything else:
+First inspect the installed tool schema. In the standalone skills branch,
+`vuln_list`, `audit_query`, `vuln_submit` and `vuln_validate` are unavailable;
+the later findings feature supplies them. If any required persistence tool is
+absent, use an operator-provided prior report and current verified outputs,
+mark missing evidence explicitly, and save an updated report only on request
+with `write_file`. This fallback applies to all persistence gates and report
+steps below. Do not call unavailable actions or claim a database write occurred.
+Even when installed, queries are scoped to the current session; request an
+operator-provided handoff for earlier sessions rather than assuming global access.
 
-1. `vuln_list()` — pull all prior findings for this project
-2. `audit_query(limit=200)` — last 200 tool calls
+When the required persistence tools are available, resume with:
+
+1. `vuln_list()` — findings available to the current session
+2. `audit_query(limit=100)` — up to 100 recent entries from this session
 3. Compare to the current user prompt. Answer these before proposing next actions:
    - What phase was the previous session in? (infer from tool mix — see §Phase inference)
    - Are there any findings with `status = submitted` that were never validated? Those are the resumption candidates.
@@ -177,9 +187,9 @@ Use `vuln_classify(vuln_type=…)` if the mapping is uncertain. Do not invent ne
 **Objective:** Produce a report backed entirely by `vuln_findings` + `audit_entries`.
 
 **Required calls:**
-1. `vuln_list()` — full finding set
-2. `vuln_list(min_severity="high")` — for the exec summary
-3. `audit_query(limit=500)` — timeline for methodology section
+1. `vuln_list()` — current-session finding set
+2. `vuln_list(severity="high")` and `vuln_list(severity="critical")` — exact severity filters for the executive summary
+3. `audit_query(limit=100)` — bounded recent timeline; disclose earlier history that is not available
 4. `load_skill(command="pentest-report")` — structural template
 5. Draft the report in chat
 6. Optional: `write_file(path="/ext/reports/campaign_<date>.md", content=…)` to persist to the Flipper
@@ -198,7 +208,7 @@ Use `vuln_classify(vuln_type=…)` if the mapping is uncertain. Do not invent ne
 
 ## Confidence tiers
 
-Assigned when calling `vuln_submit` and updated by `vuln_validate`. Used verbatim in the report.
+These are report-level confidence labels recorded in evidence/notes, not a separate persisted confidence field. The installed findings API stores submitted/confirmed/inconclusive status; use only fields present in its schema.
 
 | Tier | Definition | How it's assigned |
 |------|------------|-------------------|
@@ -259,7 +269,8 @@ Vesper's `RiskAssessor` is authoritative. This table is a hint for what to expec
 | Category | Risk | Approval |
 |----------|------|----------|
 | Scan / detect / receive (all `*_scan_targets`, `*_detect`, `*_receive`) | LOW | None |
-| Read-only queries (`vuln_list`, `audit_query`, `vuln_classify`, `load_skill`) | LOW | None |
+| Read-only queries (`vuln_list`, `audit_query`, `load_skill`, `vuln_classify` without an ID) | LOW | None |
+| Persisted finding submission, validation or ID-targeted classification | MEDIUM | Explicit approval |
 | Connect + read (`ble_enumerate`, `ble_read_char`, `ble_subscribe`) | MEDIUM | Prompt unless auto-approve-medium is on |
 | Transmit / emulate (`subghz_transmit`, `ir_transmit*`, `nfc_emulate`, `rfid_emulate`, `badusb_execute` on existing script) | MEDIUM–HIGH | Hold-to-confirm |
 | Write / clone (`ble_write_char`, `rfid_write`, `badusb_write` + `badusb_execute` chained) | HIGH | Hold-to-confirm |

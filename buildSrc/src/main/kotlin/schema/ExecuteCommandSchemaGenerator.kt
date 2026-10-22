@@ -68,6 +68,7 @@ object ExecuteCommandSchemaGenerator {
         "loader_list",
         "loader_close",
         "loader_signal",
+        "load_skill",
     )
 
     private data class ArgSpec(
@@ -86,7 +87,7 @@ object ExecuteCommandSchemaGenerator {
             enum = listOf("press", "release", "short", "long", "repeat")),
         ArgSpec("signal_id", "integer", "Required for loader_signal: nonnegative application signal ID. Loader control is one-shot USB CLI only; unavailable while RPC is active or streaming stop is uncertain."),
         ArgSpec("command", "string",
-            "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id."),
+            "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id. For load_skill: bundled methodology ID (read-only; grants no execution approval)."),
         ArgSpec("path", "string",
             "File or directory path on Flipper (e.g., /ext/subghz/garage.sub). Also the source path for move/copy/rename, target path for push_artifact/download_resource, and signal file for subghz_transmit/ir_transmit/nfc_emulate/rfid_emulate/ibutton_emulate/badusb_execute."),
         ArgSpec("destination_path", "string", "Destination path for move/copy operations"),
@@ -220,6 +221,9 @@ object ExecuteCommandSchemaGenerator {
         Example("ble_spam", mapOf("app_args" to s("apple")),
             "User wants to run a BLE spam mode",
             "Launch BLE spam with the given mode"),
+        Example("load_skill", mapOf("command" to s("signal-analysis")),
+            "User requested signal analysis methodology",
+            "Return the bundled read-only playbook; execution still requires normal risk approval"),
         Example("request_photo", mapOf("photo_prompt" to s("capture the target device screen")),
             "User wants a picture taken via smartglasses",
             "Trigger a photo capture at the agent layer"),

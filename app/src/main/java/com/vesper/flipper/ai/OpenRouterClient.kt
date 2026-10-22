@@ -969,6 +969,7 @@ class OpenRouterClient {
             "ble_spam", "blespam", "ble_advertisement_spam" -> CommandAction.BLE_SPAM
             "led_control", "set_led", "led" -> CommandAction.LED_CONTROL
             "vibro_control", "vibro", "vibration" -> CommandAction.VIBRO_CONTROL
+            "load_skill" -> CommandAction.LOAD_SKILL
             "request_photo", "take_photo", "capture_photo", "photo", "snap_photo" -> CommandAction.REQUEST_PHOTO
             else -> null
         }
@@ -1191,6 +1192,7 @@ class OpenRouterClient {
             CommandAction.BLE_SPAM -> emptyList()  // no required args
             CommandAction.LED_CONTROL -> emptyList()  // defaults to 0,0,0
             CommandAction.VIBRO_CONTROL -> emptyList()  // defaults to on
+            CommandAction.LOAD_SKILL -> listOfNotNull(if (args.command.isNullOrBlank()) "command" else null)
             CommandAction.REQUEST_PHOTO -> emptyList()  // prompt is optional (has default)
         }
     }
@@ -1259,6 +1261,7 @@ class OpenRouterClient {
                 """{"action":"download_resource","args":{"download_url":"https://raw.githubusercontent.com/...","path":"/ext/infrared/remote.ir"}}"""
             CommandAction.GITHUB_SEARCH ->
                 """{"action":"github_search","args":{"command":"Samsung TV remote extension:ir","search_scope":"code"}}"""
+            CommandAction.LOAD_SKILL -> """{"action":"load_skill","args":{"command":"signal-analysis"}}"""
             CommandAction.REQUEST_PHOTO ->
                 """{"action":"request_photo","args":{"prompt":"Describe what you see"}}"""
         }
@@ -1498,6 +1501,7 @@ class OpenRouterClient {
                                 JsonPrimitive("loader_list"),
                                 JsonPrimitive("loader_close"),
                                 JsonPrimitive("loader_signal"),
+                                JsonPrimitive("load_skill"),
                                 JsonPrimitive("request_photo")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero (request_photo requires smart glasses)")
@@ -1508,7 +1512,7 @@ class OpenRouterClient {
                                 "command" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive(
-                                        "Primary text argument. For execute_cli: raw CLI command; for search_faphub/search_resources: query; for install_faphub_app: app id; for run_runbook: runbook id; for browse_repo: repo id (if repo_id not set)."
+                                        "Primary text argument. For execute_cli: raw CLI command; for search_faphub/search_resources: query; for install_faphub_app: app id; for run_runbook: runbook id; for browse_repo: repo id (if repo_id not set); for load_skill: bundled read-only methodology ID."
                                     )
                                 )),
                                 "key" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("GUI key: up/down/left/right/ok/back"))),
