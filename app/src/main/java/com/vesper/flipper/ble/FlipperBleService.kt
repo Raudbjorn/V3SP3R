@@ -1798,6 +1798,12 @@ class FlipperBleService : Service() {
 
     fun usesUsbCommandTransport(): Boolean = isUsbCommandTransportConnected()
 
+    /** Typed operations never fall back to BLE, including during transport switches. */
+    suspend fun sendUsbDataOnly(data: ByteArray): Boolean {
+        if (!isUsbCommandTransportConnected()) return false
+        return sendDataOverUsb(data, preferNoResponse = false)
+    }
+
     fun isCommandTransportConnected(): Boolean {
         return isUsbCommandTransportConnected() || isBleCommandTransportConnected()
     }

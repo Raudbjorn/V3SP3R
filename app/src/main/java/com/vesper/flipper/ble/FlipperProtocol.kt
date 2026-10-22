@@ -1409,9 +1409,17 @@ class FlipperProtocol @Inject constructor() {
      * This sends commands in a format the Flipper CLI understands.
      * Note: Requires Flipper firmware that supports CLI on the active transport.
      */
-    suspend fun sendTypedUsbCommand(command: String): ProtocolResponse {
-        if (bleService?.usesUsbCommandTransport() != true) return ProtocolResponse.Error("Typed CLI operation requires a connected USB transport; raw CLI over BLE is unsupported")
-        return sendCliCommand(command)
+    suspend fun sendTypedUsbCommand(command: String): ProtocolResponse = withCommandLock(
+        operation = "typed USB command",
+        onTimeout = { ProtocolResponse.Error("Typed command pipeline busy") }
+    ) {
+        if (bleService?.usesUsbCommandTransport() != true) return@withCommandLock ProtocolResponse.Error(
+            "Typed CLI operation requires connected USB; raw CLI over BLE is unsupported")
+        // Exactly one write. No newline/variant/recovery retries of possible side effects.
+        val response = collectRawCliResponseAttempt("$command\r\n".toByteArray(Charsets.UTF_8), RAW_CLI_TIMEOUT_MS, usbOnly = true)
+        if (response.isBlank() || !isLikelyCliText(response)) ProtocolResponse.Error(
+            "Typed command outcome unconfirmed; inspect device before retrying")
+        else ProtocolResponse.FileContent(response.trim())
     }
 
     suspend fun sendCliCommand(command: String): ProtocolResponse {
@@ -3171,7 +3179,7 @@ class FlipperProtocol @Inject constructor() {
         return ""
     }
 
-    private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long): String {
+    private suspend fun collectRawCliResponseAttempt(payload: ByteArray, timeoutMs: Long, usbOnly: Boolean = false): String {
         val collector = RawCliCollector()
         rawCliCollector = collector
         return try {
@@ -3179,7 +3187,7 @@ class FlipperProtocol @Inject constructor() {
             if (service == null) {
                 return ""
             }
-            val sent = service.sendData(payload)
+            val sent = if (usbOnly) service.sendUsbDataOnly(payload) else service.sendData(payload)
             if (!sent) {
                 return ""
             }
