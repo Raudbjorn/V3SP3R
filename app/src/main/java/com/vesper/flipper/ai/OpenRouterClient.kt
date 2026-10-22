@@ -1584,15 +1584,15 @@ class OpenRouterClient {
                                 )),
                                 "frequency" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("integer"),
-                                    "description" to JsonPrimitive("Frequency in Hz for subghz_transmit (e.g. 433920000)")
+                                    "description" to JsonPrimitive("Reserved metadata; file-based SubGHz transmission uses the frequency stored in the file, not this field")
                                 )),
                                 "protocol" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Protocol name for subghz_transmit or rfid_emulate (e.g. 'RAW', 'Princeton', 'EM4100')")
+                                    "description" to JsonPrimitive("Reserved metadata; file-based transmit/emulation uses the protocol stored in the file, not this field")
                                 )),
                                 "address" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
-                                    "description" to JsonPrimitive("Address/UID for NFC/RFID emulation")
+                                    "description" to JsonPrimitive("Reserved metadata; file-based transmit/emulation uses the address stored in the file, not this field")
                                 )),
                                 "signal_name" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),

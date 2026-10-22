@@ -91,7 +91,7 @@ object ExecuteCommandSchemaGenerator {
             "File or directory path on Flipper (e.g., /ext/subghz/garage.sub). Also the source path for move/copy/rename, target path for push_artifact/download_resource, and signal file for subghz_transmit/ir_transmit/nfc_emulate/rfid_emulate/ibutton_emulate/badusb_execute."),
         ArgSpec("destination_path", "string", "Destination path for move/copy operations"),
         ArgSpec("content", "string",
-            "Content to write to file (write_file). Optional loader_signal argument, restricted to a single bounded line without shell metacharacters. Also used as fallback for execute_cli and install_faphub_app direct download URL."),
+            "Content to write to file (write_file). Optional loader_signal argument, rejecting newline, carriage return, NUL, semicolon, pipe and ampersand. Also used as fallback for execute_cli and install_faphub_app direct download URL."),
         ArgSpec("new_name", "string", "New name for rename operation"),
         ArgSpec("recursive", "boolean", "Whether to delete recursively (for delete action)",
             default = JsonPrimitive(false), nullable = false),

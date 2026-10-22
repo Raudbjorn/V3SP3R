@@ -38,7 +38,11 @@
         "browse_repo",
         "download_resource",
         "github_search",
-        "request_photo"
+        "request_photo",
+        "input_send",
+        "loader_list",
+        "loader_close",
+        "loader_signal"
       ],
       "description": "The action to perform on the Flipper Zero"
     },
@@ -46,6 +50,33 @@
       "type": "object",
       "description": "Arguments for the action (varies by action type). Unused fields may be omitted.",
       "properties": {
+        "key": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down",
+            "left",
+            "right",
+            "ok",
+            "back"
+          ],
+          "description": "Required for input_send: GUI key; uses the RPC input path with current risk approval."
+        },
+        "press_type": {
+          "type": "string",
+          "enum": [
+            "press",
+            "release",
+            "short",
+            "long",
+            "repeat"
+          ],
+          "description": "For input_send: event type; omitted/null defaults to short in the executor."
+        },
+        "signal_id": {
+          "type": "integer",
+          "description": "Required for loader_signal: nonnegative application signal ID. Loader control is one-shot USB CLI only; unavailable while RPC is active or streaming stop is uncertain."
+        },
         "command": {
           "type": "string",
           "description": "Free-form command string. For execute_cli: the CLI command. For search_faphub/github_search/search_resources: the query. For install_faphub_app: the app id or name. For forge_payload: fallback natural-language prompt. For launch_app: fallback app name. For run_runbook: fallback runbook id. For browse_repo: fallback repo id."
@@ -60,7 +91,7 @@
         },
         "content": {
           "type": "string",
-          "description": "Content to write to file (for write_file action). Also used as a fallback for execute_cli commands and install_faphub_app direct download URL."
+          "description": "Content to write to file (write_file). Optional loader_signal argument, rejecting newline, carriage return, NUL, semicolon, pipe and ampersand. Also used as fallback for execute_cli and install_faphub_app direct download URL."
         },
         "new_name": {
           "type": "string",
@@ -183,6 +214,35 @@
     "expected_effect"
   ],
   "examples": [
+    {
+      "action": "input_send",
+      "args": {
+        "key": "back",
+        "press_type": "short"
+      },
+      "justification": "User requested one Back button action",
+      "expected_effect": "Send one RPC GUI input event after required approval"
+    },
+    {
+      "action": "loader_list",
+      "args": {},
+      "justification": "User requested the application list",
+      "expected_effect": "List applications through the supported loader command route"
+    },
+    {
+      "action": "loader_close",
+      "args": {},
+      "justification": "User requested closing the active application",
+      "expected_effect": "Send one USB CLI loader close command only when the current session is confirmed CLI-ready"
+    },
+    {
+      "action": "loader_signal",
+      "args": {
+        "signal_id": 1
+      },
+      "justification": "User requested application signal 1",
+      "expected_effect": "Send one USB CLI loader signal command only when the current session is confirmed CLI-ready"
+    },
     {
       "action": "list_directory",
       "args": {
