@@ -860,6 +860,9 @@ class OpenRouterClient {
             }
 
             val args = CommandArgs(
+                key = stringArg("key"),
+                pressType = stringArg("press_type", "pressType"),
+                signalId = intArg("signal_id", "signalId"),
                 command = stringArg("command", "cmd", "query", "app_id", "appId", "app", "package", "name"),
                 path = stringArg("path", "file_path", "filepath"),
                 destinationPath = stringArg("destination_path", "destinationPath", "dest", "destination"),
@@ -930,6 +933,10 @@ class OpenRouterClient {
             .trim('_')
 
         return when (normalized) {
+            "input_send" -> CommandAction.INPUT_SEND
+            "loader_list" -> CommandAction.LOADER_LIST
+            "loader_close" -> CommandAction.LOADER_CLOSE
+            "loader_signal" -> CommandAction.LOADER_SIGNAL
             "list_directory" -> CommandAction.LIST_DIRECTORY
             "read_file" -> CommandAction.READ_FILE
             "write_file" -> CommandAction.WRITE_FILE
@@ -1096,6 +1103,9 @@ class OpenRouterClient {
 
     private fun missingRequiredArgs(action: CommandAction, args: CommandArgs): List<String> {
         return when (action) {
+            CommandAction.INPUT_SEND -> listOfNotNull(if (args.key.isNullOrBlank()) "key" else null)
+            CommandAction.LOADER_SIGNAL -> listOfNotNull(if (args.signalId == null) "signal_id" else null)
+            CommandAction.LOADER_LIST, CommandAction.LOADER_CLOSE -> emptyList()
             CommandAction.LIST_DIRECTORY -> emptyList()
             CommandAction.READ_FILE -> listOfNotNull(if (args.path.isNullOrBlank()) "path" else null)
             CommandAction.WRITE_FILE -> listOfNotNull(
@@ -1187,6 +1197,10 @@ class OpenRouterClient {
 
     private fun requiredArgsExample(action: CommandAction): String {
         return when (action) {
+            CommandAction.INPUT_SEND -> """{"action":"input_send","args":{"key":"back","press_type":"short"}}"""
+            CommandAction.LOADER_LIST -> """{"action":"loader_list","args":{}}"""
+            CommandAction.LOADER_CLOSE -> """{"action":"loader_close","args":{}}"""
+            CommandAction.LOADER_SIGNAL -> """{"action":"loader_signal","args":{"signal_id":1}}"""
             CommandAction.LIST_DIRECTORY -> """{"action":"list_directory","args":{"path":"/ext"}}"""
             CommandAction.READ_FILE -> """{"action":"read_file","args":{"path":"/ext/file.txt"}}"""
             CommandAction.WRITE_FILE ->
@@ -1427,7 +1441,7 @@ class OpenRouterClient {
             "ble_spam",
             "led_control",
             "vibro_control",
-            "request_photo"
+            "request_photo", "input_send", "loader_list", "loader_close", "loader_signal"
         )
 
         // Shared vision system prompt used by both image preprocessing and agent-initiated photo capture.
@@ -1480,6 +1494,10 @@ class OpenRouterClient {
                                 JsonPrimitive("browse_repo"),
                                 JsonPrimitive("download_resource"),
                                 JsonPrimitive("github_search"),
+                                JsonPrimitive("input_send"),
+                                JsonPrimitive("loader_list"),
+                                JsonPrimitive("loader_close"),
+                                JsonPrimitive("loader_signal"),
                                 JsonPrimitive("request_photo")
                             )),
                             "description" to JsonPrimitive("The action to perform on the Flipper Zero (request_photo requires smart glasses)")
@@ -1501,6 +1519,9 @@ class OpenRouterClient {
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("Alias for install_faphub_app app id/name")
                                 )),
+                                "key" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("GUI key: up/down/left/right/ok/back"))),
+                                "press_type" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("press/release/short/long/repeat; defaults short"))),
+                                "signal_id" to JsonObject(mapOf("type" to JsonPrimitive("integer"), "description" to JsonPrimitive("Nonnegative app signal id; USB CLI only"))),
                                 "path" to JsonObject(mapOf(
                                     "type" to JsonPrimitive("string"),
                                     "description" to JsonPrimitive("File or directory path on Flipper")

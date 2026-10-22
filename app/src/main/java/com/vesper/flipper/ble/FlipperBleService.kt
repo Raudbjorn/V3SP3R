@@ -778,6 +778,7 @@ class FlipperBleService : Service() {
     }
 
     private suspend fun primeUsbRpcSession(port: UsbSerialPort) {
+        flipperProtocol.onRpcDispatch()
         drainUsbInput(port, USB_RPC_PRIME_DRAIN_WINDOW_MS)
         USB_RPC_PRIME_COMMANDS.forEach { command ->
             runCatching {
@@ -1471,6 +1472,12 @@ class FlipperBleService : Service() {
         }
     }
 
+    /** USB-bound dispatch never switches to BLE if the active transport changes. */
+    suspend fun sendUsbDataOnly(data: ByteArray): Boolean {
+        if (!isUsbCommandTransportConnected()) return false
+        return sendDataOverUsb(data, preferNoResponse = false)
+    }
+
     private suspend fun sendDataOverUsb(
         data: ByteArray,
         preferNoResponse: Boolean
@@ -1488,6 +1495,10 @@ class FlipperBleService : Service() {
                 try {
                     val chunks = data.toList().chunked(USB_WRITE_CHUNK_SIZE_BYTES)
                     chunks.forEachIndexed { index, chunk ->
+                        if (!isUsbCommandTransportConnected() || usbSerialPort !== port) {
+                            lastWriteFailureReason = "USB connection changed during write"
+                            return@withContext false
+                        }
                         port.write(chunk.toByteArray(), USB_WRITE_TIMEOUT_MS.toInt())
                         if (index < chunks.lastIndex) {
                             delay(USB_WRITE_INTER_CHUNK_DELAY_MS)
@@ -2047,6 +2058,8 @@ class FlipperBleService : Service() {
 
     fun usesRpcOnlyCommandTransport(): Boolean =
         usesBleCommandTransport() || activeTransport == CommandTransport.DESKTOP_BRIDGE
+    /** Raw shell commands are available only on an established USB serial connection. */
+    fun isRawCliTransportConnected(): Boolean = isUsbCommandTransportConnected()
 
     fun isCommandTransportConnected(): Boolean {
         return transportLifecycle.active && (isUsbCommandTransportConnected() ||

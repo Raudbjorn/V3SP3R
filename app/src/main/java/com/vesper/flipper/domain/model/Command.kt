@@ -116,11 +116,18 @@ enum class CommandAction {
     // ── Smartglasses camera ───────────────────────────────────
 
     @SerialName("request_photo")
-    REQUEST_PHOTO
+    REQUEST_PHOTO,
+    @SerialName("input_send") INPUT_SEND,
+    @SerialName("loader_list") LOADER_LIST,
+    @SerialName("loader_close") LOADER_CLOSE,
+    @SerialName("loader_signal") LOADER_SIGNAL
 }
 
 @Serializable
 data class CommandArgs(
+    val key: String? = null,
+    @SerialName("press_type") val pressType: String? = null,
+    @SerialName("signal_id") val signalId: Int? = null,
     val command: String? = null,
     val path: String? = null,
     @SerialName("destination_path")
