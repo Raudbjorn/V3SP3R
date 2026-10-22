@@ -49,4 +49,10 @@ class AnthropicProtocolTest {
         assertEquals("image/png", image["source"]!!.jsonObject["media_type"]!!.jsonPrimitive.content)
         assertEquals("YWJj", image["source"]!!.jsonObject["data"]!!.jsonPrimitive.content)
     }
+    @Test fun `historical repaired and rejected arguments remain representable as native input objects`() {
+        assertEquals("list_files", AnthropicChatProtocol.historicalToolInput("""[{"action":"list_files"}]""")["action"]!!.jsonPrimitive.content)
+        assertEquals("list_files", AnthropicChatProtocol.historicalToolInput("""{action: list_files,}""")["action"]!!.jsonPrimitive.content)
+        val malformed = AnthropicChatProtocol.historicalToolInput("not { valid")
+        assertEquals("not { valid", malformed["unparsed_historical_arguments"]!!.jsonPrimitive.content)
+    }
 }

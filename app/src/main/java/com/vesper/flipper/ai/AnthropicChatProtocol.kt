@@ -37,7 +37,7 @@ object AnthropicChatProtocol : ChatProtocol {
                 require(call.id.isNotBlank() && call.function.name.isNotBlank()) { "Malformed tool call" }
                 buildJsonObject {
                     put("type", "tool_use"); put("id", call.id); put("name", call.function.name)
-                    put("input", json.parseToJsonElement(call.function.arguments).jsonObject)
+                    put("input", historicalToolInput(call.function.arguments))
                 }
             }
             if (blocks.isEmpty()) continue
@@ -54,6 +54,21 @@ object AnthropicChatProtocol : ChatProtocol {
             } }))
             put("tool_choice", buildJsonObject { put("type", "auto"); put("disable_parallel_tool_use", true) })
         }
+    }
+
+    /** History may contain calls repaired or rejected by the command parser; never execute this data. */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    internal fun historicalToolInput(arguments: String): JsonObject {
+        val historyJson = Json { isLenient = true; allowTrailingComma = true }
+        val parsed = runCatching { historyJson.parseToJsonElement(arguments) }.getOrNull()
+        return when (parsed) {
+            is JsonObject -> parsed
+            is JsonArray -> parsed.singleOrNull() as? JsonObject
+            is JsonPrimitive -> if (parsed.isString) runCatching {
+                historyJson.parseToJsonElement(parsed.content) as? JsonObject
+            }.getOrNull() else null
+            else -> null
+        } ?: buildJsonObject { put("unparsed_historical_arguments", arguments.take(8192)) }
     }
 
     private fun contentBlocks(content: JsonElement?): List<JsonElement> = when (content) {
